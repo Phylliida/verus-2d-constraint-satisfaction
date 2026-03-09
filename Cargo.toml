@@ -1,0 +1,19 @@
+[package]
+name = "verus-2d-constraint-satisfaction"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vstd = { path = "../verus/source/vstd" }
+verus-algebra = { path = "../verus-algebra" }
+verus-linalg = { path = "../verus-linalg" }
+verus-geometry = { path = "../verus-geometry" }
+verus-rational = { path = "../verus-rational" }
+verus-bigint = { path = "../verus-bigint" }
+verus-quadratic-extension = { path = "../verus-quadratic-extension" }
+
+[package.metadata.verus]
+verify = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_keep_ghost)'] }
