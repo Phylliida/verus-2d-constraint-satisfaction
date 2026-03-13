@@ -7,6 +7,9 @@ use verus_geometry::point2::*;
 use verus_geometry::line2::*;
 use verus_geometry::circle2::*;
 use verus_geometry::voronoi::sq_dist_2d;
+use verus_geometry::orient2d::det2d;
+use verus_linalg::vec2::ops::dot;
+use verus_linalg::vec2::Vec2;
 use crate::entities::*;
 use crate::constraints::*;
 
@@ -159,6 +162,42 @@ pub open spec fn constraint_to_locus<T: OrderedField>(
                 let bx = two.mul(resolved[mid].x).sub(resolved[a].x);
                 let by = two.mul(resolved[mid].y).sub(resolved[a].y);
                 Locus2d::AtPoint(Point2 { x: bx, y: by })
+            } else {
+                Locus2d::FullPlane
+            }
+        }
+
+        Constraint::Perpendicular { a1, a2, b1, b2 } => {
+            // dot(sub2(target, other), db) = 0 → line through other with normal db
+            // db.x * target.x + db.y * target.y - (db.x * other.x + db.y * other.y) = 0
+            if target == a1 && resolved.dom().contains(a2) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
+                let db = sub2(resolved[b2], resolved[b1]);
+                let other = resolved[a2];
+                let c = other.x.mul(db.x).add(other.y.mul(db.y)).neg();
+                Locus2d::OnLine(Line2 { a: db.x, b: db.y, c })
+            } else if target == a2 && resolved.dom().contains(a1) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
+                let db = sub2(resolved[b2], resolved[b1]);
+                let other = resolved[a1];
+                let c = other.x.mul(db.x).add(other.y.mul(db.y)).neg();
+                Locus2d::OnLine(Line2 { a: db.x, b: db.y, c })
+            } else {
+                Locus2d::FullPlane
+            }
+        }
+
+        Constraint::Parallel { a1, a2, b1, b2 } => {
+            // (target - other) × db = 0 → line through other with direction db
+            // db.y * target.x + (-db.x) * target.y + (other.y * db.x - other.x * db.y) = 0
+            if target == a1 && resolved.dom().contains(a2) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
+                let db = sub2(resolved[b2], resolved[b1]);
+                let other = resolved[a2];
+                let c = other.y.mul(db.x).sub(other.x.mul(db.y));
+                Locus2d::OnLine(Line2 { a: db.y, b: db.x.neg(), c })
+            } else if target == a2 && resolved.dom().contains(a1) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
+                let db = sub2(resolved[b2], resolved[b1]);
+                let other = resolved[a1];
+                let c = other.y.mul(db.x).sub(other.x.mul(db.y));
+                Locus2d::OnLine(Line2 { a: db.y, b: db.x.neg(), c })
             } else {
                 Locus2d::FullPlane
             }
@@ -457,6 +496,20 @@ pub proof fn lemma_constraint_frame<T: OrderedField>(
             assert(resolved.insert(key, p)[a] == resolved[a]);
             assert(resolved.insert(key, p)[b] == resolved[b]);
         }
+        Constraint::Perpendicular { a1, a2, b1, b2 } => {
+            assert(key != a1 && key != a2 && key != b1 && key != b2);
+            assert(resolved.insert(key, p)[a1] == resolved[a1]);
+            assert(resolved.insert(key, p)[a2] == resolved[a2]);
+            assert(resolved.insert(key, p)[b1] == resolved[b1]);
+            assert(resolved.insert(key, p)[b2] == resolved[b2]);
+        }
+        Constraint::Parallel { a1, a2, b1, b2 } => {
+            assert(key != a1 && key != a2 && key != b1 && key != b2);
+            assert(resolved.insert(key, p)[a1] == resolved[a1]);
+            assert(resolved.insert(key, p)[a2] == resolved[a2]);
+            assert(resolved.insert(key, p)[b1] == resolved[b1]);
+            assert(resolved.insert(key, p)[b2] == resolved[b2]);
+        }
     }
 }
 
@@ -679,6 +732,104 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
                 }
             } else {
                 // target is b1 or b2 — locus is FullPlane
+                assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+            }
+        }
+
+        Constraint::Perpendicular { a1, a2, b1, b2 } => {
+            if target == a1 {
+                if a1 != a2 && a1 != b1 && a1 != b2 {
+                    assert(r.dom().contains(a1) && r.dom().contains(a2));
+                    assert(r.dom().contains(b1) && r.dom().contains(b2));
+                    assert(r[a1] == p);
+                    assert(r[a2] == resolved[a2]);
+                    assert(r[b1] == resolved[b1]);
+                    assert(r[b2] == resolved[b2]);
+                    // Locus: OnLine(Line2{db.x, db.y, -(other.x*db.x + other.y*db.y)})
+                    // point_on_line2: db.x*p.x + db.y*p.y + c ≡ 0
+                    // where c = -(other.x*db.x + other.y*db.y)
+                    // So: db.x*p.x + db.y*p.y - other.x*db.x - other.y*db.y ≡ 0
+                    // This is: db.x*(p.x - other.x) + db.y*(p.y - other.y)
+                    //        = dot(db, sub2(p, other))
+                    // And constraint wants: dot(sub2(r[a2], r[a1]), db) ≡ 0
+                    //                     = dot(sub2(resolved[a2], p), db)
+                    // sub2(resolved[a2], p) = Vec2{a2.x - p.x, a2.y - p.y}
+                    // dot(sub2(a2, p), db) = (a2.x-p.x)*db.x + (a2.y-p.y)*db.y
+                    //                      = -(p.x-a2.x)*db.x + -(p.y-a2.y)*db.y
+                    //                      = -(dot(sub2(p, a2), db))
+                    // From locus: db.x*p.x + db.y*p.y + c ≡ 0
+                    // c = -(a2.x*db.x + a2.y*db.y)
+                    // So: db.x*p.x + db.y*p.y - a2.x*db.x - a2.y*db.y ≡ 0
+                    // Which is: (p.x - a2.x)*db.x + (p.y - a2.y)*db.y ≡ 0
+                    // = dot(sub2(p, a2), db) ≡ 0
+                    // Need: dot(sub2(r[a2], r[a1]), db) ≡ 0
+                    // = dot(sub2(a2, p), db) = -dot(sub2(p, a2), db)
+                    // From locus we get dot(sub2(p, a2), db) ≡ 0
+                    // So dot(sub2(a2, p), db) = -dot(sub2(p, a2), db) ≡ -0 ≡ 0
+                    lemma_perpendicular_locus_sound::<T>(p, resolved[a2], sub2(resolved[b2], resolved[b1]));
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            } else if target == a2 {
+                if a2 != a1 && a2 != b1 && a2 != b2 {
+                    assert(r.dom().contains(a1) && r.dom().contains(a2));
+                    assert(r.dom().contains(b1) && r.dom().contains(b2));
+                    assert(r[a2] == p);
+                    assert(r[a1] == resolved[a1]);
+                    assert(r[b1] == resolved[b1]);
+                    assert(r[b2] == resolved[b2]);
+                    // Same structure: locus gives dot(sub2(p, a1), db) ≡ 0
+                    // Need: dot(sub2(r[a2], r[a1]), db) = dot(sub2(p, a1), db) ≡ 0
+                    // This is direct! sub2(r[a2], r[a1]) = sub2(p, resolved[a1])
+                    // And the locus was constructed with other = resolved[a1]
+                    lemma_perpendicular_locus_sound_direct::<T>(p, resolved[a1], sub2(resolved[b2], resolved[b1]));
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            } else {
+                // target is b1 or b2 — locus is FullPlane
+                assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+            }
+        }
+
+        Constraint::Parallel { a1, a2, b1, b2 } => {
+            if target == a1 {
+                if a1 != a2 && a1 != b1 && a1 != b2 {
+                    assert(r.dom().contains(a1) && r.dom().contains(a2));
+                    assert(r.dom().contains(b1) && r.dom().contains(b2));
+                    assert(r[a1] == p);
+                    assert(r[a2] == resolved[a2]);
+                    assert(r[b1] == resolved[b1]);
+                    assert(r[b2] == resolved[b2]);
+                    // Locus: OnLine(Line2{db.y, -db.x, other.y*db.x - other.x*db.y})
+                    // point_on_line2: db.y*p.x + (-db.x)*p.y + c ≡ 0
+                    // c = a2.y*db.x - a2.x*db.y
+                    // So: db.y*p.x - db.x*p.y + a2.y*db.x - a2.x*db.y ≡ 0
+                    //   = db.y*(p.x - a2.x) - db.x*(p.y - a2.y)  ... wait
+                    //   = (p.x-a2.x)*db.y - (p.y-a2.y)*db.x
+                    //   = det2d(sub2(p, a2), db)
+                    // Need: det2d(sub2(r[a2], r[a1]), db) ≡ 0
+                    //      = det2d(sub2(a2, p), db)
+                    //      = (a2.x-p.x)*db.y - (a2.y-p.y)*db.x
+                    //      = -((p.x-a2.x)*db.y - (p.y-a2.y)*db.x)
+                    //      = -det2d(sub2(p, a2), db) ≡ -0 ≡ 0
+                    lemma_parallel_locus_sound::<T>(p, resolved[a2], sub2(resolved[b2], resolved[b1]));
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            } else if target == a2 {
+                if a2 != a1 && a2 != b1 && a2 != b2 {
+                    assert(r.dom().contains(a1) && r.dom().contains(a2));
+                    assert(r.dom().contains(b1) && r.dom().contains(b2));
+                    assert(r[a2] == p);
+                    assert(r[a1] == resolved[a1]);
+                    assert(r[b1] == resolved[b1]);
+                    assert(r[b2] == resolved[b2]);
+                    lemma_parallel_locus_sound_direct::<T>(p, resolved[a1], sub2(resolved[b2], resolved[b1]));
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            } else {
                 assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
             }
         }

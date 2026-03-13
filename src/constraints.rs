@@ -3,6 +3,8 @@ use verus_algebra::traits::*;
 use verus_geometry::point2::*;
 use verus_geometry::voronoi::sq_dist_2d;
 use verus_geometry::line2::*;
+use verus_geometry::orient2d::det2d;
+use verus_linalg::vec2::ops::dot;
 use crate::entities::*;
 
 verus! {
@@ -39,6 +41,12 @@ pub enum Constraint<T: OrderedField> {
 
     /// A point is the midpoint of two other points.
     Midpoint { mid: EntityId, a: EntityId, b: EntityId },
+
+    /// Two segments are perpendicular: dot product of direction vectors = 0.
+    Perpendicular { a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId },
+
+    /// Two segments are parallel: cross product of direction vectors = 0.
+    Parallel { a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId },
 }
 
 // ===========================================================================
@@ -108,6 +116,24 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
                 resolved[mid].y.mul(two).eqv(resolved[a].y.add(resolved[b].y))
             }
         }
+
+        Constraint::Perpendicular { a1, a2, b1, b2 } => {
+            resolved.dom().contains(a1) && resolved.dom().contains(a2) &&
+            resolved.dom().contains(b1) && resolved.dom().contains(b2) && {
+                let da = sub2(resolved[a2], resolved[a1]);
+                let db = sub2(resolved[b2], resolved[b1]);
+                dot(da, db).eqv(T::zero())
+            }
+        }
+
+        Constraint::Parallel { a1, a2, b1, b2 } => {
+            resolved.dom().contains(a1) && resolved.dom().contains(a2) &&
+            resolved.dom().contains(b1) && resolved.dom().contains(b2) && {
+                let da = sub2(resolved[a2], resolved[a1]);
+                let db = sub2(resolved[b2], resolved[b1]);
+                det2d(da, db).eqv(T::zero())
+            }
+        }
     }
 }
 
@@ -123,6 +149,8 @@ pub open spec fn constraint_entities<T: OrderedField>(c: Constraint<T>) -> Set<E
         Constraint::PointOnLine { point, line_a, line_b } => set![point, line_a, line_b],
         Constraint::EqualLengthSq { a1, a2, b1, b2 } => set![a1, a2, b1, b2],
         Constraint::Midpoint { mid, a, b } => set![mid, a, b],
+        Constraint::Perpendicular { a1, a2, b1, b2 } => set![a1, a2, b1, b2],
+        Constraint::Parallel { a1, a2, b1, b2 } => set![a1, a2, b1, b2],
     }
 }
 
@@ -142,6 +170,10 @@ pub open spec fn constraint_well_formed<T: OrderedField>(c: Constraint<T>) -> bo
             a1 != a2 && a1 != b1 && a1 != b2 && a2 != b1 && a2 != b2,
         Constraint::Midpoint { mid, a, b } =>
             mid != a && mid != b && a != b,
+        Constraint::Perpendicular { a1, a2, b1, b2 } =>
+            a1 != a2 && b1 != b2,
+        Constraint::Parallel { a1, a2, b1, b2 } =>
+            a1 != a2 && b1 != b2,
     }
 }
 
@@ -159,6 +191,8 @@ pub open spec fn constraint_locus_entities<T: OrderedField>(c: Constraint<T>) ->
         Constraint::PointOnLine { point, .. } => set![point],
         Constraint::EqualLengthSq { a1, a2, .. } => set![a1, a2],
         Constraint::Midpoint { mid, a, b } => set![mid, a, b],
+        Constraint::Perpendicular { a1, a2, .. } => set![a1, a2],
+        Constraint::Parallel { a1, a2, .. } => set![a1, a2],
     }
 }
 

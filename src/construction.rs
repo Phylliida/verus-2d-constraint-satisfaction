@@ -78,22 +78,16 @@ pub open spec fn execute_step<T: OrderedField>(step: ConstructionStep<T>) -> Poi
             line_line_intersection_2d(line1, line2)
         }
 
-        // Circle-line and circle-circle produce SpecQuadExt coordinates,
-        // but for spec-level reasoning we need to stay in T.
-        // These are only valid when the discriminant is a perfect square in T,
-        // i.e., the intersection coordinates are rational.
-        // For now, we use a simplified model: the step stores the actual
-        // computed position. The proof obligation is that this position
-        // satisfies both loci.
-        ConstructionStep::CircleLine { circle, line, plus, .. } => {
-            // Placeholder: actual intersection requires sqrt.
-            // The runtime will compute this; the spec just trusts the step.
-            circle.center
+        // Circle-line and circle-circle: use `choose` to select an arbitrary
+        // point satisfying both loci. step_well_formed requires that such a
+        // point exists, so the choose is well-defined. No stored position
+        // witness needed — structurally impossible to provide a wrong one.
+        ConstructionStep::CircleLine { circle, line, .. } => {
+            choose|p: Point2<T>| point_on_circle2(circle, p) && point_on_line2(line, p)
         }
 
-        ConstructionStep::CircleCircle { circle1, circle2, plus, .. } => {
-            // Placeholder: same as above.
-            circle1.center
+        ConstructionStep::CircleCircle { circle1, circle2, .. } => {
+            choose|p: Point2<T>| point_on_circle2(circle1, p) && point_on_circle2(circle2, p)
         }
 
         ConstructionStep::Determined { position, .. } => position,
@@ -133,14 +127,16 @@ pub open spec fn step_well_formed<T: OrderedField>(
             !line_det(line1, line2).eqv(T::zero())
         }
 
-        ConstructionStep::CircleLine { .. } => {
-            // Discriminant must be non-negative (intersection exists)
-            true // Deferred: cl_discriminant >= 0
+        ConstructionStep::CircleLine { circle, line, .. } => {
+            // Line must be non-degenerate, and an intersection must exist in T.
+            line2_nondegenerate(line) &&
+            exists|p: Point2<T>| point_on_circle2(circle, p) && point_on_line2(line, p)
         }
 
-        ConstructionStep::CircleCircle { .. } => {
-            // Deferred: cc_discriminant >= 0
-            true
+        ConstructionStep::CircleCircle { circle1, circle2, .. } => {
+            // Circles must have distinct centers, and an intersection must exist in T.
+            !circle1.center.eqv(circle2.center) &&
+            exists|p: Point2<T>| point_on_circle2(circle1, p) && point_on_circle2(circle2, p)
         }
 
         ConstructionStep::Determined { .. } => true,
