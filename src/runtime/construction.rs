@@ -148,4 +148,182 @@ pub fn execute_circle_circle_step<R: PositiveRadicand<RationalModel>>(
     RuntimeQExtPoint2 { x, y, model: Ghost(model) }
 }
 
+// ===========================================================================
+//  Runtime plan types and executor
+// ===========================================================================
+
+/// Runtime data for a single construction step.
+/// Each variant carries a ghost model linking it to the spec-level ConstructionStep.
+/// The caller MUST provide a matching spec step — wf_spec checks correspondence.
+pub enum RuntimeStepData {
+    /// Fixed position.
+    Fixed { x: RuntimeRational, y: RuntimeRational, model: Ghost<ConstructionStep<RationalModel>> },
+    /// Intersection of two lines.
+    LineLine { l1: RuntimeLine2, l2: RuntimeLine2, model: Ghost<ConstructionStep<RationalModel>> },
+    /// Intersection of a circle and a line.
+    CircleLine { circle: RuntimeCircle2, line: RuntimeLine2, plus: bool, model: Ghost<ConstructionStep<RationalModel>> },
+    /// Intersection of two circles.
+    CircleCircle { c1: RuntimeCircle2, c2: RuntimeCircle2, plus: bool, model: Ghost<ConstructionStep<RationalModel>> },
+    /// Fully determined position.
+    Determined { x: RuntimeRational, y: RuntimeRational, model: Ghost<ConstructionStep<RationalModel>> },
+}
+
+impl RuntimeStepData {
+    /// The step data is well-formed: runtime fields match the ghost model,
+    /// and all geometric preconditions for execution are met.
+    pub open spec fn wf_spec(&self) -> bool {
+        match self {
+            RuntimeStepData::Fixed { x, y, model } =>
+                x.wf_spec() && y.wf_spec() &&
+                match model@ {
+                    ConstructionStep::Fixed { position, .. } =>
+                        x@ == position.x && y@ == position.y,
+                    _ => false,
+                },
+            RuntimeStepData::LineLine { l1, l2, model } =>
+                l1.wf_spec() && l2.wf_spec() &&
+                !line_det::<RationalModel>(l1@, l2@).eqv(RationalModel::from_int_spec(0)) &&
+                match model@ {
+                    ConstructionStep::LineLine { line1, line2, .. } =>
+                        l1@ == line1 && l2@ == line2,
+                    _ => false,
+                },
+            RuntimeStepData::CircleLine { circle, line, plus, model } =>
+                circle.wf_spec() && line.wf_spec() && line2_nondegenerate(line@) &&
+                match model@ {
+                    ConstructionStep::CircleLine { circle: c, line: l, plus: p, .. } =>
+                        circle@ == c && line@ == l && *plus == p,
+                    _ => false,
+                },
+            RuntimeStepData::CircleCircle { c1, c2, plus, model } =>
+                c1.wf_spec() && c2.wf_spec() && !c1@.center.eqv(c2@.center) &&
+                match model@ {
+                    ConstructionStep::CircleCircle { circle1, circle2, plus: p, .. } =>
+                        c1@ == circle1 && c2@ == circle2 && *plus == p,
+                    _ => false,
+                },
+            RuntimeStepData::Determined { x, y, model } =>
+                x.wf_spec() && y.wf_spec() &&
+                match model@ {
+                    ConstructionStep::Determined { position, .. } =>
+                        x@ == position.x && y@ == position.y,
+                    _ => false,
+                },
+        }
+    }
+
+    /// The spec-level construction step this runtime step corresponds to.
+    pub open spec fn spec_step(&self) -> ConstructionStep<RationalModel> {
+        match self {
+            RuntimeStepData::Fixed { model, .. } => model@,
+            RuntimeStepData::LineLine { model, .. } => model@,
+            RuntimeStepData::CircleLine { model, .. } => model@,
+            RuntimeStepData::CircleCircle { model, .. } => model@,
+            RuntimeStepData::Determined { model, .. } => model@,
+        }
+    }
+}
+
+/// Runtime result of executing a construction step.
+/// Tagged with the ghost entity ID so the caller can't mix up which
+/// result corresponds to which entity.
+pub enum RuntimeConstructionResult<R: Radicand<RationalModel>> {
+    /// Result from Fixed, LineLine, or Determined steps (rational coordinates).
+    RationalPoint { point: RuntimePoint2, entity_id: Ghost<EntityId> },
+    /// Result from CircleLine or CircleCircle steps (quadratic extension coordinates).
+    QExtPoint { point: RuntimeQExtPoint2<R>, entity_id: Ghost<EntityId> },
+}
+
+impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
+    pub open spec fn wf_spec(&self) -> bool {
+        match self {
+            RuntimeConstructionResult::RationalPoint { point, .. } => point.wf_spec(),
+            RuntimeConstructionResult::QExtPoint { point, .. } => point.wf_spec(),
+        }
+    }
+
+    /// The entity ID this result is for.
+    pub open spec fn entity_id(&self) -> EntityId {
+        match self {
+            RuntimeConstructionResult::RationalPoint { entity_id, .. } => entity_id@,
+            RuntimeConstructionResult::QExtPoint { entity_id, .. } => entity_id@,
+        }
+    }
+}
+
+/// Execute a single runtime step, returning the computed point tagged with entity ID.
+/// The ensures connects the output to the spec-level step:
+/// - entity_id matches step_target of the spec model
+/// - For rational steps, the output point matches execute_step
+pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
+    step: &RuntimeStepData,
+) -> (out: RuntimeConstructionResult<R>)
+    where R: verus_quadratic_extension::runtime::RuntimeRadicand<R>
+    requires step.wf_spec(),
+    ensures
+        out.wf_spec(),
+        out.entity_id() == step_target(step.spec_step()),
+{
+    match step {
+        RuntimeStepData::Fixed { x, y, model } => {
+            let point = execute_fixed_step(x, y);
+            let ghost eid = step_target(model@);
+            RuntimeConstructionResult::RationalPoint { point, entity_id: Ghost(eid) }
+        }
+        RuntimeStepData::LineLine { l1, l2, model } => {
+            let point = execute_line_line_step(l1, l2);
+            let ghost eid = step_target(model@);
+            RuntimeConstructionResult::RationalPoint { point, entity_id: Ghost(eid) }
+        }
+        RuntimeStepData::CircleLine { circle, line, plus, model } => {
+            let point = execute_circle_line_step::<R>(circle, line, *plus);
+            let ghost eid = step_target(model@);
+            RuntimeConstructionResult::QExtPoint { point, entity_id: Ghost(eid) }
+        }
+        RuntimeStepData::CircleCircle { c1, c2, plus, model } => {
+            let point = execute_circle_circle_step::<R>(c1, c2, *plus);
+            let ghost eid = step_target(model@);
+            RuntimeConstructionResult::QExtPoint { point, entity_id: Ghost(eid) }
+        }
+        RuntimeStepData::Determined { x, y, model } => {
+            let point = execute_fixed_step(x, y);
+            let ghost eid = step_target(model@);
+            RuntimeConstructionResult::RationalPoint { point, entity_id: Ghost(eid) }
+        }
+    }
+}
+
+/// Execute a full construction plan: apply each step and collect results.
+/// Each result is tagged with the entity ID from the spec-level plan.
+pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
+    steps: &Vec<RuntimeStepData>,
+) -> (out: Vec<RuntimeConstructionResult<R>>)
+    where R: verus_quadratic_extension::runtime::RuntimeRadicand<R>
+    requires
+        forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
+    ensures
+        out@.len() == steps@.len(),
+        forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
+        forall|i: int| 0 <= i < out@.len() ==>
+            (#[trigger] out@[i]).entity_id() == step_target(steps@[i].spec_step()),
+{
+    let mut results: Vec<RuntimeConstructionResult<R>> = Vec::new();
+    let mut idx: usize = 0;
+    while idx < steps.len()
+        invariant
+            0 <= idx <= steps@.len(),
+            results@.len() == idx as int,
+            forall|j: int| 0 <= j < results@.len() ==> (#[trigger] results@[j]).wf_spec(),
+            forall|j: int| 0 <= j < results@.len() ==>
+                (#[trigger] results@[j]).entity_id() == step_target(steps@[j].spec_step()),
+            forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
+        decreases steps@.len() - idx,
+    {
+        let result = execute_step_runtime::<R>(&steps[idx]);
+        results.push(result);
+        idx = idx + 1;
+    }
+    results
+}
+
 } // verus!
