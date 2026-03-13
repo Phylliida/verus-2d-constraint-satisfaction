@@ -7,9 +7,6 @@ use verus_geometry::point2::*;
 use verus_geometry::line2::*;
 use verus_geometry::circle2::*;
 use verus_geometry::voronoi::sq_dist_2d;
-use verus_geometry::orient2d::det2d;
-use verus_linalg::vec2::ops::dot;
-use verus_linalg::vec2::Vec2;
 use crate::entities::*;
 use crate::constraints::*;
 
@@ -168,17 +165,15 @@ pub open spec fn constraint_to_locus<T: OrderedField>(
         }
 
         Constraint::Perpendicular { a1, a2, b1, b2 } => {
-            // dot(sub2(target, other), db) = 0 → line through other with normal db
-            // db.x * target.x + db.y * target.y - (db.x * other.x + db.y * other.y) = 0
+            // Perpendicular: line through other with normal = db = sub2(b2, b1).
+            // Uses db.x * other.x + db.y * other.y order to match constraint_satisfied.
             if target == a1 && resolved.dom().contains(a2) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
                 let db = sub2(resolved[b2], resolved[b1]);
-                let other = resolved[a2];
-                let c = other.x.mul(db.x).add(other.y.mul(db.y)).neg();
+                let c = db.x.mul(resolved[a2].x).add(db.y.mul(resolved[a2].y)).neg();
                 Locus2d::OnLine(Line2 { a: db.x, b: db.y, c })
             } else if target == a2 && resolved.dom().contains(a1) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
                 let db = sub2(resolved[b2], resolved[b1]);
-                let other = resolved[a1];
-                let c = other.x.mul(db.x).add(other.y.mul(db.y)).neg();
+                let c = db.x.mul(resolved[a1].x).add(db.y.mul(resolved[a1].y)).neg();
                 Locus2d::OnLine(Line2 { a: db.x, b: db.y, c })
             } else {
                 Locus2d::FullPlane
@@ -186,17 +181,15 @@ pub open spec fn constraint_to_locus<T: OrderedField>(
         }
 
         Constraint::Parallel { a1, a2, b1, b2 } => {
-            // (target - other) × db = 0 → line through other with direction db
-            // db.y * target.x + (-db.x) * target.y + (other.y * db.x - other.x * db.y) = 0
+            // Parallel: line through other with direction = db = sub2(b2, b1).
+            // Normal = (db.y, -db.x). Uses db.y * other.x + (-db.x) * other.y order.
             if target == a1 && resolved.dom().contains(a2) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
                 let db = sub2(resolved[b2], resolved[b1]);
-                let other = resolved[a2];
-                let c = other.y.mul(db.x).sub(other.x.mul(db.y));
+                let c = db.y.mul(resolved[a2].x).add(db.x.neg().mul(resolved[a2].y)).neg();
                 Locus2d::OnLine(Line2 { a: db.y, b: db.x.neg(), c })
             } else if target == a2 && resolved.dom().contains(a1) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
                 let db = sub2(resolved[b2], resolved[b1]);
-                let other = resolved[a1];
-                let c = other.y.mul(db.x).sub(other.x.mul(db.y));
+                let c = db.y.mul(resolved[a1].x).add(db.x.neg().mul(resolved[a1].y)).neg();
                 Locus2d::OnLine(Line2 { a: db.y, b: db.x.neg(), c })
             } else {
                 Locus2d::FullPlane
@@ -424,6 +417,57 @@ proof fn lemma_midpoint_a_satisfies<T: OrderedField>(
     T::axiom_mul_commutative(mid_y, two);
     T::axiom_eqv_symmetric(p.y.add(by_), two.mul(mid_y));
     T::axiom_eqv_transitive(mid_y.mul(two), two.mul(mid_y), p.y.add(by_));
+}
+
+// ===========================================================================
+//  Perpendicular/Parallel locus soundness helpers
+// ===========================================================================
+
+/// Swap lemma for point_on_line2 with computed c:
+/// if a*px + b*py + (-(a*qx + b*qy)) ≡ 0, then a*qx + b*qy + (-(a*px + b*py)) ≡ 0.
+/// This handles the "reversed target" case for Perpendicular/Parallel constraints.
+proof fn lemma_point_on_line2_swap<T: OrderedField>(
+    a: T, b: T, px: T, py: T, qx: T, qy: T,
+)
+    requires
+        point_on_line2(
+            Line2 { a, b, c: a.mul(qx).add(b.mul(qy)).neg() },
+            Point2 { x: px, y: py },
+        ),
+    ensures
+        point_on_line2(
+            Line2 { a, b, c: a.mul(px).add(b.mul(py)).neg() },
+            Point2 { x: qx, y: qy },
+        ),
+{
+    // Let S1 = a*px + b*py, S2 = a*qx + b*qy
+    // Given: S1 + (-S2) ≡ 0
+    // Need:  S2 + (-S1) ≡ 0
+    let s1 = a.mul(px).add(b.mul(py));
+    let s2 = a.mul(qx).add(b.mul(qy));
+
+    // Step 1: neg both sides: -(S1 + (-S2)) ≡ -0 ≡ 0
+    T::axiom_neg_congruence(s1.add(s2.neg()), T::zero());
+    lemma_neg_zero::<T>();
+    T::axiom_eqv_transitive(s1.add(s2.neg()).neg(), T::zero().neg(), T::zero());
+
+    // Step 2: -(S1 + (-S2)) ≡ (-S1) + S2  [by neg_add + neg_involution]
+    lemma_neg_add::<T>(s1, s2.neg());
+    lemma_neg_involution::<T>(s2);
+    lemma_add_congruence_right::<T>(s1.neg(), s2.neg().neg(), s2);
+    T::axiom_eqv_transitive(
+        s1.add(s2.neg()).neg(),
+        s1.neg().add(s2.neg().neg()),
+        s1.neg().add(s2),
+    );
+
+    // Step 3: (-S1) + S2 ≡ 0  (transitive from steps 1 + 2)
+    T::axiom_eqv_symmetric(s1.add(s2.neg()).neg(), s1.neg().add(s2));
+    T::axiom_eqv_transitive(s1.neg().add(s2), s1.add(s2.neg()).neg(), T::zero());
+
+    // Step 4: S2 + (-S1) ≡ (-S1) + S2 ≡ 0  [by commutativity]
+    T::axiom_add_commutative(s2, s1.neg());
+    T::axiom_eqv_transitive(s2.add(s1.neg()), s1.neg().add(s2), T::zero());
 }
 
 // ===========================================================================
@@ -745,28 +789,14 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
                     assert(r[a2] == resolved[a2]);
                     assert(r[b1] == resolved[b1]);
                     assert(r[b2] == resolved[b2]);
-                    // Locus: OnLine(Line2{db.x, db.y, -(other.x*db.x + other.y*db.y)})
-                    // point_on_line2: db.x*p.x + db.y*p.y + c ≡ 0
-                    // where c = -(other.x*db.x + other.y*db.y)
-                    // So: db.x*p.x + db.y*p.y - other.x*db.x - other.y*db.y ≡ 0
-                    // This is: db.x*(p.x - other.x) + db.y*(p.y - other.y)
-                    //        = dot(db, sub2(p, other))
-                    // And constraint wants: dot(sub2(r[a2], r[a1]), db) ≡ 0
-                    //                     = dot(sub2(resolved[a2], p), db)
-                    // sub2(resolved[a2], p) = Vec2{a2.x - p.x, a2.y - p.y}
-                    // dot(sub2(a2, p), db) = (a2.x-p.x)*db.x + (a2.y-p.y)*db.y
-                    //                      = -(p.x-a2.x)*db.x + -(p.y-a2.y)*db.y
-                    //                      = -(dot(sub2(p, a2), db))
-                    // From locus: db.x*p.x + db.y*p.y + c ≡ 0
-                    // c = -(a2.x*db.x + a2.y*db.y)
-                    // So: db.x*p.x + db.y*p.y - a2.x*db.x - a2.y*db.y ≡ 0
-                    // Which is: (p.x - a2.x)*db.x + (p.y - a2.y)*db.y ≡ 0
-                    // = dot(sub2(p, a2), db) ≡ 0
-                    // Need: dot(sub2(r[a2], r[a1]), db) ≡ 0
-                    // = dot(sub2(a2, p), db) = -dot(sub2(p, a2), db)
-                    // From locus we get dot(sub2(p, a2), db) ≡ 0
-                    // So dot(sub2(a2, p), db) = -dot(sub2(p, a2), db) ≡ -0 ≡ 0
-                    lemma_perpendicular_locus_sound::<T>(p, resolved[a2], sub2(resolved[b2], resolved[b1]));
+                    // Locus line: Line2{db.x, db.y, -(db.x*a2.x + db.y*a2.y)}
+                    // Locus gives: db.x*p.x + db.y*p.y + (-(db.x*a2.x + db.y*a2.y)) ≡ 0
+                    // Constraint needs: db.x*a2.x + db.y*a2.y + (-(db.x*p.x + db.y*p.y)) ≡ 0
+                    // This is the swap: S1 + (-S2) ≡ 0 → S2 + (-S1) ≡ 0
+                    let db = sub2(resolved[b2], resolved[b1]);
+                    lemma_point_on_line2_swap::<T>(
+                        db.x, db.y, p.x, p.y, resolved[a2].x, resolved[a2].y,
+                    );
                 } else {
                     assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
                 }
@@ -778,16 +808,12 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
                     assert(r[a1] == resolved[a1]);
                     assert(r[b1] == resolved[b1]);
                     assert(r[b2] == resolved[b2]);
-                    // Same structure: locus gives dot(sub2(p, a1), db) ≡ 0
-                    // Need: dot(sub2(r[a2], r[a1]), db) = dot(sub2(p, a1), db) ≡ 0
-                    // This is direct! sub2(r[a2], r[a1]) = sub2(p, resolved[a1])
-                    // And the locus was constructed with other = resolved[a1]
-                    lemma_perpendicular_locus_sound_direct::<T>(p, resolved[a1], sub2(resolved[b2], resolved[b1]));
+                    // Locus line and constraint line are structurally identical
+                    // (both use resolved[a1] as the "other" point).
                 } else {
                     assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
                 }
             } else {
-                // target is b1 or b2 — locus is FullPlane
                 assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
             }
         }
@@ -801,19 +827,11 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
                     assert(r[a2] == resolved[a2]);
                     assert(r[b1] == resolved[b1]);
                     assert(r[b2] == resolved[b2]);
-                    // Locus: OnLine(Line2{db.y, -db.x, other.y*db.x - other.x*db.y})
-                    // point_on_line2: db.y*p.x + (-db.x)*p.y + c ≡ 0
-                    // c = a2.y*db.x - a2.x*db.y
-                    // So: db.y*p.x - db.x*p.y + a2.y*db.x - a2.x*db.y ≡ 0
-                    //   = db.y*(p.x - a2.x) - db.x*(p.y - a2.y)  ... wait
-                    //   = (p.x-a2.x)*db.y - (p.y-a2.y)*db.x
-                    //   = det2d(sub2(p, a2), db)
-                    // Need: det2d(sub2(r[a2], r[a1]), db) ≡ 0
-                    //      = det2d(sub2(a2, p), db)
-                    //      = (a2.x-p.x)*db.y - (a2.y-p.y)*db.x
-                    //      = -((p.x-a2.x)*db.y - (p.y-a2.y)*db.x)
-                    //      = -det2d(sub2(p, a2), db) ≡ -0 ≡ 0
-                    lemma_parallel_locus_sound::<T>(p, resolved[a2], sub2(resolved[b2], resolved[b1]));
+                    // Same swap pattern with coefficients db.y and db.x.neg()
+                    let db = sub2(resolved[b2], resolved[b1]);
+                    lemma_point_on_line2_swap::<T>(
+                        db.y, db.x.neg(), p.x, p.y, resolved[a2].x, resolved[a2].y,
+                    );
                 } else {
                     assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
                 }
@@ -825,7 +843,7 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
                     assert(r[a1] == resolved[a1]);
                     assert(r[b1] == resolved[b1]);
                     assert(r[b2] == resolved[b2]);
-                    lemma_parallel_locus_sound_direct::<T>(p, resolved[a1], sub2(resolved[b2], resolved[b1]));
+                    // Structurally identical — locus and constraint use same line.
                 } else {
                     assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
                 }
