@@ -7,6 +7,7 @@ use verus_geometry::point2::*;
 use verus_geometry::line2::*;
 use verus_geometry::circle2::*;
 use verus_geometry::voronoi::sq_dist_2d;
+use verus_geometry::orient2d::{orient2d, lemma_orient2d_cyclic, lemma_orient2d_swap_bc};
 use crate::entities::*;
 use crate::constraints::*;
 
@@ -191,6 +192,38 @@ pub open spec fn constraint_to_locus<T: OrderedField>(
                 let db = sub2(resolved[b2], resolved[b1]);
                 let c = db.y.mul(resolved[a1].x).add(db.x.neg().mul(resolved[a1].y)).neg();
                 Locus2d::OnLine(Line2 { a: db.y, b: db.x.neg(), c })
+            } else {
+                Locus2d::FullPlane
+            }
+        }
+
+        Constraint::Collinear { a, b, c } => {
+            // Any of the three can be the target; the other two define the line.
+            if target == c && resolved.dom().contains(a) && resolved.dom().contains(b) {
+                Locus2d::OnLine(line2_from_points(resolved[a], resolved[b]))
+            } else if target == a && resolved.dom().contains(b) && resolved.dom().contains(c) {
+                Locus2d::OnLine(line2_from_points(resolved[b], resolved[c]))
+            } else if target == b && resolved.dom().contains(a) && resolved.dom().contains(c) {
+                Locus2d::OnLine(line2_from_points(resolved[a], resolved[c]))
+            } else {
+                Locus2d::FullPlane
+            }
+        }
+
+        Constraint::PointOnCircle { point, center, radius_point } => {
+            if target == point && resolved.dom().contains(center) && resolved.dom().contains(radius_point) {
+                let r2 = sq_dist_2d(resolved[radius_point], resolved[center]);
+                Locus2d::OnCircle(circle2_from_center_radius_sq(resolved[center], r2))
+            } else {
+                Locus2d::FullPlane
+            }
+        }
+
+        Constraint::Symmetric { point, original, axis_a, axis_b } => {
+            if target == point && resolved.dom().contains(original) && resolved.dom().contains(axis_a) && resolved.dom().contains(axis_b) {
+                Locus2d::AtPoint(reflect_point_across_line(
+                    resolved[original], resolved[axis_a], resolved[axis_b],
+                ))
             } else {
                 Locus2d::FullPlane
             }
@@ -420,6 +453,95 @@ proof fn lemma_midpoint_a_satisfies<T: OrderedField>(
 }
 
 // ===========================================================================
+//  Collinear locus soundness helpers
+// ===========================================================================
+
+/// If x.neg() ≡ 0, then x ≡ 0.
+proof fn lemma_neg_eqv_zero_implies_zero<T: Ring>(x: T)
+    requires x.neg().eqv(T::zero()),
+    ensures x.eqv(T::zero()),
+{
+    T::axiom_neg_congruence(x.neg(), T::zero());
+    // x.neg().neg() ≡ T::zero().neg()
+    verus_algebra::quadratic::lemma_neg_zero::<T>();
+    // T::zero().neg() ≡ T::zero()
+    lemma_neg_involution::<T>(x);
+    // x.neg().neg() ≡ x
+    T::axiom_eqv_symmetric(x.neg().neg(), x);
+    // x ≡ x.neg().neg()
+    T::axiom_eqv_transitive(x, x.neg().neg(), T::zero().neg());
+    T::axiom_eqv_transitive(x, T::zero().neg(), T::zero());
+}
+
+/// Collinear soundness for target=a: point_on_line2(line_from_points(b,c), p) implies
+/// point_on_line2(line_from_points(p, b), c).
+/// Uses orient2d cyclic permutation.
+proof fn lemma_collinear_cyclic<T: OrderedField>(
+    p: Point2<T>, b: Point2<T>, c: Point2<T>,
+)
+    requires
+        point_on_line2(line2_from_points(b, c), p),
+    ensures
+        point_on_line2(line2_from_points(p, b), c),
+{
+    // From locus: line2_eval(line_from_points(b,c), p) ≡ 0
+    // By orient2d equivalence: orient2d(b,c,p) ≡ line2_eval(line_from_points(b,c), p)
+    lemma_line2_orient2d_equivalence(b, c, p);
+    // orient2d(b,c,p) ≡ 0
+    T::axiom_eqv_symmetric(line2_eval(line2_from_points(b, c), p), orient2d(b, c, p));
+    T::axiom_eqv_transitive(orient2d(b, c, p), line2_eval(line2_from_points(b, c), p), T::zero());
+
+    // By cyclic: orient2d(p,b,c) ≡ orient2d(b,c,p)
+    lemma_orient2d_cyclic(p, b, c);
+    // orient2d(p,b,c) ≡ orient2d(b,c,p) ≡ 0
+    T::axiom_eqv_transitive(orient2d(p, b, c), orient2d(b, c, p), T::zero());
+
+    // By orient2d equivalence (reverse): line2_eval(line_from_points(p,b), c) ≡ orient2d(p,b,c)
+    lemma_line2_orient2d_equivalence(p, b, c);
+    // line2_eval ≡ orient2d(p,b,c) ≡ 0
+    T::axiom_eqv_transitive(
+        line2_eval(line2_from_points(p, b), c),
+        orient2d(p, b, c),
+        T::zero(),
+    );
+}
+
+/// Collinear soundness for target=b: point_on_line2(line_from_points(a,c), p) implies
+/// point_on_line2(line_from_points(a, p), c).
+/// Uses orient2d swap_bc.
+proof fn lemma_collinear_swap<T: OrderedField>(
+    a: Point2<T>, p: Point2<T>, c: Point2<T>,
+)
+    requires
+        point_on_line2(line2_from_points(a, c), p),
+    ensures
+        point_on_line2(line2_from_points(a, p), c),
+{
+    // From locus: line2_eval(line_from_points(a,c), p) ≡ 0
+    lemma_line2_orient2d_equivalence(a, c, p);
+    T::axiom_eqv_symmetric(line2_eval(line2_from_points(a, c), p), orient2d(a, c, p));
+    T::axiom_eqv_transitive(orient2d(a, c, p), line2_eval(line2_from_points(a, c), p), T::zero());
+    // orient2d(a,c,p) ≡ 0
+
+    // By swap_bc: orient2d(a,c,p) ≡ orient2d(a,p,c).neg()
+    lemma_orient2d_swap_bc(a, p, c);
+    T::axiom_eqv_symmetric(orient2d(a, c, p), orient2d(a, p, c).neg());
+    T::axiom_eqv_transitive(orient2d(a, p, c).neg(), orient2d(a, c, p), T::zero());
+    // orient2d(a,p,c).neg() ≡ 0
+
+    // By helper: orient2d(a,p,c) ≡ 0
+    lemma_neg_eqv_zero_implies_zero(orient2d(a, p, c));
+
+    // Orient2d equivalence for the target line
+    lemma_line2_orient2d_equivalence(a, p, c);
+    T::axiom_eqv_transitive(
+        line2_eval(line2_from_points(a, p), c),
+        orient2d(a, p, c),
+        T::zero(),
+    );
+}
+
+// ===========================================================================
 //  Perpendicular/Parallel locus soundness helpers
 // ===========================================================================
 
@@ -553,6 +675,25 @@ pub proof fn lemma_constraint_frame<T: OrderedField>(
             assert(resolved.insert(key, p)[a2] == resolved[a2]);
             assert(resolved.insert(key, p)[b1] == resolved[b1]);
             assert(resolved.insert(key, p)[b2] == resolved[b2]);
+        }
+        Constraint::Collinear { a, b, c } => {
+            assert(key != a && key != b && key != c);
+            assert(resolved.insert(key, p)[a] == resolved[a]);
+            assert(resolved.insert(key, p)[b] == resolved[b]);
+            assert(resolved.insert(key, p)[c] == resolved[c]);
+        }
+        Constraint::PointOnCircle { point, center, radius_point } => {
+            assert(key != point && key != center && key != radius_point);
+            assert(resolved.insert(key, p)[point] == resolved[point]);
+            assert(resolved.insert(key, p)[center] == resolved[center]);
+            assert(resolved.insert(key, p)[radius_point] == resolved[radius_point]);
+        }
+        Constraint::Symmetric { point, original, axis_a, axis_b } => {
+            assert(key != point && key != original && key != axis_a && key != axis_b);
+            assert(resolved.insert(key, p)[point] == resolved[point]);
+            assert(resolved.insert(key, p)[original] == resolved[original]);
+            assert(resolved.insert(key, p)[axis_a] == resolved[axis_a]);
+            assert(resolved.insert(key, p)[axis_b] == resolved[axis_b]);
         }
     }
 }
@@ -859,16 +1000,12 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
                     assert(r[mid] == p);
                     assert(r[a] == resolved[a]);
                     assert(r[b] == resolved[b]);
-                    // Locus: AtPoint with midpoint coordinates
-                    // p ≡ Point2{(a.x+b.x)/2, (a.y+b.y)/2}
-                    // Need: p.x*2 ≡ a.x + b.x and p.y*2 ≡ a.y + b.y
                     lemma_midpoint_div_satisfies(
                         resolved[a].x, resolved[b].x,
                         resolved[a].y, resolved[b].y,
                         p,
                     );
                 } else {
-                    // Entity overlap: mid == a or mid == b, target not in resolved → FullPlane
                     assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
                 }
             } else if target == a {
@@ -877,9 +1014,6 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
                     assert(r[a] == p);
                     assert(r[mid] == resolved[mid]);
                     assert(r[b] == resolved[b]);
-                    // Locus: AtPoint(2*mid - b)
-                    // p ≡ Point2{2*mid.x - b.x, 2*mid.y - b.y}
-                    // Need: mid.x*2 ≡ p.x + b.x
                     lemma_midpoint_a_satisfies(
                         resolved[mid].x, resolved[mid].y,
                         resolved[b].x, resolved[b].y,
@@ -895,16 +1029,11 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
                     assert(r[b] == p);
                     assert(r[mid] == resolved[mid]);
                     assert(r[a] == resolved[a]);
-                    // Symmetric to target==a case
                     lemma_midpoint_a_satisfies(
                         resolved[mid].x, resolved[mid].y,
                         resolved[a].x, resolved[a].y,
                         p,
                     );
-                    // constraint: r[mid].x.mul(two).eqv(r[a].x.add(r[b].x))
-                    // Helper gives mid.x*2 ≡ p.x + a.x
-                    // But constraint needs mid.x*2 ≡ a.x + p.x
-                    // By add commutativity:
                     let two = T::one().add(T::one());
                     T::axiom_add_commutative(p.x, resolved[a].x);
                     T::axiom_eqv_transitive(
@@ -921,6 +1050,97 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
                 } else {
                     assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
                 }
+            }
+        }
+
+        Constraint::Collinear { a, b, c: c_id } => {
+            // constraint_satisfied: point_on_line2(line2_from_points(r[a], r[b]), r[c_id])
+            if target == c_id {
+                // target = c_id: locus is OnLine(line2_from_points(resolved[a], resolved[b]))
+                // point_on_line2(line2_from_points(a', b'), p) — directly matches constraint
+                if c_id != a && c_id != b {
+                    assert(r.dom().contains(a) && r.dom().contains(b) && r.dom().contains(c_id));
+                    assert(r[c_id] == p);
+                    assert(r[a] == resolved[a]);
+                    assert(r[b] == resolved[b]);
+                    // Locus and constraint use identical line and point — direct match
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            } else if target == a {
+                // target = a: locus is OnLine(line2_from_points(resolved[b], resolved[c_id]))
+                // Need: point_on_line2(line2_from_points(p, resolved[b]), resolved[c_id])
+                if a != b && a != c_id {
+                    assert(r.dom().contains(a) && r.dom().contains(b) && r.dom().contains(c_id));
+                    assert(r[a] == p);
+                    assert(r[b] == resolved[b]);
+                    assert(r[c_id] == resolved[c_id]);
+                    // From locus: point_on_line2(line2_from_points(b', c'), p)
+                    // Need: point_on_line2(line2_from_points(p, b'), c')
+                    lemma_collinear_cyclic(p, resolved[b], resolved[c_id]);
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            } else {
+                assert(target == b);
+                // target = b: locus is OnLine(line2_from_points(resolved[a], resolved[c_id]))
+                // Need: point_on_line2(line2_from_points(resolved[a], p), resolved[c_id])
+                if b != a && b != c_id {
+                    assert(r.dom().contains(a) && r.dom().contains(b) && r.dom().contains(c_id));
+                    assert(r[b] == p);
+                    assert(r[a] == resolved[a]);
+                    assert(r[c_id] == resolved[c_id]);
+                    // From locus: point_on_line2(line2_from_points(a', c'), p)
+                    // Need: point_on_line2(line2_from_points(a', p), c')
+                    lemma_collinear_swap(resolved[a], p, resolved[c_id]);
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            }
+        }
+
+        Constraint::PointOnCircle { point, center, radius_point } => {
+            // constraint_satisfied: sq_dist(r[point], r[center]) ≡ sq_dist(r[radius_point], r[center])
+            // target must be point (only locus entity)
+            if target == point {
+                if point != center && point != radius_point {
+                    assert(r.dom().contains(point) && r.dom().contains(center) && r.dom().contains(radius_point));
+                    assert(r[point] == p);
+                    assert(r[center] == resolved[center]);
+                    assert(r[radius_point] == resolved[radius_point]);
+                    // Locus: OnCircle(center=resolved[center], radius_sq=sq_dist(radius_point', center'))
+                    // point_on_circle2: sq_dist(p, center') ≡ sq_dist(radius_point', center')
+                    // constraint: sq_dist(r[point], r[center]) ≡ sq_dist(r[radius_point], r[center])
+                    //           = sq_dist(p, center') ≡ sq_dist(radius_point', center') ✓
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            } else {
+                // target is center or radius_point — not in locus_entities → FullPlane
+                assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+            }
+        }
+
+        Constraint::Symmetric { point, original, axis_a, axis_b } => {
+            // constraint_satisfied: r[point].eqv(reflect(...r[original], r[axis_a], r[axis_b]...))
+            // target must be point (only locus entity)
+            if target == point {
+                if point != original && point != axis_a && point != axis_b {
+                    assert(r.dom().contains(point) && r.dom().contains(original));
+                    assert(r.dom().contains(axis_a) && r.dom().contains(axis_b));
+                    assert(r[point] == p);
+                    assert(r[original] == resolved[original]);
+                    assert(r[axis_a] == resolved[axis_a]);
+                    assert(r[axis_b] == resolved[axis_b]);
+                    // Locus: AtPoint(reflect_point_across_line(original', axis_a', axis_b'))
+                    // point_satisfies_locus: p.eqv(reflect(original', axis_a', axis_b'))
+                    // constraint: r[point].eqv(reflect(r[original], r[axis_a], r[axis_b]))
+                    //           = p.eqv(reflect(original', axis_a', axis_b')) ✓ direct match
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            } else {
+                assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
             }
         }
     }
