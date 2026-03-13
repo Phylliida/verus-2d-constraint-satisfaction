@@ -15,6 +15,8 @@ use verus_geometry::runtime::circle_circle::*;
 use verus_quadratic_extension::radicand::*;
 use verus_quadratic_extension::spec::*;
 use verus_quadratic_extension::runtime::RuntimeQExtRat;
+use verus_geometry::constructed_scalar::{lift_line2, lift_point2, qext_from_rational};
+use verus_geometry::voronoi::sq_dist_2d;
 use crate::construction::*;
 use crate::entities::*;
 
@@ -222,6 +224,22 @@ impl RuntimeStepData {
             RuntimeStepData::CircleCircle { model, .. } => model@,
             RuntimeStepData::Determined { model, .. } => model@,
         }
+    }
+}
+
+/// Checks that the radicand type R matches the discriminant of circle intersection steps.
+/// Trivially true for rational steps (Fixed/LineLine/Determined).
+pub open spec fn step_radicand_matches<R: Radicand<RationalModel>>(
+    step: ConstructionStep<RationalModel>,
+) -> bool {
+    match step {
+        ConstructionStep::CircleLine { circle, line, .. } =>
+            R::value().eqv(cl_discriminant::<RationalModel>(circle, line))
+            && RationalModel::from_int_spec(0).lt(cl_discriminant::<RationalModel>(circle, line)),
+        ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+            R::value().eqv(cc_discriminant::<RationalModel>(circle1, circle2))
+            && RationalModel::from_int_spec(0).lt(cc_discriminant::<RationalModel>(circle1, circle2)),
+        _ => true,
     }
 }
 
