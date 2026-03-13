@@ -174,7 +174,7 @@ pub fn check_constraint_satisfied_exec(
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_points_wf(points@),
     ensures
-        out == constraint_satisfied(
+        out ==> constraint_satisfied(
             runtime_constraint_model(*rc),
             vec_to_resolved_map(points_view(points@)),
         ),
@@ -378,6 +378,10 @@ pub fn check_constraint_satisfied_exec(
             let pay = points[*original].y.sub(&points[*axis_a].y);
             // dot_dd = dx*dx + dy*dy
             let dot_dd = dx.mul(&dx).add(&dy.mul(&dy));
+            // If axis is degenerate (both axis points coincide), return false
+            if dot_dd.is_zero() {
+                return false;
+            }
             // dot_pad = pax*dx + pay*dy
             let dot_pad = pax.mul(&dx).add(&pay.mul(&dy));
             // t = dot_pad / dot_dd
@@ -417,6 +421,9 @@ pub fn check_all_constraints_exec(
     while i < constraints.len()
         invariant
             0 <= i <= constraints.len(),
+            all_points_wf(points@),
+            forall|k: int| 0 <= k < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[k], points@.len() as nat),
             forall|j: int| 0 <= j < i as int ==>
                 constraint_satisfied(
                     runtime_constraint_model(#[trigger] constraints@[j]),
@@ -424,6 +431,7 @@ pub fn check_all_constraints_exec(
                 ),
         decreases constraints.len() - i,
     {
+        assert(runtime_constraint_wf(constraints@[i as int], points@.len() as nat));
         if !check_constraint_satisfied_exec(&constraints[i], points) {
             return false;
         }
