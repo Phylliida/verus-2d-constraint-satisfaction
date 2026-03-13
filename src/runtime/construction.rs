@@ -278,14 +278,27 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
         }
     }
 
-    /// For rational results, whether the computed point matches execute_step.
-    /// Always true for QExt results (the correspondence is to cl/cc_intersection_point
-    /// which lives in a different coordinate field).
+    /// Whether the computed point satisfies geometric correctness for this step.
+    /// - Rational: output point == execute_step(step)
+    /// - QExt CircleLine: point is on lifted line AND on lifted circle
+    /// - QExt CircleCircle: point is on both lifted circles
     pub open spec fn matches_spec_step(&self, step: ConstructionStep<RationalModel>) -> bool {
         match self {
             RuntimeConstructionResult::RationalPoint { point, .. } =>
                 point@ == execute_step(step),
-            RuntimeConstructionResult::QExtPoint { .. } => true,
+            RuntimeConstructionResult::QExtPoint { point, .. } =>
+                match step {
+                    ConstructionStep::CircleLine { circle, line, .. } =>
+                        point_on_line2(lift_line2::<RationalModel, R>(line), point@)
+                        && sq_dist_2d(point@, lift_point2::<RationalModel, R>(circle.center))
+                            .eqv(qext_from_rational::<RationalModel, R>(circle.radius_sq)),
+                    ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+                        sq_dist_2d(point@, lift_point2::<RationalModel, R>(circle1.center))
+                            .eqv(qext_from_rational::<RationalModel, R>(circle1.radius_sq))
+                        && sq_dist_2d(point@, lift_point2::<RationalModel, R>(circle2.center))
+                            .eqv(qext_from_rational::<RationalModel, R>(circle2.radius_sq)),
+                    _ => false,
+                },
         }
     }
 }
@@ -298,7 +311,9 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
     step: &RuntimeStepData,
 ) -> (out: RuntimeConstructionResult<R>)
     where R: verus_quadratic_extension::runtime::RuntimeRadicand<R>
-    requires step.wf_spec(),
+    requires
+        step.wf_spec(),
+        step_radicand_matches::<R>(step.spec_step()),
     ensures
         out.wf_spec(),
         out.entity_id() == step_target(step.spec_step()),
@@ -317,11 +332,19 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
         }
         RuntimeStepData::CircleLine { circle, line, plus, model } => {
             let point = execute_circle_line_step::<R>(circle, line, *plus);
+            proof {
+                lemma_cl_intersection_on_line::<RationalModel, R>(circle@, line@, *plus);
+                lemma_cl_intersection_on_circle::<RationalModel, R>(circle@, line@, *plus);
+            }
             let ghost eid = step_target(model@);
             RuntimeConstructionResult::QExtPoint { point, entity_id: Ghost(eid) }
         }
         RuntimeStepData::CircleCircle { c1, c2, plus, model } => {
             let point = execute_circle_circle_step::<R>(c1, c2, *plus);
+            proof {
+                lemma_cc_intersection_on_c1::<RationalModel, R>(c1@, c2@, *plus);
+                lemma_cc_intersection_on_c2::<RationalModel, R>(c1@, c2@, *plus);
+            }
             let ghost eid = step_target(model@);
             RuntimeConstructionResult::QExtPoint { point, entity_id: Ghost(eid) }
         }
@@ -342,6 +365,7 @@ pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
     where R: verus_quadratic_extension::runtime::RuntimeRadicand<R>
     requires
         forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
+        forall|i: int| 0 <= i < steps@.len() ==> step_radicand_matches::<R>(#[trigger] steps@[i].spec_step()),
     ensures
         out@.len() == steps@.len(),
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
@@ -367,6 +391,7 @@ pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
             forall|j: int| 0 <= j < results@.len() ==>
                 (#[trigger] results@[j]).matches_spec_step(steps@[j].spec_step()),
             forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
+            forall|i: int| 0 <= i < steps@.len() ==> step_radicand_matches::<R>(#[trigger] steps@[i].spec_step()),
         decreases steps@.len() - idx,
     {
         let result = execute_step_runtime::<R>(&steps[idx]);
