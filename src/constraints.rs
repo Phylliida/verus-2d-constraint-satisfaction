@@ -172,9 +172,9 @@ pub open spec fn constraint_well_formed<T: OrderedField>(c: Constraint<T>) -> bo
         Constraint::Midpoint { mid, a, b } =>
             mid != a && mid != b && a != b,
         Constraint::Perpendicular { a1, a2, b1, b2 } =>
-            a1 != a2 && b1 != b2,
+            a1 != a2 && b1 != b2 && a1 != b1 && a1 != b2 && a2 != b1 && a2 != b2,
         Constraint::Parallel { a1, a2, b1, b2 } =>
-            a1 != a2 && b1 != b2,
+            a1 != a2 && b1 != b2 && a1 != b1 && a1 != b2 && a2 != b1 && a2 != b2,
     }
 }
 
