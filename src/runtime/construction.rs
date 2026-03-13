@@ -16,6 +16,7 @@ use verus_quadratic_extension::radicand::*;
 use verus_quadratic_extension::spec::*;
 use verus_quadratic_extension::runtime::RuntimeQExtRat;
 use crate::construction::*;
+use crate::entities::*;
 
 use verus_rational::runtime_rational::RuntimeRational;
 use verus_linalg::runtime::copy_rational;
@@ -249,12 +250,32 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
             RuntimeConstructionResult::QExtPoint { entity_id, .. } => entity_id@,
         }
     }
+
+    /// For rational results, the spec-level point.
+    /// Returns None for QExt results (different coordinate field).
+    pub open spec fn rational_point(&self) -> Option<Point2<RationalModel>> {
+        match self {
+            RuntimeConstructionResult::RationalPoint { point, .. } => Some(point@),
+            RuntimeConstructionResult::QExtPoint { .. } => None,
+        }
+    }
+
+    /// For rational results, whether the computed point matches execute_step.
+    /// Always true for QExt results (the correspondence is to cl/cc_intersection_point
+    /// which lives in a different coordinate field).
+    pub open spec fn matches_spec_step(&self, step: ConstructionStep<RationalModel>) -> bool {
+        match self {
+            RuntimeConstructionResult::RationalPoint { point, .. } =>
+                point@ == execute_step(step),
+            RuntimeConstructionResult::QExtPoint { .. } => true,
+        }
+    }
 }
 
 /// Execute a single runtime step, returning the computed point tagged with entity ID.
 /// The ensures connects the output to the spec-level step:
 /// - entity_id matches step_target of the spec model
-/// - For rational steps, the output point matches execute_step
+/// - For rational steps (Fixed/LineLine/Determined), the output point == execute_step(spec_step)
 pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
     step: &RuntimeStepData,
 ) -> (out: RuntimeConstructionResult<R>)
@@ -263,6 +284,7 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
     ensures
         out.wf_spec(),
         out.entity_id() == step_target(step.spec_step()),
+        out.matches_spec_step(step.spec_step()),
 {
     match step {
         RuntimeStepData::Fixed { x, y, model } => {
@@ -295,6 +317,7 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
 
 /// Execute a full construction plan: apply each step and collect results.
 /// Each result is tagged with the entity ID from the spec-level plan.
+/// If the spec-level steps have distinct targets, the output entity IDs are distinct.
 pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
     steps: &Vec<RuntimeStepData>,
 ) -> (out: Vec<RuntimeConstructionResult<R>>)
@@ -306,6 +329,13 @@ pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
         forall|i: int| 0 <= i < out@.len() ==>
             (#[trigger] out@[i]).entity_id() == step_target(steps@[i].spec_step()),
+        forall|i: int| 0 <= i < out@.len() ==>
+            (#[trigger] out@[i]).matches_spec_step(steps@[i].spec_step()),
+        // Distinct targets in → distinct entity IDs out
+        forall|i: int, j: int|
+            0 <= i < out@.len() && 0 <= j < out@.len() && i != j
+            && step_target(steps@[i].spec_step()) != step_target(steps@[j].spec_step())
+            ==> (#[trigger] out@[i]).entity_id() != (#[trigger] out@[j]).entity_id(),
 {
     let mut results: Vec<RuntimeConstructionResult<R>> = Vec::new();
     let mut idx: usize = 0;
@@ -316,6 +346,8 @@ pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
             forall|j: int| 0 <= j < results@.len() ==> (#[trigger] results@[j]).wf_spec(),
             forall|j: int| 0 <= j < results@.len() ==>
                 (#[trigger] results@[j]).entity_id() == step_target(steps@[j].spec_step()),
+            forall|j: int| 0 <= j < results@.len() ==>
+                (#[trigger] results@[j]).matches_spec_step(steps@[j].spec_step()),
             forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
         decreases steps@.len() - idx,
     {
