@@ -631,6 +631,15 @@ proof fn lemma_constraint_entities_nonempty<T: OrderedField>(c: Constraint<T>)
         Constraint::Parallel { a1, .. } => {
             assert(constraint_entities(c).contains(a1));
         }
+        Constraint::Collinear { a, .. } => {
+            assert(constraint_entities(c).contains(a));
+        }
+        Constraint::PointOnCircle { point, .. } => {
+            assert(constraint_entities(c).contains(point));
+        }
+        Constraint::Symmetric { point, .. } => {
+            assert(constraint_entities(c).contains(point));
+        }
     }
 }
 
@@ -658,6 +667,14 @@ proof fn lemma_locus_entities_subset_entities<T: OrderedField>(c: Constraint<T>)
             Constraint::Parallel { a1, a2, b1, b2 } => {
                 // le = set![a1, a2], e = set![a1, a2, b1, b2]
                 assert(le.contains(k) ==> k == a1 || k == a2);
+            }
+            Constraint::PointOnCircle { point, center, radius_point } => {
+                // le = set![point], e = set![point, center, radius_point]
+                assert(le.contains(k) ==> k == point);
+            }
+            Constraint::Symmetric { point, original, axis_a, axis_b } => {
+                // le = set![point], e = set![point, original, axis_a, axis_b]
+                assert(le.contains(k) ==> k == point);
             }
             _ => {} // le == e for all other constraints
         }
@@ -782,6 +799,33 @@ proof fn lemma_last_step_locus_nontrivial<T: OrderedField>(
                 assert(resolved.dom().contains(b1));
                 assert(resolved.dom().contains(b2));
             }
+        }
+        Constraint::Collinear { a, b, c } => {
+            // locus_entities = {a, b, c}, so target is one of them
+            if target == a {
+                assert(resolved.dom().contains(b));
+                assert(resolved.dom().contains(c));
+            } else if target == b {
+                assert(resolved.dom().contains(a));
+                assert(resolved.dom().contains(c));
+            } else {
+                assert(target == c);
+                assert(resolved.dom().contains(a));
+                assert(resolved.dom().contains(b));
+            }
+        }
+        Constraint::PointOnCircle { point, center, radius_point } => {
+            // locus_entities = {point}, so target must be point
+            assert(target == point);
+            assert(resolved.dom().contains(center));
+            assert(resolved.dom().contains(radius_point));
+        }
+        Constraint::Symmetric { point, original, axis_a, axis_b } => {
+            // locus_entities = {point}, so target must be point
+            assert(target == point);
+            assert(resolved.dom().contains(original));
+            assert(resolved.dom().contains(axis_a));
+            assert(resolved.dom().contains(axis_b));
         }
     }
 }

@@ -3,6 +3,7 @@ use verus_algebra::traits::*;
 use verus_geometry::point2::*;
 use verus_geometry::voronoi::sq_dist_2d;
 use verus_geometry::line2::*;
+use verus_geometry::orient2d::orient2d;
 use crate::entities::*;
 
 verus! {
@@ -45,6 +46,16 @@ pub enum Constraint<T: OrderedField> {
 
     /// Two segments are parallel: cross product of direction vectors = 0.
     Parallel { a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId },
+
+    /// Three points are collinear (lie on a common line).
+    Collinear { a: EntityId, b: EntityId, c: EntityId },
+
+    /// Point lies on the circle defined by center and a radius-defining point.
+    /// sq_dist(point, center) ≡ sq_dist(radius_point, center)
+    PointOnCircle { point: EntityId, center: EntityId, radius_point: EntityId },
+
+    /// Point is the reflection of `original` across the line through `axis_a` and `axis_b`.
+    Symmetric { point: EntityId, original: EntityId, axis_a: EntityId, axis_b: EntityId },
 }
 
 // ===========================================================================
@@ -135,6 +146,34 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
                 point_on_line2(Line2 { a: db.y, b: db.x.neg(), c }, resolved[a2])
             }
         }
+
+        Constraint::Collinear { a, b, c } => {
+            resolved.dom().contains(a) && resolved.dom().contains(b) &&
+            resolved.dom().contains(c) &&
+            point_on_line2(
+                line2_from_points(resolved[a], resolved[b]),
+                resolved[c],
+            )
+        }
+
+        Constraint::PointOnCircle { point, center, radius_point } => {
+            resolved.dom().contains(point) &&
+            resolved.dom().contains(center) &&
+            resolved.dom().contains(radius_point) &&
+            sq_dist_2d(resolved[point], resolved[center]).eqv(
+                sq_dist_2d(resolved[radius_point], resolved[center])
+            )
+        }
+
+        Constraint::Symmetric { point, original, axis_a, axis_b } => {
+            resolved.dom().contains(point) &&
+            resolved.dom().contains(original) &&
+            resolved.dom().contains(axis_a) &&
+            resolved.dom().contains(axis_b) &&
+            resolved[point].eqv(reflect_point_across_line(
+                resolved[original], resolved[axis_a], resolved[axis_b],
+            ))
+        }
     }
 }
 
@@ -152,6 +191,9 @@ pub open spec fn constraint_entities<T: OrderedField>(c: Constraint<T>) -> Set<E
         Constraint::Midpoint { mid, a, b } => set![mid, a, b],
         Constraint::Perpendicular { a1, a2, b1, b2 } => set![a1, a2, b1, b2],
         Constraint::Parallel { a1, a2, b1, b2 } => set![a1, a2, b1, b2],
+        Constraint::Collinear { a, b, c } => set![a, b, c],
+        Constraint::PointOnCircle { point, center, radius_point } => set![point, center, radius_point],
+        Constraint::Symmetric { point, original, axis_a, axis_b } => set![point, original, axis_a, axis_b],
     }
 }
 
@@ -175,6 +217,13 @@ pub open spec fn constraint_well_formed<T: OrderedField>(c: Constraint<T>) -> bo
             a1 != a2 && b1 != b2 && a1 != b1 && a1 != b2 && a2 != b1 && a2 != b2,
         Constraint::Parallel { a1, a2, b1, b2 } =>
             a1 != a2 && b1 != b2 && a1 != b1 && a1 != b2 && a2 != b1 && a2 != b2,
+        Constraint::Collinear { a, b, c } =>
+            a != b && a != c && b != c,
+        Constraint::PointOnCircle { point, center, radius_point } =>
+            point != center && point != radius_point && center != radius_point,
+        Constraint::Symmetric { point, original, axis_a, axis_b } =>
+            point != original && point != axis_a && point != axis_b
+            && original != axis_a && original != axis_b && axis_a != axis_b,
     }
 }
 
@@ -194,6 +243,9 @@ pub open spec fn constraint_locus_entities<T: OrderedField>(c: Constraint<T>) ->
         Constraint::Midpoint { mid, a, b } => set![mid, a, b],
         Constraint::Perpendicular { a1, a2, .. } => set![a1, a2],
         Constraint::Parallel { a1, a2, .. } => set![a1, a2],
+        Constraint::Collinear { a, b, c } => set![a, b, c],
+        Constraint::PointOnCircle { point, .. } => set![point],
+        Constraint::Symmetric { point, .. } => set![point],
     }
 }
 
