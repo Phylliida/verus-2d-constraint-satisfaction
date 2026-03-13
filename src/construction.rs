@@ -625,6 +625,12 @@ proof fn lemma_constraint_entities_nonempty<T: OrderedField>(c: Constraint<T>)
         Constraint::Midpoint { mid, .. } => {
             assert(constraint_entities(c).contains(mid));
         }
+        Constraint::Perpendicular { a1, .. } => {
+            assert(constraint_entities(c).contains(a1));
+        }
+        Constraint::Parallel { a1, .. } => {
+            assert(constraint_entities(c).contains(a1));
+        }
     }
 }
 
@@ -642,6 +648,14 @@ proof fn lemma_locus_entities_subset_entities<T: OrderedField>(c: Constraint<T>)
                 assert(le.contains(k) ==> k == point);
             }
             Constraint::EqualLengthSq { a1, a2, b1, b2 } => {
+                // le = set![a1, a2], e = set![a1, a2, b1, b2]
+                assert(le.contains(k) ==> k == a1 || k == a2);
+            }
+            Constraint::Perpendicular { a1, a2, b1, b2 } => {
+                // le = set![a1, a2], e = set![a1, a2, b1, b2]
+                assert(le.contains(k) ==> k == a1 || k == a2);
+            }
+            Constraint::Parallel { a1, a2, b1, b2 } => {
                 // le = set![a1, a2], e = set![a1, a2, b1, b2]
                 assert(le.contains(k) ==> k == a1 || k == a2);
             }
@@ -742,6 +756,31 @@ proof fn lemma_last_step_locus_nontrivial<T: OrderedField>(
                 assert(target == b);
                 assert(resolved.dom().contains(mid));
                 assert(resolved.dom().contains(a));
+            }
+        }
+        Constraint::Perpendicular { a1, a2, b1, b2 } => {
+            // locus_entities = set![a1, a2], so target must be a1 or a2
+            if target == a1 {
+                assert(resolved.dom().contains(a2));
+                assert(resolved.dom().contains(b1));
+                assert(resolved.dom().contains(b2));
+            } else {
+                assert(target == a2);
+                assert(resolved.dom().contains(a1));
+                assert(resolved.dom().contains(b1));
+                assert(resolved.dom().contains(b2));
+            }
+        }
+        Constraint::Parallel { a1, a2, b1, b2 } => {
+            if target == a1 {
+                assert(resolved.dom().contains(a2));
+                assert(resolved.dom().contains(b1));
+                assert(resolved.dom().contains(b2));
+            } else {
+                assert(target == a2);
+                assert(resolved.dom().contains(a1));
+                assert(resolved.dom().contains(b1));
+                assert(resolved.dom().contains(b2));
             }
         }
     }

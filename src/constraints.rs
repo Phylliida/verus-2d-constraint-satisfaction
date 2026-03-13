@@ -3,8 +3,6 @@ use verus_algebra::traits::*;
 use verus_geometry::point2::*;
 use verus_geometry::voronoi::sq_dist_2d;
 use verus_geometry::line2::*;
-use verus_geometry::orient2d::det2d;
-use verus_linalg::vec2::ops::dot;
 use crate::entities::*;
 
 verus! {
@@ -120,18 +118,21 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
         Constraint::Perpendicular { a1, a2, b1, b2 } => {
             resolved.dom().contains(a1) && resolved.dom().contains(a2) &&
             resolved.dom().contains(b1) && resolved.dom().contains(b2) && {
-                let da = sub2(resolved[a2], resolved[a1]);
+                // dot(sub2(a2, a1), sub2(b2, b1)) ≡ 0, expressed as point_on_line2
+                // to match the locus form and simplify soundness proofs.
                 let db = sub2(resolved[b2], resolved[b1]);
-                dot(da, db).eqv(T::zero())
+                let c = db.x.mul(resolved[a1].x).add(db.y.mul(resolved[a1].y)).neg();
+                point_on_line2(Line2 { a: db.x, b: db.y, c }, resolved[a2])
             }
         }
 
         Constraint::Parallel { a1, a2, b1, b2 } => {
             resolved.dom().contains(a1) && resolved.dom().contains(a2) &&
             resolved.dom().contains(b1) && resolved.dom().contains(b2) && {
-                let da = sub2(resolved[a2], resolved[a1]);
+                // det2d(sub2(a2, a1), sub2(b2, b1)) ≡ 0, expressed as point_on_line2
                 let db = sub2(resolved[b2], resolved[b1]);
-                det2d(da, db).eqv(T::zero())
+                let c = db.y.mul(resolved[a1].x).add(db.x.neg().mul(resolved[a1].y)).neg();
+                point_on_line2(Line2 { a: db.y, b: db.x.neg(), c }, resolved[a2])
             }
         }
     }
