@@ -13,4 +13,7 @@ pub mod construction;
 #[cfg(verus_keep_ghost)]
 pub mod solver;
 
+#[cfg(verus_keep_ghost)]
+pub mod construction_ext;
+
 pub mod runtime;
