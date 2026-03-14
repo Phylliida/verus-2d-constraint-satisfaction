@@ -64,6 +64,16 @@ pub open spec fn lift_constraint<F: OrderedField, R: PositiveRadicand<F>>(
             Constraint::PointOnCircle { point, center, radius_point },
         Constraint::Symmetric { point, original, axis_a, axis_b } =>
             Constraint::Symmetric { point, original, axis_a, axis_b },
+        Constraint::FixedPoint { point, x, y } =>
+            Constraint::FixedPoint { point, x: qext_from_rational(x), y: qext_from_rational(y) },
+        Constraint::Ratio { a1, a2, b1, b2, ratio_sq } =>
+            Constraint::Ratio { a1, a2, b1, b2, ratio_sq: qext_from_rational(ratio_sq) },
+        Constraint::Tangent { line_a, line_b, center, radius_point } =>
+            Constraint::Tangent { line_a, line_b, center, radius_point },
+        Constraint::CircleTangent { c1, rp1, c2, rp2 } =>
+            Constraint::CircleTangent { c1, rp1, c2, rp2 },
+        Constraint::Angle { a1, a2, b1, b2, cos_sq } =>
+            Constraint::Angle { a1, a2, b1, b2, cos_sq: qext_from_rational(cos_sq) },
     }
 }
 
@@ -1528,6 +1538,87 @@ pub proof fn lemma_lift_constraint_to_locus<F: OrderedField, R: PositiveRadicand
                     resolved[original], resolved[axis_a], resolved[axis_b]);
             }
             // else: both FullPlane
+        }
+        Constraint::FixedPoint { point, x, y } => {
+            if target == point {
+                // AtPoint(Point2{qext(x), qext(y)}) vs AtPoint(lift_point2(Point2{x,y}))
+                // lift_point2(Point2{x,y}) = Point2{qext(x), qext(y)} — syntactically equal
+                SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(x));
+                SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(y));
+            }
+        }
+        Constraint::Ratio { a1, a2, b1, b2, ratio_sq } => {
+            if target == a1 && resolved.dom().contains(a2) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
+                // OnCircle(center=lift_point2(resolved[a2]), radius_sq=qext(ratio_sq)*sq_dist_lifted)
+                // vs lift of OnCircle(center=resolved[a2], radius_sq=ratio_sq*sq_dist(b1,b2))
+                // center: reflexive
+                SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(resolved[a2].x));
+                SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(resolved[a2].y));
+                // radius: qext(ratio_sq)*sq_dist_lifted ≡ qext(ratio_sq*sq_dist(b1,b2))
+                lemma_lift_sq_dist_2d_eqv::<F, R>(resolved[b1], resolved[b2]);
+                // sq_dist_lifted ≡ qext(sq_dist_base), flip
+                SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+                    sq_dist_2d(lift_point2::<F, R>(resolved[b1]), lift_point2::<F, R>(resolved[b2])),
+                    qext_from_rational::<F, R>(sq_dist_2d(resolved[b1], resolved[b2])),
+                );
+                // qext(ratio_sq) * sq_dist_lifted ≡ qext(ratio_sq) * qext(sq_dist_base)
+                SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(ratio_sq));
+                ring_lemmas::lemma_mul_congruence::<SpecQuadExt<F, R>>(
+                    qext_from_rational::<F, R>(ratio_sq), qext_from_rational::<F, R>(ratio_sq),
+                    sq_dist_2d(lift_point2::<F, R>(resolved[b1]), lift_point2::<F, R>(resolved[b2])),
+                    qext_from_rational::<F, R>(sq_dist_2d(resolved[b1], resolved[b2])),
+                );
+                // qext(ratio_sq) * qext(sq_dist_base) ≡ qext(ratio_sq * sq_dist_base)
+                lemma_rational_mul::<F, R>(ratio_sq, sq_dist_2d(resolved[b1], resolved[b2]));
+                SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+                    qext_from_rational::<F, R>(ratio_sq.mul(sq_dist_2d(resolved[b1], resolved[b2]))),
+                    qext_from_rational::<F, R>(ratio_sq).mul(qext_from_rational::<F, R>(sq_dist_2d(resolved[b1], resolved[b2]))),
+                );
+                // Chain
+                SpecQuadExt::<F, R>::axiom_eqv_transitive(
+                    qext_from_rational::<F, R>(ratio_sq).mul(
+                        sq_dist_2d(lift_point2::<F, R>(resolved[b1]), lift_point2::<F, R>(resolved[b2]))),
+                    qext_from_rational::<F, R>(ratio_sq).mul(
+                        qext_from_rational::<F, R>(sq_dist_2d(resolved[b1], resolved[b2]))),
+                    qext_from_rational::<F, R>(ratio_sq.mul(sq_dist_2d(resolved[b1], resolved[b2]))),
+                );
+            } else if target == a2 && resolved.dom().contains(a1) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
+                // Same pattern with a1 as center
+                SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(resolved[a1].x));
+                SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(resolved[a1].y));
+                lemma_lift_sq_dist_2d_eqv::<F, R>(resolved[b1], resolved[b2]);
+                SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+                    sq_dist_2d(lift_point2::<F, R>(resolved[b1]), lift_point2::<F, R>(resolved[b2])),
+                    qext_from_rational::<F, R>(sq_dist_2d(resolved[b1], resolved[b2])),
+                );
+                SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(ratio_sq));
+                ring_lemmas::lemma_mul_congruence::<SpecQuadExt<F, R>>(
+                    qext_from_rational::<F, R>(ratio_sq), qext_from_rational::<F, R>(ratio_sq),
+                    sq_dist_2d(lift_point2::<F, R>(resolved[b1]), lift_point2::<F, R>(resolved[b2])),
+                    qext_from_rational::<F, R>(sq_dist_2d(resolved[b1], resolved[b2])),
+                );
+                lemma_rational_mul::<F, R>(ratio_sq, sq_dist_2d(resolved[b1], resolved[b2]));
+                SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+                    qext_from_rational::<F, R>(ratio_sq.mul(sq_dist_2d(resolved[b1], resolved[b2]))),
+                    qext_from_rational::<F, R>(ratio_sq).mul(qext_from_rational::<F, R>(sq_dist_2d(resolved[b1], resolved[b2]))),
+                );
+                SpecQuadExt::<F, R>::axiom_eqv_transitive(
+                    qext_from_rational::<F, R>(ratio_sq).mul(
+                        sq_dist_2d(lift_point2::<F, R>(resolved[b1]), lift_point2::<F, R>(resolved[b2]))),
+                    qext_from_rational::<F, R>(ratio_sq).mul(
+                        qext_from_rational::<F, R>(sq_dist_2d(resolved[b1], resolved[b2]))),
+                    qext_from_rational::<F, R>(ratio_sq.mul(sq_dist_2d(resolved[b1], resolved[b2]))),
+                );
+            }
+        }
+        Constraint::Tangent { .. } => {
+            // Both sides are FullPlane — trivially eqv
+        }
+        Constraint::CircleTangent { .. } => {
+            // Both sides are FullPlane
+        }
+        Constraint::Angle { .. } => {
+            // Both sides are FullPlane
         }
     }
 }

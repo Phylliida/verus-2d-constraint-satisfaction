@@ -559,6 +559,79 @@ pub fn constraint_to_locus_exec(
                 RuntimeLocus::FullPlane
             }
         }
+
+        RuntimeConstraint::FixedPoint { point, x, y, .. } => {
+            proof {
+                assert(model == Constraint::<RationalModel>::FixedPoint {
+                    point: *point as nat, x: x@, y: y@,
+                });
+            }
+            if target == *point {
+                let px = copy_rational(x);
+                let py = copy_rational(y);
+                let pt = RuntimePoint2::new(px, py);
+                RuntimeLocus::AtPoint { point: pt }
+            } else {
+                RuntimeLocus::FullPlane
+            }
+        }
+
+        RuntimeConstraint::Ratio { a1, a2, b1, b2, ratio_sq, .. } => {
+            proof {
+                assert(model == Constraint::<RationalModel>::Ratio {
+                    a1: *a1 as nat, a2: *a2 as nat, b1: *b1 as nat, b2: *b2 as nat, ratio_sq: ratio_sq@,
+                });
+            }
+            if target == *a1 && resolved_flags[*a2] && resolved_flags[*b1] && resolved_flags[*b2] {
+                proof {
+                    assert(resolved.dom().contains(*a2 as nat));
+                    assert(resolved.dom().contains(*b1 as nat));
+                    assert(resolved.dom().contains(*b2 as nat));
+                    assert(resolved[*a2 as nat] == points@[*a2 as int]@);
+                    assert(resolved[*b1 as nat] == points@[*b1 as int]@);
+                    assert(resolved[*b2 as nat] == points@[*b2 as int]@);
+                }
+                let db = sq_dist_2d_exec(&points[*b1], &points[*b2]);
+                let r2 = ratio_sq.mul(&db);
+                let center = RuntimePoint2::new(
+                    copy_rational(&points[*a2].x),
+                    copy_rational(&points[*a2].y),
+                );
+                let circle = RuntimeCircle2::from_center_radius_sq(center, r2);
+                RuntimeLocus::OnCircle { circle }
+            } else if target == *a2 && resolved_flags[*a1] && resolved_flags[*b1] && resolved_flags[*b2] {
+                proof {
+                    assert(resolved.dom().contains(*a1 as nat));
+                    assert(resolved.dom().contains(*b1 as nat));
+                    assert(resolved.dom().contains(*b2 as nat));
+                    assert(resolved[*a1 as nat] == points@[*a1 as int]@);
+                    assert(resolved[*b1 as nat] == points@[*b1 as int]@);
+                    assert(resolved[*b2 as nat] == points@[*b2 as int]@);
+                }
+                let db = sq_dist_2d_exec(&points[*b1], &points[*b2]);
+                let r2 = ratio_sq.mul(&db);
+                let center = RuntimePoint2::new(
+                    copy_rational(&points[*a1].x),
+                    copy_rational(&points[*a1].y),
+                );
+                let circle = RuntimeCircle2::from_center_radius_sq(center, r2);
+                RuntimeLocus::OnCircle { circle }
+            } else {
+                RuntimeLocus::FullPlane
+            }
+        }
+
+        RuntimeConstraint::Tangent { .. } => {
+            RuntimeLocus::FullPlane
+        }
+
+        RuntimeConstraint::CircleTangent { .. } => {
+            RuntimeLocus::FullPlane
+        }
+
+        RuntimeConstraint::Angle { .. } => {
+            RuntimeLocus::FullPlane
+        }
     }
 }
 

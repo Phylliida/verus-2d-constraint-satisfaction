@@ -73,6 +73,11 @@ pub enum RuntimeConstraint {
     Collinear { a: usize, b: usize, c: usize, model: Ghost<Constraint<RationalModel>> },
     PointOnCircle { point: usize, center: usize, radius_point: usize, model: Ghost<Constraint<RationalModel>> },
     Symmetric { point: usize, original: usize, axis_a: usize, axis_b: usize, model: Ghost<Constraint<RationalModel>> },
+    FixedPoint { point: usize, x: RuntimeRational, y: RuntimeRational, model: Ghost<Constraint<RationalModel>> },
+    Ratio { a1: usize, a2: usize, b1: usize, b2: usize, ratio_sq: RuntimeRational, model: Ghost<Constraint<RationalModel>> },
+    Tangent { line_a: usize, line_b: usize, center: usize, radius_point: usize, model: Ghost<Constraint<RationalModel>> },
+    CircleTangent { c1: usize, rp1: usize, c2: usize, rp2: usize, model: Ghost<Constraint<RationalModel>> },
+    Angle { a1: usize, a2: usize, b1: usize, b2: usize, cos_sq: RuntimeRational, model: Ghost<Constraint<RationalModel>> },
 }
 
 /// Well-formedness: the runtime constraint matches its ghost model and
@@ -130,6 +135,28 @@ pub open spec fn runtime_constraint_wf(
             model@ == Constraint::<RationalModel>::Symmetric { point: point as nat, original: original as nat, axis_a: axis_a as nat, axis_b: axis_b as nat }
             && (point as int) < n_points && (original as int) < n_points
             && (axis_a as int) < n_points && (axis_b as int) < n_points,
+        RuntimeConstraint::FixedPoint { point, x, y, model } =>
+            x.wf_spec() && y.wf_spec()
+            && model@ == Constraint::<RationalModel>::FixedPoint { point: point as nat, x: x@, y: y@ }
+            && (point as int) < n_points,
+        RuntimeConstraint::Ratio { a1, a2, b1, b2, ratio_sq, model } =>
+            ratio_sq.wf_spec()
+            && model@ == Constraint::<RationalModel>::Ratio { a1: a1 as nat, a2: a2 as nat, b1: b1 as nat, b2: b2 as nat, ratio_sq: ratio_sq@ }
+            && (a1 as int) < n_points && (a2 as int) < n_points
+            && (b1 as int) < n_points && (b2 as int) < n_points,
+        RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, model } =>
+            model@ == Constraint::<RationalModel>::Tangent { line_a: line_a as nat, line_b: line_b as nat, center: center as nat, radius_point: radius_point as nat }
+            && (line_a as int) < n_points && (line_b as int) < n_points
+            && (center as int) < n_points && (radius_point as int) < n_points,
+        RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, model } =>
+            model@ == Constraint::<RationalModel>::CircleTangent { c1: c1 as nat, rp1: rp1 as nat, c2: c2 as nat, rp2: rp2 as nat }
+            && (c1 as int) < n_points && (rp1 as int) < n_points
+            && (c2 as int) < n_points && (rp2 as int) < n_points,
+        RuntimeConstraint::Angle { a1, a2, b1, b2, cos_sq, model } =>
+            cos_sq.wf_spec()
+            && model@ == Constraint::<RationalModel>::Angle { a1: a1 as nat, a2: a2 as nat, b1: b1 as nat, b2: b2 as nat, cos_sq: cos_sq@ }
+            && (a1 as int) < n_points && (a2 as int) < n_points
+            && (b1 as int) < n_points && (b2 as int) < n_points,
     }
 }
 
@@ -150,6 +177,11 @@ pub open spec fn runtime_constraint_model(rc: RuntimeConstraint) -> Constraint<R
         RuntimeConstraint::Collinear { model, .. } => model@,
         RuntimeConstraint::PointOnCircle { model, .. } => model@,
         RuntimeConstraint::Symmetric { model, .. } => model@,
+        RuntimeConstraint::FixedPoint { model, .. } => model@,
+        RuntimeConstraint::Ratio { model, .. } => model@,
+        RuntimeConstraint::Tangent { model, .. } => model@,
+        RuntimeConstraint::CircleTangent { model, .. } => model@,
+        RuntimeConstraint::Angle { model, .. } => model@,
     }
 }
 
@@ -409,6 +441,97 @@ pub fn check_constraint_satisfied_exec(
             // Compare point with reflected
             rational_eqv(&points[*point].x, &ref_x)
                 && rational_eqv(&points[*point].y, &ref_y)
+        }
+
+        RuntimeConstraint::FixedPoint { point, x, y, .. } => {
+            proof {
+                assert(resolved.dom().contains(*point as nat));
+                assert(resolved[*point as nat] == points@[*point as int]@);
+            }
+            rational_eqv(&points[*point].x, x) && rational_eqv(&points[*point].y, y)
+        }
+
+        RuntimeConstraint::Ratio { a1, a2, b1, b2, ratio_sq, .. } => {
+            proof {
+                assert(resolved.dom().contains(*a1 as nat));
+                assert(resolved.dom().contains(*a2 as nat));
+                assert(resolved.dom().contains(*b1 as nat));
+                assert(resolved.dom().contains(*b2 as nat));
+                assert(resolved[*a1 as nat] == points@[*a1 as int]@);
+                assert(resolved[*a2 as nat] == points@[*a2 as int]@);
+                assert(resolved[*b1 as nat] == points@[*b1 as int]@);
+                assert(resolved[*b2 as nat] == points@[*b2 as int]@);
+            }
+            let da = sq_dist_2d_exec(&points[*a1], &points[*a2]);
+            let db = sq_dist_2d_exec(&points[*b1], &points[*b2]);
+            let rhs = ratio_sq.mul(&db);
+            rational_eqv(&da, &rhs)
+        }
+
+        RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, .. } => {
+            proof {
+                assert(resolved.dom().contains(*line_a as nat));
+                assert(resolved.dom().contains(*line_b as nat));
+                assert(resolved.dom().contains(*center as nat));
+                assert(resolved.dom().contains(*radius_point as nat));
+                assert(resolved[*line_a as nat] == points@[*line_a as int]@);
+                assert(resolved[*line_b as nat] == points@[*line_b as int]@);
+                assert(resolved[*center as nat] == points@[*center as int]@);
+                assert(resolved[*radius_point as nat] == points@[*radius_point as int]@);
+            }
+            let line = line2_from_points_exec(&points[*line_a], &points[*line_b]);
+            let eval = line2_eval_exec(&line, &points[*center]);
+            let norm_sq = line.a.mul(&line.a).add(&line.b.mul(&line.b));
+            let r_sq = sq_dist_2d_exec(&points[*center], &points[*radius_point]);
+            let lhs = eval.mul(&eval);
+            let rhs = norm_sq.mul(&r_sq);
+            rational_eqv(&lhs, &rhs)
+        }
+
+        RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } => {
+            proof {
+                assert(resolved.dom().contains(*c1 as nat));
+                assert(resolved.dom().contains(*rp1 as nat));
+                assert(resolved.dom().contains(*c2 as nat));
+                assert(resolved.dom().contains(*rp2 as nat));
+                assert(resolved[*c1 as nat] == points@[*c1 as int]@);
+                assert(resolved[*rp1 as nat] == points@[*rp1 as int]@);
+                assert(resolved[*c2 as nat] == points@[*c2 as int]@);
+                assert(resolved[*rp2 as nat] == points@[*rp2 as int]@);
+            }
+            let d = sq_dist_2d_exec(&points[*c1], &points[*c2]);
+            let r1 = sq_dist_2d_exec(&points[*c1], &points[*rp1]);
+            let r2 = sq_dist_2d_exec(&points[*c2], &points[*rp2]);
+            let one = RuntimeRational::from_int(1);
+            let two = one.add(&one);
+            let four = two.mul(&two);
+            let diff = d.sub(&r1).sub(&r2);
+            let lhs = diff.mul(&diff);
+            let rhs = four.mul(&r1).mul(&r2);
+            rational_eqv(&lhs, &rhs)
+        }
+
+        RuntimeConstraint::Angle { a1, a2, b1, b2, cos_sq, .. } => {
+            proof {
+                assert(resolved.dom().contains(*a1 as nat));
+                assert(resolved.dom().contains(*a2 as nat));
+                assert(resolved.dom().contains(*b1 as nat));
+                assert(resolved.dom().contains(*b2 as nat));
+                assert(resolved[*a1 as nat] == points@[*a1 as int]@);
+                assert(resolved[*a2 as nat] == points@[*a2 as int]@);
+                assert(resolved[*b1 as nat] == points@[*b1 as int]@);
+                assert(resolved[*b2 as nat] == points@[*b2 as int]@);
+            }
+            let d1x = points[*a2].x.sub(&points[*a1].x);
+            let d1y = points[*a2].y.sub(&points[*a1].y);
+            let d2x = points[*b2].x.sub(&points[*b1].x);
+            let d2y = points[*b2].y.sub(&points[*b1].y);
+            let dp = d1x.mul(&d2x).add(&d1y.mul(&d2y));
+            let n1 = d1x.mul(&d1x).add(&d1y.mul(&d1y));
+            let n2 = d2x.mul(&d2x).add(&d2y.mul(&d2y));
+            let lhs = dp.mul(&dp);
+            let rhs = cos_sq.mul(&n1).mul(&n2);
+            rational_eqv(&lhs, &rhs)
         }
     }
 }

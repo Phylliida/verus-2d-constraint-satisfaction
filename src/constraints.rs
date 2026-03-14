@@ -56,6 +56,26 @@ pub enum Constraint<T: OrderedField> {
 
     /// Point is the reflection of `original` across the line through `axis_a` and `axis_b`.
     Symmetric { point: EntityId, original: EntityId, axis_a: EntityId, axis_b: EntityId },
+
+    /// Fix a point to exact coordinates.
+    FixedPoint { point: EntityId, x: T, y: T },
+
+    /// Ratio of squared distances: |a1-a2|² ≡ ratio_sq * |b1-b2|²
+    Ratio { a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId, ratio_sq: T },
+
+    /// Line-circle tangency: the squared distance from center to the line through
+    /// (line_a, line_b) equals the squared radius (defined by center→radius_point).
+    /// eval² ≡ norm_sq * r_sq where line = line2_from_points(line_a, line_b).
+    Tangent { line_a: EntityId, line_b: EntityId, center: EntityId, radius_point: EntityId },
+
+    /// Circle-circle tangency (external): (D - R1 - R2)² ≡ 4·R1·R2
+    /// where D = sq_dist(c1,c2), Ri = sq_dist(ci, rpi).
+    CircleTangent { c1: EntityId, rp1: EntityId, c2: EntityId, rp2: EntityId },
+
+    /// Angle between two segments via squared cosine:
+    /// dot(d1,d2)² ≡ cos_sq · norm_sq(d1) · norm_sq(d2)
+    /// where d1 = sub2(a2,a1), d2 = sub2(b2,b1).
+    Angle { a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId, cos_sq: T },
 }
 
 // ===========================================================================
@@ -174,6 +194,54 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
                 resolved[original], resolved[axis_a], resolved[axis_b],
             ))
         }
+
+        Constraint::FixedPoint { point, x, y } => {
+            resolved.dom().contains(point) &&
+            resolved[point].x.eqv(x) && resolved[point].y.eqv(y)
+        }
+
+        Constraint::Ratio { a1, a2, b1, b2, ratio_sq } => {
+            resolved.dom().contains(a1) && resolved.dom().contains(a2) &&
+            resolved.dom().contains(b1) && resolved.dom().contains(b2) &&
+            sq_dist_2d(resolved[a1], resolved[a2]).eqv(
+                ratio_sq.mul(sq_dist_2d(resolved[b1], resolved[b2]))
+            )
+        }
+
+        Constraint::Tangent { line_a, line_b, center, radius_point } => {
+            resolved.dom().contains(line_a) && resolved.dom().contains(line_b) &&
+            resolved.dom().contains(center) && resolved.dom().contains(radius_point) && {
+                let line = line2_from_points(resolved[line_a], resolved[line_b]);
+                let eval = line2_eval(line, resolved[center]);
+                let norm_sq = line.a.mul(line.a).add(line.b.mul(line.b));
+                let r_sq = sq_dist_2d(resolved[center], resolved[radius_point]);
+                eval.mul(eval).eqv(norm_sq.mul(r_sq))
+            }
+        }
+
+        Constraint::CircleTangent { c1, rp1, c2, rp2 } => {
+            resolved.dom().contains(c1) && resolved.dom().contains(rp1) &&
+            resolved.dom().contains(c2) && resolved.dom().contains(rp2) && {
+                let d = sq_dist_2d(resolved[c1], resolved[c2]);
+                let r1 = sq_dist_2d(resolved[c1], resolved[rp1]);
+                let r2 = sq_dist_2d(resolved[c2], resolved[rp2]);
+                let four = T::one().add(T::one()).mul(T::one().add(T::one()));
+                let diff = d.sub(r1).sub(r2);
+                diff.mul(diff).eqv(four.mul(r1).mul(r2))
+            }
+        }
+
+        Constraint::Angle { a1, a2, b1, b2, cos_sq } => {
+            resolved.dom().contains(a1) && resolved.dom().contains(a2) &&
+            resolved.dom().contains(b1) && resolved.dom().contains(b2) && {
+                let d1 = sub2(resolved[a2], resolved[a1]);
+                let d2 = sub2(resolved[b2], resolved[b1]);
+                let dp = d1.x.mul(d2.x).add(d1.y.mul(d2.y));
+                let n1 = d1.x.mul(d1.x).add(d1.y.mul(d1.y));
+                let n2 = d2.x.mul(d2.x).add(d2.y.mul(d2.y));
+                dp.mul(dp).eqv(cos_sq.mul(n1).mul(n2))
+            }
+        }
     }
 }
 
@@ -194,6 +262,11 @@ pub open spec fn constraint_entities<T: OrderedField>(c: Constraint<T>) -> Set<E
         Constraint::Collinear { a, b, c } => set![a, b, c],
         Constraint::PointOnCircle { point, center, radius_point } => set![point, center, radius_point],
         Constraint::Symmetric { point, original, axis_a, axis_b } => set![point, original, axis_a, axis_b],
+        Constraint::FixedPoint { point, .. } => set![point],
+        Constraint::Ratio { a1, a2, b1, b2, .. } => set![a1, a2, b1, b2],
+        Constraint::Tangent { line_a, line_b, center, radius_point } => set![line_a, line_b, center, radius_point],
+        Constraint::CircleTangent { c1, rp1, c2, rp2 } => set![c1, rp1, c2, rp2],
+        Constraint::Angle { a1, a2, b1, b2, .. } => set![a1, a2, b1, b2],
     }
 }
 
@@ -224,6 +297,16 @@ pub open spec fn constraint_well_formed<T: OrderedField>(c: Constraint<T>) -> bo
         Constraint::Symmetric { point, original, axis_a, axis_b } =>
             point != original && point != axis_a && point != axis_b
             && original != axis_a && original != axis_b && axis_a != axis_b,
+        Constraint::FixedPoint { .. } => true,
+        Constraint::Ratio { a1, a2, b1, b2, .. } =>
+            a1 != a2 && a1 != b1 && a1 != b2 && a2 != b1 && a2 != b2,
+        Constraint::Tangent { line_a, line_b, center, radius_point } =>
+            line_a != line_b && line_a != center && line_a != radius_point
+            && line_b != center && line_b != radius_point && center != radius_point,
+        Constraint::CircleTangent { c1, rp1, c2, rp2 } =>
+            c1 != rp1 && c2 != rp2 && c1 != c2,
+        Constraint::Angle { a1, a2, b1, b2, .. } =>
+            a1 != a2 && b1 != b2 && a1 != b1 && a1 != b2 && a2 != b1 && a2 != b2,
     }
 }
 
@@ -246,6 +329,11 @@ pub open spec fn constraint_locus_entities<T: OrderedField>(c: Constraint<T>) ->
         Constraint::Collinear { a, b, c } => set![a, b, c],
         Constraint::PointOnCircle { point, .. } => set![point],
         Constraint::Symmetric { point, .. } => set![point],
+        Constraint::FixedPoint { point, .. } => set![point],
+        Constraint::Ratio { a1, a2, .. } => set![a1, a2],
+        Constraint::Tangent { .. } => set![],
+        Constraint::CircleTangent { .. } => set![],
+        Constraint::Angle { .. } => set![],
     }
 }
 
