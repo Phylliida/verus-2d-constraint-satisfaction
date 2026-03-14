@@ -143,7 +143,7 @@ pub open spec fn remove_id(ids: Seq<EntityId>, idx: int) -> Seq<EntityId> {
 // ===========================================================================
 
 /// intersect_loci preserves the entity id: step_target of the result is id.
-proof fn lemma_intersect_loci_target<T: OrderedField>(
+pub proof fn lemma_intersect_loci_target<T: OrderedField>(
     id: EntityId, l1: Locus2d<T>, l2: Locus2d<T>,
 )
     ensures
