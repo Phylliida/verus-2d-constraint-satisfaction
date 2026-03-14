@@ -120,7 +120,6 @@ pub open spec fn execute_plan<T: OrderedField>(
 /// A step is well-formed: its loci are non-degenerate (lines not parallel, etc.)
 pub open spec fn step_well_formed<T: OrderedField>(
     step: ConstructionStep<T>,
-    resolved: ResolvedPoints<T>,
 ) -> bool {
     match step {
         ConstructionStep::Fixed { .. } => true,
@@ -168,9 +167,9 @@ pub open spec fn plan_valid<T: OrderedField>(
         0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
         step_target(plan[i]) != step_target(plan[j])
 
-    // Each step is well-formed given previously resolved entities
+    // Each step is well-formed
     &&& forall|i: int| 0 <= i < plan.len() ==>
-        step_well_formed(plan[i], execute_plan(plan.take(i as int)))
+        step_well_formed(#[trigger] plan[i])
 }
 
 /// A plan is "locus-ordered" for a set of constraints:
@@ -913,7 +912,6 @@ pub proof fn lemma_intersect_loci_satisfies_both<T: OrderedField>(
         !matches!(l2, Locus2d::FullPlane),
         step_well_formed(
             intersect_loci(id, l1, l2).unwrap(),
-            Map::<EntityId, Point2<T>>::empty(),
         ),
     ensures ({
         let step = intersect_loci(id, l1, l2).unwrap();
@@ -1015,7 +1013,7 @@ pub proof fn lemma_end_to_end<T: OrderedField>(
 // ===========================================================================
 
 /// Lift a construction step from F to SpecQuadExt<F, R>.
-pub open spec fn lift_construction_step<F: OrderedField, R: Radicand<F>>(
+pub open spec fn lift_construction_step<F: OrderedField, R: PositiveRadicand<F>>(
     step: ConstructionStep<F>,
 ) -> ConstructionStep<SpecQuadExt<F, R>> {
     match step {
@@ -1056,7 +1054,7 @@ pub open spec fn execute_step_in_ext<F: OrderedField, R: PositiveRadicand<F>>(
 // ===========================================================================
 
 /// Lifting preserves step_target.
-pub proof fn lemma_lift_step_target<F: OrderedField, R: Radicand<F>>(
+pub proof fn lemma_lift_step_target<F: OrderedField, R: PositiveRadicand<F>>(
     step: ConstructionStep<F>,
 )
     ensures
@@ -1104,7 +1102,6 @@ pub proof fn lemma_lifted_step_well_formed<F: OrderedField, R: PositiveRadicand<
     ensures
         step_well_formed(
             lift_construction_step::<F, R>(step),
-            Map::<EntityId, Point2<SpecQuadExt<F, R>>>::empty(),
         ),
 {
     match step {
@@ -1225,11 +1222,16 @@ proof fn lemma_lifted_cc_well_formed<F: OrderedField, R: PositiveRadicand<F>>(
 
     // On c1: sq_dist(p, lift(c1.center)).eqv(qext_from_rational(c1.radius_sq))
     lemma_cc_intersection_on_c1::<F, R>(circle1, circle2, plus);
-    // = point_on_circle2(lift_circle2(c1), p)
+    // Help Z3 see lift_circle2 unfolds to match the lemma conclusion
+    assert(lift_circle2::<F, R>(circle1).center == lift_point2::<F, R>(circle1.center));
+    assert(lift_circle2::<F, R>(circle1).radius_sq == qext_from_rational::<F, R>(circle1.radius_sq));
+    assert(point_on_circle2(lift_circle2::<F, R>(circle1), p));
 
     // On c2: sq_dist(p, lift(c2.center)).eqv(qext_from_rational(c2.radius_sq))
     lemma_cc_intersection_on_c2::<F, R>(circle1, circle2, plus);
-    // = point_on_circle2(lift_circle2(c2), p)
+    assert(lift_circle2::<F, R>(circle2).center == lift_point2::<F, R>(circle2.center));
+    assert(lift_circle2::<F, R>(circle2).radius_sq == qext_from_rational::<F, R>(circle2.radius_sq));
+    assert(point_on_circle2(lift_circle2::<F, R>(circle2), p));
 }
 
 /// Geometric correctness of execute_step_in_ext: the computed point
