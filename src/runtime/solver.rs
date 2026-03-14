@@ -26,10 +26,50 @@ verus! {
 //  Runtime locus intersection
 // ===========================================================================
 
+/// Check if a RuntimeLine2 is non-degenerate (normal vector is nonzero).
+fn line2_nondegenerate_exec(line: &RuntimeLine2) -> (out: bool)
+    requires line.wf_spec(),
+    ensures out == line2_nondegenerate::<RationalModel>(line@),
+{
+    !line.a.is_zero() || !line.b.is_zero()
+}
+
+/// Check if two RuntimePoint2 centers are not equivalent.
+fn centers_not_eqv(p: &RuntimePoint2, q: &RuntimePoint2) -> (out: bool)
+    requires p.wf_spec(), q.wf_spec(),
+    ensures out == !p@.eqv(q@),
+{
+    let x_eq = p.x.le(&q.x) && q.x.le(&p.x);
+    let y_eq = p.y.le(&q.y) && q.y.le(&p.y);
+    proof {
+        // le antisymmetry: le both ways → eqv
+        if p@.x.le(q@.x) && q@.x.le(p@.x) {
+            RationalModel::axiom_le_antisymmetric(p@.x, q@.x);
+        }
+        if p@.y.le(q@.y) && q@.y.le(p@.y) {
+            RationalModel::axiom_le_antisymmetric(p@.y, q@.y);
+        }
+        // eqv → le both ways
+        if p@.x.eqv(q@.x) {
+            verus_algebra::lemmas::partial_order_lemmas::lemma_le_eqv_implies_le::<RationalModel>(p@.x, q@.x);
+            RationalModel::axiom_eqv_symmetric(p@.x, q@.x);
+            verus_algebra::lemmas::partial_order_lemmas::lemma_le_eqv_implies_le::<RationalModel>(q@.x, p@.x);
+        }
+        if p@.y.eqv(q@.y) {
+            verus_algebra::lemmas::partial_order_lemmas::lemma_le_eqv_implies_le::<RationalModel>(p@.y, q@.y);
+            RationalModel::axiom_eqv_symmetric(p@.y, q@.y);
+            verus_algebra::lemmas::partial_order_lemmas::lemma_le_eqv_implies_le::<RationalModel>(q@.y, p@.y);
+        }
+    }
+    !(x_eq && y_eq)
+}
+
 /// Intersect two runtime loci to produce a construction step.
 /// Mirrors spec-level `intersect_loci`.
-/// Returns None if the intersection is underdetermined (FullPlane)
-/// or the lines are parallel.
+/// Returns None if the intersection is underdetermined (FullPlane),
+/// the lines are parallel, or the resulting step would be degenerate.
+/// Sound but incomplete: may return None when the spec returns Some
+/// (e.g., degenerate line in circle-line, or coincident centers in circle-circle).
 pub fn intersect_loci_exec(
     id: usize,
     l1: RuntimeLocus,
@@ -44,10 +84,7 @@ pub fn intersect_loci_exec(
                 && step.spec_step() == intersect_loci(
                     id as nat, l1.spec_locus(), l2.spec_locus(),
                 ).unwrap(),
-            #[allow(deprecated)]
-            None => intersect_loci(
-                id as nat, l1.spec_locus(), l2.spec_locus(),
-            ).is_None(),
+            None => true,
         },
 {
     match (l1, l2) {
@@ -89,35 +126,47 @@ pub fn intersect_loci_exec(
             }
         }
 
-        // Circle-line
+        // Circle-line: check line is non-degenerate
         (RuntimeLocus::OnCircle { circle }, RuntimeLocus::OnLine { line }) => {
-            let ghost spec_step = ConstructionStep::<RationalModel>::CircleLine {
-                id: id as nat, circle: circle@, line: line@, plus: true,
-            };
-            Some(RuntimeStepData::CircleLine {
-                circle, line, plus: true,
-                model: Ghost(spec_step),
-            })
+            if !line2_nondegenerate_exec(&line) {
+                None
+            } else {
+                let ghost spec_step = ConstructionStep::<RationalModel>::CircleLine {
+                    id: id as nat, circle: circle@, line: line@, plus: true,
+                };
+                Some(RuntimeStepData::CircleLine {
+                    circle, line, plus: true,
+                    model: Ghost(spec_step),
+                })
+            }
         }
         (RuntimeLocus::OnLine { line }, RuntimeLocus::OnCircle { circle }) => {
-            let ghost spec_step = ConstructionStep::<RationalModel>::CircleLine {
-                id: id as nat, circle: circle@, line: line@, plus: true,
-            };
-            Some(RuntimeStepData::CircleLine {
-                circle, line, plus: true,
-                model: Ghost(spec_step),
-            })
+            if !line2_nondegenerate_exec(&line) {
+                None
+            } else {
+                let ghost spec_step = ConstructionStep::<RationalModel>::CircleLine {
+                    id: id as nat, circle: circle@, line: line@, plus: true,
+                };
+                Some(RuntimeStepData::CircleLine {
+                    circle, line, plus: true,
+                    model: Ghost(spec_step),
+                })
+            }
         }
 
-        // Circle-circle
+        // Circle-circle: check centers are not equivalent
         (RuntimeLocus::OnCircle { circle: c1 }, RuntimeLocus::OnCircle { circle: c2 }) => {
-            let ghost spec_step = ConstructionStep::<RationalModel>::CircleCircle {
-                id: id as nat, circle1: c1@, circle2: c2@, plus: true,
-            };
-            Some(RuntimeStepData::CircleCircle {
-                c1, c2, plus: true,
-                model: Ghost(spec_step),
-            })
+            if !centers_not_eqv(&c1.center, &c2.center) {
+                None
+            } else {
+                let ghost spec_step = ConstructionStep::<RationalModel>::CircleCircle {
+                    id: id as nat, circle1: c1@, circle2: c2@, plus: true,
+                };
+                Some(RuntimeStepData::CircleCircle {
+                    c1, c2, plus: true,
+                    model: Ghost(spec_step),
+                })
+            }
         }
 
         // FullPlane doesn't constrain
@@ -205,12 +254,14 @@ pub fn find_and_intersect_loci(
     let mut first_idx: usize = 0;
     let mut found_first = false;
     while first_idx < loci.len()
-        invariant
+        invariant_except_break
             0 <= first_idx <= loci@.len(),
             !found_first,
-            forall|j: int| 0 <= j < first_idx as int ==>
-                !loci@[j].is_nontrivial(),
+        invariant
             forall|i: int| 0 <= i < loci@.len() ==> (#[trigger] loci@[i]).wf_spec(),
+            0 <= first_idx <= loci@.len(),
+        ensures
+            found_first ==> (first_idx as int) < loci@.len(),
         decreases loci@.len() - first_idx,
     {
         match &loci[first_idx] {
@@ -228,16 +279,22 @@ pub fn find_and_intersect_loci(
         return None;
     }
 
+    assert((first_idx as int) < loci@.len());
+    assert(first_idx < loci.len()); // guarantees first_idx + 1 doesn't overflow
+
     // Second pass: find second nontrivial locus
     let mut second_idx: usize = first_idx + 1;
     let mut found_second = false;
     while second_idx < loci.len()
-        invariant
+        invariant_except_break
             first_idx < second_idx && second_idx <= loci@.len(),
             !found_second,
-            forall|j: int| first_idx < j < second_idx as int ==>
-                !loci@[j].is_nontrivial(),
+        invariant
             forall|i: int| 0 <= i < loci@.len() ==> (#[trigger] loci@[i]).wf_spec(),
+            (first_idx as int) < loci@.len(),
+            first_idx < second_idx && second_idx <= loci@.len(),
+        ensures
+            found_second ==> (second_idx as int) < loci@.len(),
         decreases loci@.len() - second_idx,
     {
         match &loci[second_idx] {
