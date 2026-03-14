@@ -34,14 +34,13 @@ verus! {
 /// may not exist at T=Rational for circle intersections in Q(sqrt(D))).
 pub open spec fn step_geometrically_valid(step: ConstructionStep<RationalModel>) -> bool {
     match step {
-        ConstructionStep::Fixed { .. } => true,
+        ConstructionStep::PointStep { .. } => true,
         ConstructionStep::LineLine { line1, line2, .. } =>
             !line_det(line1, line2).eqv(RationalModel::from_int_spec(0)),
         ConstructionStep::CircleLine { line, .. } =>
             line2_nondegenerate(line),
         ConstructionStep::CircleCircle { circle1, circle2, .. } =>
             !circle1.center.eqv(circle2.center),
-        ConstructionStep::Determined { .. } => true,
     }
 }
 
@@ -126,20 +125,20 @@ pub fn intersect_loci_exec(
     match (l1, l2) {
         // AtPoint overrides everything
         (RuntimeLocus::AtPoint { point }, _) => {
-            let ghost spec_step = ConstructionStep::<RationalModel>::Determined {
+            let ghost spec_step = ConstructionStep::<RationalModel>::PointStep {
                 id: id as nat, position: point@,
             };
-            Some(RuntimeStepData::Determined {
+            Some(RuntimeStepData::PointStep {
                 x: point.x,
                 y: point.y,
                 model: Ghost(spec_step),
             })
         }
         (_, RuntimeLocus::AtPoint { point }) => {
-            let ghost spec_step = ConstructionStep::<RationalModel>::Determined {
+            let ghost spec_step = ConstructionStep::<RationalModel>::PointStep {
                 id: id as nat, position: point@,
             };
-            Some(RuntimeStepData::Determined {
+            Some(RuntimeStepData::PointStep {
                 x: point.x,
                 y: point.y,
                 model: Ghost(spec_step),
@@ -349,10 +348,10 @@ pub fn find_and_intersect_loci(
         // Only one nontrivial locus — check if it's AtPoint
         match &loci[first_idx] {
             RuntimeLocus::AtPoint { point } => {
-                let ghost spec_step = ConstructionStep::<RationalModel>::Determined {
+                let ghost spec_step = ConstructionStep::<RationalModel>::PointStep {
                     id: target as nat, position: point@,
                 };
-                return Some(RuntimeStepData::Determined {
+                return Some(RuntimeStepData::PointStep {
                     x: copy_rational(&point.x),
                     y: copy_rational(&point.y),
                     model: Ghost(spec_step),
@@ -418,8 +417,8 @@ fn copy_step(s: &RuntimeStepData) -> (out: RuntimeStepData)
     ensures out.wf_spec(), out.spec_step() == s.spec_step(),
 {
     match s {
-        RuntimeStepData::Fixed { x, y, model } => {
-            RuntimeStepData::Fixed {
+        RuntimeStepData::PointStep { x, y, model } => {
+            RuntimeStepData::PointStep {
                 x: copy_rational(x),
                 y: copy_rational(y),
                 model: Ghost(model@),
@@ -445,13 +444,6 @@ fn copy_step(s: &RuntimeStepData) -> (out: RuntimeStepData)
                 c1: copy_circle(c1),
                 c2: copy_circle(c2),
                 plus: *plus,
-                model: Ghost(model@),
-            }
-        }
-        RuntimeStepData::Determined { x, y, model } => {
-            RuntimeStepData::Determined {
-                x: copy_rational(x),
-                y: copy_rational(y),
                 model: Ghost(model@),
             }
         }
@@ -604,13 +596,7 @@ pub fn greedy_solve_exec(
                     Some(step) => {
                         // For rational steps, update the points array
                         match &step {
-                            RuntimeStepData::Determined { x, y, .. } => {
-                                let mut pt = RuntimePoint2::new(
-                                    copy_rational(x), copy_rational(y),
-                                );
-                                points.set_and_swap(target, &mut pt);
-                            }
-                            RuntimeStepData::Fixed { x, y, .. } => {
+                            RuntimeStepData::PointStep { x, y, .. } => {
                                 let mut pt = RuntimePoint2::new(
                                     copy_rational(x), copy_rational(y),
                                 );
@@ -994,6 +980,68 @@ pub fn solve_all_variants(
         mask = mask + 1;
     }
     results
+}
+
+// ===========================================================================
+//  Verification constraint checker
+// ===========================================================================
+
+/// Check whether a runtime constraint is a verification constraint.
+fn is_verification_constraint_exec(rc: &RuntimeConstraint) -> (out: bool)
+    ensures
+        out == is_verification_constraint(runtime_constraint_model(*rc)),
+{
+    match rc {
+        RuntimeConstraint::Tangent { .. } => true,
+        RuntimeConstraint::CircleTangent { .. } => true,
+        RuntimeConstraint::Angle { .. } => true,
+        _ => false,
+    }
+}
+
+/// Check all verification constraints are satisfied by the final resolved points.
+/// Returns true if every verification constraint in the list is satisfied.
+pub fn check_verification_constraints_exec(
+    constraints: &Vec<RuntimeConstraint>,
+    points: &Vec<RuntimePoint2>,
+) -> (out: bool)
+    requires
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
+        all_points_wf(points@),
+    ensures
+        out ==> forall|ci: int|
+            0 <= ci < constraints@.len()
+            && is_verification_constraint(runtime_constraint_model(#[trigger] constraints@[ci]))
+            ==> constraint_satisfied(
+                runtime_constraint_model(constraints@[ci]),
+                vec_to_resolved_map(points_view(points@)),
+            ),
+{
+    let mut i: usize = 0;
+    while i < constraints.len()
+        invariant
+            0 <= i <= constraints@.len(),
+            forall|j: int| 0 <= j < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[j], points@.len() as nat),
+            all_points_wf(points@),
+            // All verification constraints checked so far are satisfied
+            forall|ci: int|
+                0 <= ci < i
+                && is_verification_constraint(runtime_constraint_model(#[trigger] constraints@[ci]))
+                ==> constraint_satisfied(
+                    runtime_constraint_model(constraints@[ci]),
+                    vec_to_resolved_map(points_view(points@)),
+                ),
+    {
+        if is_verification_constraint_exec(&constraints[i]) {
+            if !check_constraint_satisfied_exec(&constraints[i], points) {
+                return false;
+            }
+        }
+        i = i + 1;
+    }
+    true
 }
 
 } // verus!

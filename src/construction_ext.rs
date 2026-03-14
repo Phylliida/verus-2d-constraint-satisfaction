@@ -234,9 +234,8 @@ pub proof fn lemma_execute_plan_in_ext_domain<F: OrderedField, R: PositiveRadica
 /// (Fixed, LineLine, or Determined — no circle intersections).
 pub open spec fn is_rational_step<F: OrderedField>(step: ConstructionStep<F>) -> bool {
     match step {
-        ConstructionStep::Fixed { .. } => true,
+        ConstructionStep::PointStep { .. } => true,
         ConstructionStep::LineLine { .. } => true,
-        ConstructionStep::Determined { .. } => true,
         ConstructionStep::CircleLine { .. } => false,
         ConstructionStep::CircleCircle { .. } => false,
     }

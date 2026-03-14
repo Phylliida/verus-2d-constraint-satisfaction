@@ -22,8 +22,8 @@ verus! {
 /// A single step in a geometric construction.
 /// Each step places one entity by intersecting two loci.
 pub enum ConstructionStep<T: OrderedField> {
-    /// Entity is fixed at a known position.
-    Fixed { id: EntityId, position: Point2<T> },
+    /// Entity is placed at a known position (fixed input or determined by a single AtPoint locus).
+    PointStep { id: EntityId, position: Point2<T> },
 
     /// Entity is determined by the intersection of two lines.
     LineLine {
@@ -49,9 +49,6 @@ pub enum ConstructionStep<T: OrderedField> {
         circle2: Circle2<T>,
         plus: bool,
     },
-
-    /// Entity is fully determined by a single AtPoint locus.
-    Determined { id: EntityId, position: Point2<T> },
 }
 
 /// A construction plan: a sequence of steps that places all free entities.
@@ -64,18 +61,17 @@ pub type ConstructionPlan<T> = Seq<ConstructionStep<T>>;
 /// The entity ID targeted by a construction step.
 pub open spec fn step_target<T: OrderedField>(step: ConstructionStep<T>) -> EntityId {
     match step {
-        ConstructionStep::Fixed { id, .. } => id,
+        ConstructionStep::PointStep { id, .. } => id,
         ConstructionStep::LineLine { id, .. } => id,
         ConstructionStep::CircleLine { id, .. } => id,
         ConstructionStep::CircleCircle { id, .. } => id,
-        ConstructionStep::Determined { id, .. } => id,
     }
 }
 
 /// Execute a single construction step, returning the placed point.
 pub open spec fn execute_step<T: OrderedField>(step: ConstructionStep<T>) -> Point2<T> {
     match step {
-        ConstructionStep::Fixed { position, .. } => position,
+        ConstructionStep::PointStep { position, .. } => position,
 
         ConstructionStep::LineLine { line1, line2, .. } => {
             line_line_intersection_2d(line1, line2)
@@ -92,8 +88,6 @@ pub open spec fn execute_step<T: OrderedField>(step: ConstructionStep<T>) -> Poi
         ConstructionStep::CircleCircle { circle1, circle2, .. } => {
             choose|p: Point2<T>| point_on_circle2(circle1, p) && point_on_circle2(circle2, p)
         }
-
-        ConstructionStep::Determined { position, .. } => position,
     }
 }
 
@@ -122,7 +116,7 @@ pub open spec fn step_well_formed<T: OrderedField>(
     step: ConstructionStep<T>,
 ) -> bool {
     match step {
-        ConstructionStep::Fixed { .. } => true,
+        ConstructionStep::PointStep { .. } => true,
 
         ConstructionStep::LineLine { id, line1, line2, .. } => {
             // Lines must not be parallel (det != 0)
@@ -140,8 +134,6 @@ pub open spec fn step_well_formed<T: OrderedField>(
             !circle1.center.eqv(circle2.center) &&
             exists|p: Point2<T>| point_on_circle2(circle1, p) && point_on_circle2(circle2, p)
         }
-
-        ConstructionStep::Determined { .. } => true,
     }
 }
 
@@ -173,9 +165,12 @@ pub open spec fn plan_valid<T: OrderedField>(
 }
 
 /// A plan is "locus-ordered" for a set of constraints:
-/// every non-locus entity step has a later locus entity step for the same constraint.
-/// This ensures the last entity placed for each constraint is always a locus entity,
-/// which guarantees the locus is non-trivial at the critical step.
+/// for every constructive (non-verification) constraint, every non-locus entity step
+/// has a later locus entity step for the same constraint.
+/// This ensures the last entity placed for each constructive constraint is always
+/// a locus entity, which guarantees the locus is non-trivial at the critical step.
+/// Verification constraints (Tangent, CircleTangent, Angle) are excluded because
+/// they have empty locus entities and are checked separately.
 pub open spec fn plan_locus_ordered<T: OrderedField>(
     plan: ConstructionPlan<T>,
     constraints: Seq<Constraint<T>>,
@@ -185,9 +180,12 @@ pub open spec fn plan_locus_ordered<T: OrderedField>(
         0 <= ci < constraints.len() && 0 <= si < plan.len() &&
         constraint_entities(constraints[ci]).contains(step_target(plan[si])) &&
         !constraint_locus_entities(constraints[ci]).contains(step_target(plan[si]))
-        ==> exists|si_loc: int|
-            si < si_loc < plan.len() &&
-            constraint_locus_entities(constraints[ci]).contains(step_target(plan[si_loc]))
+        ==> (
+            is_verification_constraint(constraints[ci])
+            || exists|si_loc: int|
+                si < si_loc < plan.len() &&
+                constraint_locus_entities(constraints[ci]).contains(step_target(plan[si_loc]))
+        )
 }
 
 // ===========================================================================
@@ -328,6 +326,8 @@ proof fn lemma_constraint_frame_chain<T: OrderedField>(
 
 /// If a plan is valid and each step satisfies the constraint-derived loci,
 /// then the final resolved map satisfies all constraints.
+/// Verification constraints (Tangent, CircleTangent, Angle) are assumed to be
+/// directly satisfied by the final positions.
 pub proof fn lemma_valid_plan_satisfies_constraints<T: OrderedField>(
     plan: ConstructionPlan<T>,
     constraints: Seq<Constraint<T>>,
@@ -343,7 +343,7 @@ pub proof fn lemma_valid_plan_satisfies_constraints<T: OrderedField>(
             constraint_entities(constraints[ci]).subset_of(
                 execute_plan(plan).dom()
             ),
-        // Each step satisfies the loci derived from constraints
+        // Each step satisfies the loci derived from constructive constraints
         forall|si: int, ci: int|
             0 <= si < plan.len() && 0 <= ci < constraints.len() ==> {
                 let target = step_target(#[trigger] plan[si]);
@@ -353,6 +353,10 @@ pub proof fn lemma_valid_plan_satisfies_constraints<T: OrderedField>(
                     constraint_to_locus(#[trigger] constraints[ci], resolved, target),
                 )
             },
+        // Verification constraints are directly satisfied
+        forall|ci: int| 0 <= ci < constraints.len()
+            && is_verification_constraint(#[trigger] constraints[ci])
+            ==> constraint_satisfied(constraints[ci], execute_plan(plan)),
     ensures
         forall|ci: int| 0 <= ci < constraints.len() ==>
             constraint_satisfied(constraints[ci], execute_plan(plan)),
@@ -360,11 +364,15 @@ pub proof fn lemma_valid_plan_satisfies_constraints<T: OrderedField>(
     assert forall|ci: int| 0 <= ci < constraints.len()
     implies constraint_satisfied(#[trigger] constraints[ci], execute_plan(plan))
     by {
-        lemma_constraint_satisfied_by_plan::<T>(plan, constraints, ci);
+        if is_verification_constraint(constraints[ci]) {
+            // Directly from the new precondition
+        } else {
+            lemma_constraint_satisfied_by_plan::<T>(plan, constraints, ci);
+        }
     };
 }
 
-/// Helper: show a single constraint is satisfied by the plan.
+/// Helper: show a single constructive constraint is satisfied by the plan.
 proof fn lemma_constraint_satisfied_by_plan<T: OrderedField>(
     plan: ConstructionPlan<T>,
     constraints: Seq<Constraint<T>>,
@@ -372,6 +380,7 @@ proof fn lemma_constraint_satisfied_by_plan<T: OrderedField>(
 )
     requires
         0 <= ci < constraints.len(),
+        !is_verification_constraint(constraints[ci]),
         plan_valid(plan, constraints),
         plan_locus_ordered(plan, constraints),
         constraint_well_formed(constraints[ci]),
@@ -444,6 +453,7 @@ proof fn lemma_constraint_satisfied_by_plan<T: OrderedField>(
 
 /// Find the last step placing an entity of constraint c.
 /// With `plan_locus_ordered`, this step always targets a locus entity.
+/// Only valid for constructive (non-verification) constraints.
 proof fn lemma_find_last_entity_step<T: OrderedField>(
     plan: ConstructionPlan<T>,
     c: Constraint<T>,
@@ -453,6 +463,7 @@ proof fn lemma_find_last_entity_step<T: OrderedField>(
     requires
         0 <= ci < constraints.len(),
         constraints[ci] == c,
+        !is_verification_constraint(c),
         constraint_entities(c).subset_of(execute_plan(plan).dom()),
         constraint_well_formed(c),
         forall|i: int, j: int|
@@ -483,8 +494,9 @@ proof fn lemma_find_last_entity_step<T: OrderedField>(
     // But locus entities ⊆ entities, contradicting si_last being the last entity step.
     if !locus_entities.contains(target) {
         // plan_locus_ordered: since target ∈ entities but ∉ locus_entities,
-        // there exists si_loc > si_last with a locus entity at that step.
-        // (The trigger fires on plan[si_last] and constraints[ci].)
+        // we get: is_verification_constraint(c) || exists si_loc > si_last with locus entity.
+        // Since !is_verification_constraint(c) (precondition), the existential must hold.
+        assert(!is_verification_constraint(constraints[ci]));
         let si_loc = choose|si_loc: int|
             si_last < si_loc < plan.len() &&
             locus_entities.contains(step_target(plan[si_loc]));
@@ -862,13 +874,16 @@ proof fn lemma_last_step_locus_nontrivial<T: OrderedField>(
             }
         }
         Constraint::Tangent { .. } => {
-            // locus_entities = empty set — precondition is false, vacuously true
+            // Verification constraint: locus_entities = empty set.
+            // Precondition constraint_locus_entities(c).contains(target) is false.
             assert(false);
         }
         Constraint::CircleTangent { .. } => {
+            // Verification constraint: locus_entities = empty set.
             assert(false);
         }
         Constraint::Angle { .. } => {
+            // Verification constraint: locus_entities = empty set.
             assert(false);
         }
     }
@@ -905,8 +920,8 @@ pub open spec fn intersect_loci<T: OrderedField>(
 ) -> Option<ConstructionStep<T>> {
     match (l1, l2) {
         // AtPoint overrides everything
-        (Locus2d::AtPoint(p), _) => Some(ConstructionStep::Determined { id, position: p }),
-        (_, Locus2d::AtPoint(p)) => Some(ConstructionStep::Determined { id, position: p }),
+        (Locus2d::AtPoint(p), _) => Some(ConstructionStep::PointStep { id, position: p }),
+        (_, Locus2d::AtPoint(p)) => Some(ConstructionStep::PointStep { id, position: p }),
 
         // Line-line
         (Locus2d::OnLine(line1), Locus2d::OnLine(line2)) => {
@@ -988,7 +1003,7 @@ pub proof fn lemma_intersect_loci_satisfies_both<T: OrderedField>(
     }
 }
 
-/// When intersect_loci produces a Determined step from an AtPoint locus,
+/// When intersect_loci produces a PointStep from an AtPoint locus,
 /// the step satisfies that AtPoint locus (by eqv reflexivity).
 pub proof fn lemma_intersect_loci_satisfies_atpoint<T: OrderedField>(
     id: EntityId, p: Point2<T>, other: Locus2d<T>,
@@ -996,7 +1011,7 @@ pub proof fn lemma_intersect_loci_satisfies_atpoint<T: OrderedField>(
     ensures
         point_satisfies_locus(
             Locus2d::AtPoint(p),
-            execute_step(ConstructionStep::<T>::Determined { id, position: p }),
+            execute_step(ConstructionStep::<T>::PointStep { id, position: p }),
         ),
 {
     // Need p.eqv(p) — component-wise reflexivity
@@ -1016,6 +1031,9 @@ pub proof fn lemma_intersect_loci_satisfies_atpoint<T: OrderedField>(
 /// produces plans with distinct targets; if additionally every step satisfies
 /// its loci (which lemma_intersect_loci_satisfies_both guarantees for
 /// geometric locus pairs), the resulting execution satisfies all constraints.
+///
+/// Verification constraints (Tangent, CircleTangent, Angle) must be checked
+/// separately because they have no locus entities and cannot be constructively placed.
 pub proof fn lemma_end_to_end<T: OrderedField>(
     plan: ConstructionPlan<T>,
     constraints: Seq<Constraint<T>>,
@@ -1042,6 +1060,10 @@ pub proof fn lemma_end_to_end<T: OrderedField>(
                     constraint_to_locus(#[trigger] constraints[ci], resolved, target),
                 )
             },
+        // Verification constraints are directly satisfied
+        forall|ci: int| 0 <= ci < constraints.len()
+            && is_verification_constraint(#[trigger] constraints[ci])
+            ==> constraint_satisfied(constraints[ci], execute_plan(plan)),
     ensures
         // All constraints are satisfied by the executed plan
         forall|ci: int| 0 <= ci < constraints.len() ==>
@@ -1059,16 +1081,14 @@ pub open spec fn lift_construction_step<F: OrderedField, R: PositiveRadicand<F>>
     step: ConstructionStep<F>,
 ) -> ConstructionStep<SpecQuadExt<F, R>> {
     match step {
-        ConstructionStep::Fixed { id, position } =>
-            ConstructionStep::Fixed { id, position: lift_point2(position) },
+        ConstructionStep::PointStep { id, position } =>
+            ConstructionStep::PointStep { id, position: lift_point2(position) },
         ConstructionStep::LineLine { id, line1, line2 } =>
             ConstructionStep::LineLine { id, line1: lift_line2(line1), line2: lift_line2(line2) },
         ConstructionStep::CircleLine { id, circle, line, plus } =>
             ConstructionStep::CircleLine { id, circle: lift_circle2(circle), line: lift_line2(line), plus },
         ConstructionStep::CircleCircle { id, circle1, circle2, plus } =>
             ConstructionStep::CircleCircle { id, circle1: lift_circle2(circle1), circle2: lift_circle2(circle2), plus },
-        ConstructionStep::Determined { id, position } =>
-            ConstructionStep::Determined { id, position: lift_point2(position) },
     }
 }
 
@@ -1080,14 +1100,13 @@ pub open spec fn execute_step_in_ext<F: OrderedField, R: PositiveRadicand<F>>(
     step: ConstructionStep<F>,
 ) -> Point2<SpecQuadExt<F, R>> {
     match step {
-        ConstructionStep::Fixed { position, .. } => lift_point2(position),
+        ConstructionStep::PointStep { position, .. } => lift_point2(position),
         ConstructionStep::LineLine { line1, line2, .. } =>
             lift_point2(line_line_intersection_2d(line1, line2)),
         ConstructionStep::CircleLine { circle, line, plus, .. } =>
             cl_intersection_point::<F, R>(circle, line, plus),
         ConstructionStep::CircleCircle { circle1, circle2, plus, .. } =>
             cc_intersection_point::<F, R>(circle1, circle2, plus),
-        ConstructionStep::Determined { position, .. } => lift_point2(position),
     }
 }
 
@@ -1147,7 +1166,7 @@ pub proof fn lemma_lifted_step_well_formed<F: OrderedField, R: PositiveRadicand<
         ),
 {
     match step {
-        ConstructionStep::Fixed { .. } | ConstructionStep::Determined { .. } => {
+        ConstructionStep::PointStep { .. } => {
             // Trivially true
         }
 

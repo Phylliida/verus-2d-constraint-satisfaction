@@ -310,6 +310,79 @@ pub open spec fn constraint_well_formed<T: OrderedField>(c: Constraint<T>) -> bo
     }
 }
 
+/// Whether a constraint is a "verification-only" constraint.
+/// These constraints have no locus entities (constraint_locus_entities returns empty set),
+/// meaning the solver cannot constructively place points to satisfy them.
+/// Instead, they are checked after the plan is fully executed.
+pub open spec fn is_verification_constraint<T: OrderedField>(c: Constraint<T>) -> bool {
+    match c {
+        Constraint::Tangent { .. } => true,
+        Constraint::CircleTangent { .. } => true,
+        Constraint::Angle { .. } => true,
+        _ => false,
+    }
+}
+
+/// Verification constraints have empty locus entities.
+pub proof fn lemma_verification_constraint_iff_empty_locus<T: OrderedField>(c: Constraint<T>)
+    ensures
+        is_verification_constraint(c) <==> constraint_locus_entities(c) =~= Set::empty(),
+{
+    match c {
+        Constraint::Coincident { a, .. } => {
+            assert(constraint_locus_entities(c).contains(a));
+        }
+        Constraint::DistanceSq { a, .. } => {
+            assert(constraint_locus_entities(c).contains(a));
+        }
+        Constraint::FixedX { point, .. } => {
+            assert(constraint_locus_entities(c).contains(point));
+        }
+        Constraint::FixedY { point, .. } => {
+            assert(constraint_locus_entities(c).contains(point));
+        }
+        Constraint::SameX { a, .. } => {
+            assert(constraint_locus_entities(c).contains(a));
+        }
+        Constraint::SameY { a, .. } => {
+            assert(constraint_locus_entities(c).contains(a));
+        }
+        Constraint::PointOnLine { point, .. } => {
+            assert(constraint_locus_entities(c).contains(point));
+        }
+        Constraint::EqualLengthSq { a1, .. } => {
+            assert(constraint_locus_entities(c).contains(a1));
+        }
+        Constraint::Midpoint { mid, .. } => {
+            assert(constraint_locus_entities(c).contains(mid));
+        }
+        Constraint::Perpendicular { a1, .. } => {
+            assert(constraint_locus_entities(c).contains(a1));
+        }
+        Constraint::Parallel { a1, .. } => {
+            assert(constraint_locus_entities(c).contains(a1));
+        }
+        Constraint::Collinear { a, .. } => {
+            assert(constraint_locus_entities(c).contains(a));
+        }
+        Constraint::PointOnCircle { point, .. } => {
+            assert(constraint_locus_entities(c).contains(point));
+        }
+        Constraint::Symmetric { point, .. } => {
+            assert(constraint_locus_entities(c).contains(point));
+        }
+        Constraint::FixedPoint { point, .. } => {
+            assert(constraint_locus_entities(c).contains(point));
+        }
+        Constraint::Ratio { a1, .. } => {
+            assert(constraint_locus_entities(c).contains(a1));
+        }
+        Constraint::Tangent { .. } => {}
+        Constraint::CircleTangent { .. } => {}
+        Constraint::Angle { .. } => {}
+    }
+}
+
 /// The entities for which constraint_to_locus can return a non-trivial locus.
 /// For most constraints, this is all entities. For PointOnLine, only `point`.
 /// For EqualLengthSq, only a1 and a2.

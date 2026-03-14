@@ -51,6 +51,20 @@ pub open spec fn locus_is_nontrivial<T: OrderedField>(locus: Locus2d<T>) -> bool
 }
 
 // ===========================================================================
+//  Line construction helpers
+// ===========================================================================
+
+/// Vertical line at x-coordinate `x`: 1·x + 0·y + (−x) = 0.
+pub open spec fn vertical_line<T: Ring>(x: T) -> Line2<T> {
+    Line2 { a: T::one(), b: T::zero(), c: x.neg() }
+}
+
+/// Horizontal line at y-coordinate `y`: 0·x + 1·y + (−y) = 0.
+pub open spec fn horizontal_line<T: Ring>(y: T) -> Line2<T> {
+    Line2 { a: T::zero(), b: T::one(), c: y.neg() }
+}
+
+// ===========================================================================
 //  Constraint → Locus mapping
 // ===========================================================================
 
@@ -84,8 +98,7 @@ pub open spec fn constraint_to_locus<T: OrderedField>(
 
         Constraint::FixedX { point, x } => {
             if target == point {
-                // x = constant → vertical line: 1*x + 0*y + (-x_val) = 0
-                Locus2d::OnLine(Line2 { a: T::one(), b: T::zero(), c: x.neg() })
+                Locus2d::OnLine(vertical_line(x))
             } else {
                 Locus2d::FullPlane
             }
@@ -93,8 +106,7 @@ pub open spec fn constraint_to_locus<T: OrderedField>(
 
         Constraint::FixedY { point, y } => {
             if target == point {
-                // y = constant → horizontal line: 0*x + 1*y + (-y_val) = 0
-                Locus2d::OnLine(Line2 { a: T::zero(), b: T::one(), c: y.neg() })
+                Locus2d::OnLine(horizontal_line(y))
             } else {
                 Locus2d::FullPlane
             }
@@ -102,10 +114,9 @@ pub open spec fn constraint_to_locus<T: OrderedField>(
 
         Constraint::SameX { a, b } => {
             if target == a && resolved.dom().contains(b) {
-                // x = b.x → vertical line through b.x
-                Locus2d::OnLine(Line2 { a: T::one(), b: T::zero(), c: resolved[b].x.neg() })
+                Locus2d::OnLine(vertical_line(resolved[b].x))
             } else if target == b && resolved.dom().contains(a) {
-                Locus2d::OnLine(Line2 { a: T::one(), b: T::zero(), c: resolved[a].x.neg() })
+                Locus2d::OnLine(vertical_line(resolved[a].x))
             } else {
                 Locus2d::FullPlane
             }
@@ -113,9 +124,9 @@ pub open spec fn constraint_to_locus<T: OrderedField>(
 
         Constraint::SameY { a, b } => {
             if target == a && resolved.dom().contains(b) {
-                Locus2d::OnLine(Line2 { a: T::zero(), b: T::one(), c: resolved[b].y.neg() })
+                Locus2d::OnLine(horizontal_line(resolved[b].y))
             } else if target == b && resolved.dom().contains(a) {
-                Locus2d::OnLine(Line2 { a: T::zero(), b: T::one(), c: resolved[a].y.neg() })
+                Locus2d::OnLine(horizontal_line(resolved[a].y))
             } else {
                 Locus2d::FullPlane
             }
