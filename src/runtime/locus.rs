@@ -56,6 +56,32 @@ impl RuntimeLocus {
 }
 
 // ===========================================================================
+//  Line construction helpers (runtime)
+// ===========================================================================
+
+/// Runtime vertical line at x-coordinate: mirrors spec-level vertical_line.
+fn vertical_line_exec(x: &RuntimeRational) -> (out: RuntimeLine2)
+    requires x.wf_spec(),
+    ensures out.wf_spec(), out@ == vertical_line::<RationalModel>(x@),
+{
+    let one = RuntimeRational::from_int(1);
+    let zero = RuntimeRational::from_int(0);
+    let neg_x = x.neg();
+    RuntimeLine2::new(one, zero, neg_x)
+}
+
+/// Runtime horizontal line at y-coordinate: mirrors spec-level horizontal_line.
+fn horizontal_line_exec(y: &RuntimeRational) -> (out: RuntimeLine2)
+    requires y.wf_spec(),
+    ensures out.wf_spec(), out@ == horizontal_line::<RationalModel>(y@),
+{
+    let zero = RuntimeRational::from_int(0);
+    let one = RuntimeRational::from_int(1);
+    let neg_y = y.neg();
+    RuntimeLine2::new(zero, one, neg_y)
+}
+
+// ===========================================================================
 //  Constraint → Locus at runtime
 // ===========================================================================
 
@@ -158,11 +184,7 @@ pub fn constraint_to_locus_exec(
                 assert(model == Constraint::<RationalModel>::FixedX { point: *point as nat, x: x@ });
             }
             if target == *point {
-                let one = RuntimeRational::from_int(1);
-                let zero = RuntimeRational::from_int(0);
-                let neg_x = x.neg();
-                let line = RuntimeLine2::new(one, zero, neg_x);
-                RuntimeLocus::OnLine { line }
+                RuntimeLocus::OnLine { line: vertical_line_exec(x) }
             } else {
                 RuntimeLocus::FullPlane
             }
@@ -173,11 +195,7 @@ pub fn constraint_to_locus_exec(
                 assert(model == Constraint::<RationalModel>::FixedY { point: *point as nat, y: y@ });
             }
             if target == *point {
-                let zero = RuntimeRational::from_int(0);
-                let one = RuntimeRational::from_int(1);
-                let neg_y = y.neg();
-                let line = RuntimeLine2::new(zero, one, neg_y);
-                RuntimeLocus::OnLine { line }
+                RuntimeLocus::OnLine { line: horizontal_line_exec(y) }
             } else {
                 RuntimeLocus::FullPlane
             }
@@ -192,21 +210,13 @@ pub fn constraint_to_locus_exec(
                     assert(resolved.dom().contains(*b as nat));
                     assert(resolved[*b as nat] == points@[*b as int]@);
                 }
-                let one = RuntimeRational::from_int(1);
-                let zero = RuntimeRational::from_int(0);
-                let neg_bx = points[*b].x.neg();
-                let line = RuntimeLine2::new(one, zero, neg_bx);
-                RuntimeLocus::OnLine { line }
+                RuntimeLocus::OnLine { line: vertical_line_exec(&points[*b].x) }
             } else if target == *b && resolved_flags[*a] {
                 proof {
                     assert(resolved.dom().contains(*a as nat));
                     assert(resolved[*a as nat] == points@[*a as int]@);
                 }
-                let one = RuntimeRational::from_int(1);
-                let zero = RuntimeRational::from_int(0);
-                let neg_ax = points[*a].x.neg();
-                let line = RuntimeLine2::new(one, zero, neg_ax);
-                RuntimeLocus::OnLine { line }
+                RuntimeLocus::OnLine { line: vertical_line_exec(&points[*a].x) }
             } else {
                 RuntimeLocus::FullPlane
             }
@@ -221,21 +231,13 @@ pub fn constraint_to_locus_exec(
                     assert(resolved.dom().contains(*b as nat));
                     assert(resolved[*b as nat] == points@[*b as int]@);
                 }
-                let zero = RuntimeRational::from_int(0);
-                let one = RuntimeRational::from_int(1);
-                let neg_by = points[*b].y.neg();
-                let line = RuntimeLine2::new(zero, one, neg_by);
-                RuntimeLocus::OnLine { line }
+                RuntimeLocus::OnLine { line: horizontal_line_exec(&points[*b].y) }
             } else if target == *b && resolved_flags[*a] {
                 proof {
                     assert(resolved.dom().contains(*a as nat));
                     assert(resolved[*a as nat] == points@[*a as int]@);
                 }
-                let zero = RuntimeRational::from_int(0);
-                let one = RuntimeRational::from_int(1);
-                let neg_ay = points[*a].y.neg();
-                let line = RuntimeLine2::new(zero, one, neg_ay);
-                RuntimeLocus::OnLine { line }
+                RuntimeLocus::OnLine { line: horizontal_line_exec(&points[*a].y) }
             } else {
                 RuntimeLocus::FullPlane
             }

@@ -159,16 +159,14 @@ pub fn execute_circle_circle_step<R: PositiveRadicand<RationalModel>>(
 /// Each variant carries a ghost model linking it to the spec-level ConstructionStep.
 /// The caller MUST provide a matching spec step — wf_spec checks correspondence.
 pub enum RuntimeStepData {
-    /// Fixed position.
-    Fixed { x: RuntimeRational, y: RuntimeRational, model: Ghost<ConstructionStep<RationalModel>> },
+    /// Known position (fixed input or determined by a single locus).
+    PointStep { x: RuntimeRational, y: RuntimeRational, model: Ghost<ConstructionStep<RationalModel>> },
     /// Intersection of two lines.
     LineLine { l1: RuntimeLine2, l2: RuntimeLine2, model: Ghost<ConstructionStep<RationalModel>> },
     /// Intersection of a circle and a line.
     CircleLine { circle: RuntimeCircle2, line: RuntimeLine2, plus: bool, model: Ghost<ConstructionStep<RationalModel>> },
     /// Intersection of two circles.
     CircleCircle { c1: RuntimeCircle2, c2: RuntimeCircle2, plus: bool, model: Ghost<ConstructionStep<RationalModel>> },
-    /// Fully determined position.
-    Determined { x: RuntimeRational, y: RuntimeRational, model: Ghost<ConstructionStep<RationalModel>> },
 }
 
 impl RuntimeStepData {
@@ -176,10 +174,10 @@ impl RuntimeStepData {
     /// and all geometric preconditions for execution are met.
     pub open spec fn wf_spec(&self) -> bool {
         match self {
-            RuntimeStepData::Fixed { x, y, model } =>
+            RuntimeStepData::PointStep { x, y, model } =>
                 x.wf_spec() && y.wf_spec() &&
                 match model@ {
-                    ConstructionStep::Fixed { position, .. } =>
+                    ConstructionStep::PointStep { position, .. } =>
                         x@ == position.x && y@ == position.y,
                     _ => false,
                 },
@@ -205,30 +203,22 @@ impl RuntimeStepData {
                         c1@ == circle1 && c2@ == circle2 && *plus == p,
                     _ => false,
                 },
-            RuntimeStepData::Determined { x, y, model } =>
-                x.wf_spec() && y.wf_spec() &&
-                match model@ {
-                    ConstructionStep::Determined { position, .. } =>
-                        x@ == position.x && y@ == position.y,
-                    _ => false,
-                },
         }
     }
 
     /// The spec-level construction step this runtime step corresponds to.
     pub open spec fn spec_step(&self) -> ConstructionStep<RationalModel> {
         match self {
-            RuntimeStepData::Fixed { model, .. } => model@,
+            RuntimeStepData::PointStep { model, .. } => model@,
             RuntimeStepData::LineLine { model, .. } => model@,
             RuntimeStepData::CircleLine { model, .. } => model@,
             RuntimeStepData::CircleCircle { model, .. } => model@,
-            RuntimeStepData::Determined { model, .. } => model@,
         }
     }
 }
 
 /// Checks that the radicand type R matches the discriminant of circle intersection steps.
-/// Trivially true for rational steps (Fixed/LineLine/Determined).
+/// Trivially true for rational steps (PointStep/LineLine).
 pub open spec fn step_radicand_matches<R: Radicand<RationalModel>>(
     step: ConstructionStep<RationalModel>,
 ) -> bool {
@@ -247,7 +237,7 @@ pub open spec fn step_radicand_matches<R: Radicand<RationalModel>>(
 /// Tagged with the ghost entity ID so the caller can't mix up which
 /// result corresponds to which entity.
 pub enum RuntimeConstructionResult<R: Radicand<RationalModel>> {
-    /// Result from Fixed, LineLine, or Determined steps (rational coordinates).
+    /// Result from PointStep or LineLine steps (rational coordinates).
     RationalPoint { point: RuntimePoint2, entity_id: Ghost<EntityId> },
     /// Result from CircleLine or CircleCircle steps (quadratic extension coordinates).
     QExtPoint { point: RuntimeQExtPoint2<R>, entity_id: Ghost<EntityId> },
@@ -306,7 +296,7 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
 /// Execute a single runtime step, returning the computed point tagged with entity ID.
 /// The ensures connects the output to the spec-level step:
 /// - entity_id matches step_target of the spec model
-/// - For rational steps (Fixed/LineLine/Determined), the output point == execute_step(spec_step)
+/// - For rational steps (PointStep/LineLine), the output point == execute_step(spec_step)
 pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
     step: &RuntimeStepData,
 ) -> (out: RuntimeConstructionResult<R>)
@@ -320,7 +310,7 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
         out.matches_spec_step(step.spec_step()),
 {
     match step {
-        RuntimeStepData::Fixed { x, y, model } => {
+        RuntimeStepData::PointStep { x, y, model } => {
             let point = execute_fixed_step(x, y);
             let ghost eid = step_target(model@);
             RuntimeConstructionResult::RationalPoint { point, entity_id: Ghost(eid) }
@@ -347,11 +337,6 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
             }
             let ghost eid = step_target(model@);
             RuntimeConstructionResult::QExtPoint { point, entity_id: Ghost(eid) }
-        }
-        RuntimeStepData::Determined { x, y, model } => {
-            let point = execute_fixed_step(x, y);
-            let ghost eid = step_target(model@);
-            RuntimeConstructionResult::RationalPoint { point, entity_id: Ghost(eid) }
         }
     }
 }
