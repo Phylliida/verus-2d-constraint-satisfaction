@@ -19,7 +19,6 @@ use crate::construction::*;
 use crate::runtime::constraint::*;
 use crate::runtime::locus::*;
 use crate::runtime::construction::{RuntimeStepData, execute_line_line_step};
-use crate::solver::lemma_intersect_loci_target;
 
 type RationalModel = verus_rational::rational::Rational;
 
@@ -102,7 +101,8 @@ pub fn intersect_loci_exec(
             Some(step) => step.wf_spec()
                 && step.spec_step() == intersect_loci(
                     id as nat, l1.spec_locus(), l2.spec_locus(),
-                ).unwrap(),
+                ).unwrap()
+                && step_target(step.spec_step()) == id as nat,
             None => true,
         },
 {
@@ -362,13 +362,7 @@ pub fn find_and_intersect_loci(
     loci_mut.set_and_swap(first_idx, &mut dummy2);
     let l1 = dummy2;
 
-    let ghost l1_spec = l1.spec_locus();
-    let ghost l2_spec = l2.spec_locus();
-    let result = intersect_loci_exec(target, l1, l2);
-    proof {
-        lemma_intersect_loci_target::<RationalModel>(target as nat, l1_spec, l2_spec);
-    }
-    result
+    intersect_loci_exec(target, l1, l2)
 }
 
 // ===========================================================================
@@ -480,6 +474,13 @@ pub fn greedy_solve_exec(
                 .dom().contains(i as nat),
     ensures
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
+        // All targets are distinct
+        forall|i: int, j: int|
+            0 <= i < out@.len() && 0 <= j < out@.len() && i != j ==>
+            step_target(#[trigger] out@[i].spec_step()) != step_target(#[trigger] out@[j].spec_step()),
+        // Each target is a valid entity
+        forall|i: int| 0 <= i < out@.len() ==>
+            (step_target(#[trigger] out@[i].spec_step()) as int) < old(points)@.len(),
         points@.len() == old(points)@.len(),
         resolved_flags@.len() == old(resolved_flags)@.len(),
         all_points_wf(points@),
@@ -506,6 +507,17 @@ pub fn greedy_solve_exec(
                 partial_resolved_map(points_view(points@), resolved_flags@)
                     .dom().contains(i as nat),
             forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+            // All plan targets are currently resolved (flags == true)
+            forall|j: int| 0 <= j < plan@.len() ==>
+                (step_target(#[trigger] plan@[j].spec_step()) as int) < resolved_flags@.len()
+                && resolved_flags@[step_target(plan@[j].spec_step()) as int] == true,
+            // All targets are distinct
+            forall|i: int, j: int|
+                0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
+                step_target(#[trigger] plan@[i].spec_step()) != step_target(#[trigger] plan@[j].spec_step()),
+            // Each target is valid
+            forall|j: int| 0 <= j < plan@.len() ==>
+                (step_target(#[trigger] plan@[j].spec_step()) as int) < points@.len(),
         decreases n - iter,
     {
         let mut found = false;
@@ -530,6 +542,14 @@ pub fn greedy_solve_exec(
                     partial_resolved_map(points_view(points@), resolved_flags@)
                         .dom().contains(i as nat),
                 forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+                forall|j: int| 0 <= j < plan@.len() ==>
+                    (step_target(#[trigger] plan@[j].spec_step()) as int) < resolved_flags@.len()
+                    && resolved_flags@[step_target(plan@[j].spec_step()) as int] == true,
+                forall|i: int, j: int|
+                    0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
+                    step_target(#[trigger] plan@[i].spec_step()) != step_target(#[trigger] plan@[j].spec_step()),
+                forall|j: int| 0 <= j < plan@.len() ==>
+                    (step_target(#[trigger] plan@[j].spec_step()) as int) < points@.len(),
             ensures
                 points@.len() == old(points)@.len(),
                 resolved_flags@.len() == old(resolved_flags)@.len(),
@@ -544,6 +564,14 @@ pub fn greedy_solve_exec(
                     partial_resolved_map(points_view(points@), resolved_flags@)
                         .dom().contains(i as nat),
                 forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+                forall|j: int| 0 <= j < plan@.len() ==>
+                    (step_target(#[trigger] plan@[j].spec_step()) as int) < resolved_flags@.len()
+                    && resolved_flags@[step_target(plan@[j].spec_step()) as int] == true,
+                forall|i: int, j: int|
+                    0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
+                    step_target(#[trigger] plan@[i].spec_step()) != step_target(#[trigger] plan@[j].spec_step()),
+                forall|j: int| 0 <= j < plan@.len() ==>
+                    (step_target(#[trigger] plan@[j].spec_step()) as int) < points@.len(),
             decreases n - fi,
         {
             let target = free_ids[fi];
@@ -579,11 +607,23 @@ pub fn greedy_solve_exec(
                             RuntimeStepData::CircleLine { .. } => {}
                             RuntimeStepData::CircleCircle { .. } => {}
                         }
+                        // Before flipping the flag: target is unresolved, all plan
+                        // targets are resolved — so the new target is distinct.
+                        proof {
+                            assert(resolved_flags@[target as int] == false);
+                            assert forall|j: int| 0 <= j < plan@.len() implies
+                                step_target(#[trigger] plan@[j].spec_step()) != target as nat
+                            by {
+                                assert(resolved_flags@[step_target(plan@[j].spec_step()) as int] == true);
+                            }
+                        }
+
                         // Mark resolved
                         let mut flag = true;
                         resolved_flags.set_and_swap(target, &mut flag);
 
                         // Re-establish the partial_resolved_map invariant
+                        // and the resolved-targets invariant after set_and_swap
                         proof {
                             // After set_and_swap, resolved_flags@[target] == true
                             // and points@[target] is the new point (wf_spec)
@@ -598,6 +638,12 @@ pub fn greedy_solve_exec(
                                 // == flags[i]  (since both lens are the same and i < len)
                             }
                         }
+
+                        // The new step's target == target, which was proved distinct
+                        // from all existing plan targets above. After set_and_swap,
+                        // resolved_flags[target] == true, so the invariant is maintained.
+                        assert(step_target(step.spec_step()) == target as nat);
+                        assert(resolved_flags@[target as int] == true);
 
                         plan.push(step);
                         found = true;
@@ -651,7 +697,11 @@ pub fn count_circle_steps(plan: &Vec<RuntimeStepData>) -> (out: usize)
 /// Takes ownership and returns a new step with the sign flipped.
 fn flip_step_sign(s: RuntimeStepData) -> (out: RuntimeStepData)
     requires s.wf_spec(),
-    ensures out.wf_spec(),
+    ensures
+        out.wf_spec(),
+        step_target(out.spec_step()) == step_target(s.spec_step()),
+        step_has_positive_discriminant(s.spec_step()) ==
+            step_has_positive_discriminant(out.spec_step()),
 {
     match s {
         RuntimeStepData::CircleLine { circle, line, plus, model } => {
@@ -695,6 +745,14 @@ fn make_sign_variant(
     ensures
         out@.len() == plan@.len(),
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
+        // Target preservation
+        forall|i: int| 0 <= i < out@.len() ==>
+            step_target((#[trigger] out@[i]).spec_step()) ==
+            step_target(plan@[i].spec_step()),
+        // Discriminant preservation
+        forall|i: int| 0 <= i < out@.len() ==>
+            step_has_positive_discriminant((#[trigger] out@[i]).spec_step()) ==
+            step_has_positive_discriminant(plan@[i].spec_step()),
 {
     let mut result: Vec<RuntimeStepData> = Vec::new();
     let mut circle_idx: u64 = 0;
@@ -706,6 +764,12 @@ fn make_sign_variant(
             circle_idx <= i as u64,
             forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
             forall|j: int| 0 <= j < result@.len() ==> (#[trigger] result@[j]).wf_spec(),
+            forall|j: int| 0 <= j < result@.len() ==>
+                step_target((#[trigger] result@[j]).spec_step()) ==
+                step_target(plan@[j].spec_step()),
+            forall|j: int| 0 <= j < result@.len() ==>
+                step_has_positive_discriminant((#[trigger] result@[j]).spec_step()) ==
+                step_has_positive_discriminant(plan@[j].spec_step()),
         decreases plan@.len() - i,
     {
         let s = copy_step(&plan[i]);
@@ -739,6 +803,9 @@ fn make_sign_variant(
 fn check_variant_feasible(plan: &Vec<RuntimeStepData>) -> (out: bool)
     requires
         forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+    ensures
+        out ==> forall|i: int| 0 <= i < plan@.len() ==>
+            step_has_positive_discriminant((#[trigger] plan@[i]).spec_step()),
 {
     let mut i: usize = 0;
     let zero = RuntimeRational::from_int(0);
@@ -748,6 +815,9 @@ fn check_variant_feasible(plan: &Vec<RuntimeStepData>) -> (out: bool)
             zero.wf_spec(),
             zero@ == RationalModel::from_int_spec(0),
             forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+            // All checked steps so far have positive discriminant
+            forall|j: int| 0 <= j < i ==>
+                step_has_positive_discriminant((#[trigger] plan@[j]).spec_step()),
         decreases plan@.len() - i,
     {
         match &plan[i] {
@@ -791,17 +861,32 @@ pub fn solve_all_variants(
             partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
                 .dom().contains(i as nat),
     ensures
+        // All steps well-formed
         forall|si: int| 0 <= si < out@.len() ==>
             forall|j: int| 0 <= j < (#[trigger] out@[si])@.len() ==>
                 (#[trigger] out@[si]@[j]).wf_spec(),
+        // Distinct targets within each variant
+        forall|si: int| 0 <= si < out@.len() ==>
+            forall|i: int, j: int|
+                0 <= i < (#[trigger] out@[si])@.len()
+                && 0 <= j < out@[si]@.len() && i != j ==>
+                step_target(#[trigger] out@[si]@[i].spec_step()) !=
+                step_target(#[trigger] out@[si]@[j].spec_step()),
+        // All circle discriminants positive
+        forall|si: int| 0 <= si < out@.len() ==>
+            forall|j: int| 0 <= j < (#[trigger] out@[si])@.len() ==>
+                step_has_positive_discriminant((#[trigger] out@[si]@[j]).spec_step()),
 {
     let plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
     let k = count_circle_steps(&plan);
 
     if k == 0 || k > 63 {
         // No circle steps, or too many to enumerate — return base plan
+        // if feasible (all discriminants positive).
         let mut results: Vec<Vec<RuntimeStepData>> = Vec::new();
-        results.push(plan);
+        if check_variant_feasible(&plan) {
+            results.push(plan);
+        }
         return results;
     }
 
@@ -814,12 +899,42 @@ pub fn solve_all_variants(
             n == 1u64 << (k as u64),
             k <= 63,
             forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+            // Base plan has distinct targets
+            forall|i: int, j: int|
+                0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
+                step_target(#[trigger] plan@[i].spec_step()) != step_target(#[trigger] plan@[j].spec_step()),
             forall|si: int| 0 <= si < results@.len() ==>
                 forall|j: int| 0 <= j < (#[trigger] results@[si])@.len() ==>
                     (#[trigger] results@[si]@[j]).wf_spec(),
+            forall|si: int| 0 <= si < results@.len() ==>
+                forall|i: int, j: int|
+                    0 <= i < (#[trigger] results@[si])@.len()
+                    && 0 <= j < results@[si]@.len() && i != j ==>
+                    step_target(#[trigger] results@[si]@[i].spec_step()) !=
+                    step_target(#[trigger] results@[si]@[j].spec_step()),
+            forall|si: int| 0 <= si < results@.len() ==>
+                forall|j: int| 0 <= j < (#[trigger] results@[si])@.len() ==>
+                    step_has_positive_discriminant((#[trigger] results@[si]@[j]).spec_step()),
         decreases n - mask,
     {
         let variant = make_sign_variant(&plan, mask);
+        // Derive distinct targets for variant from base plan
+        proof {
+            assert forall|i: int, j: int|
+                0 <= i < variant@.len() && 0 <= j < variant@.len() && i != j
+            implies
+                step_target(#[trigger] variant@[i].spec_step()) !=
+                step_target(#[trigger] variant@[j].spec_step())
+            by {
+                // make_sign_variant preserves targets:
+                // step_target(variant[i]) == step_target(plan[i])
+                // step_target(variant[j]) == step_target(plan[j])
+                // Base plan has distinct targets:
+                // step_target(plan[i]) != step_target(plan[j])
+                assert(step_target(variant@[i].spec_step()) == step_target(plan@[i].spec_step()));
+                assert(step_target(variant@[j].spec_step()) == step_target(plan@[j].spec_step()));
+            }
+        }
         if check_variant_feasible(&variant) {
             results.push(variant);
         }
