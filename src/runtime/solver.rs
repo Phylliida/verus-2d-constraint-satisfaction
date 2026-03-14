@@ -195,14 +195,14 @@ pub fn collect_loci_exec(
             runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
         forall|i: int| 0 <= i < resolved_flags@.len() ==>
             (#[trigger] resolved_flags@[i]) ==
-            vec_to_resolved_map(points_view(points@)).dom().contains(i as nat),
+            partial_resolved_map(points_view(points@), resolved_flags@).dom().contains(i as nat),
     ensures
         out@.len() == constraints@.len(),
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
         forall|i: int| 0 <= i < out@.len() ==>
             (#[trigger] out@[i]).spec_locus() == constraint_to_locus(
                 runtime_constraint_model(constraints@[i]),
-                vec_to_resolved_map(points_view(points@)),
+                partial_resolved_map(points_view(points@), resolved_flags@),
                 target as nat,
             ),
 {
@@ -219,12 +219,12 @@ pub fn collect_loci_exec(
                 runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
             forall|i: int| 0 <= i < resolved_flags@.len() ==>
                 (#[trigger] resolved_flags@[i]) ==
-                vec_to_resolved_map(points_view(points@)).dom().contains(i as nat),
+                partial_resolved_map(points_view(points@), resolved_flags@).dom().contains(i as nat),
             forall|j: int| 0 <= j < result@.len() ==> (#[trigger] result@[j]).wf_spec(),
             forall|j: int| 0 <= j < result@.len() ==>
                 (#[trigger] result@[j]).spec_locus() == constraint_to_locus(
                     runtime_constraint_model(constraints@[j]),
-                    vec_to_resolved_map(points_view(points@)),
+                    partial_resolved_map(points_view(points@), resolved_flags@),
                     target as nat,
                 ),
         decreases constraints@.len() - ci,
