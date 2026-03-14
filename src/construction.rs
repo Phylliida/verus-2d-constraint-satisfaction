@@ -892,4 +892,119 @@ pub open spec fn intersect_loci<T: OrderedField>(
     }
 }
 
+// ===========================================================================
+//  Locus satisfaction by intersect_loci steps
+// ===========================================================================
+
+/// When intersect_loci produces a step from two geometric loci
+/// (OnLine or OnCircle, neither AtPoint nor FullPlane),
+/// the step satisfies both loci (given step_well_formed).
+pub proof fn lemma_intersect_loci_satisfies_both<T: OrderedField>(
+    id: EntityId, l1: Locus2d<T>, l2: Locus2d<T>,
+)
+    requires
+        matches!(intersect_loci(id, l1, l2), Some(..)),
+        !matches!(l1, Locus2d::AtPoint(..)),
+        !matches!(l1, Locus2d::FullPlane),
+        !matches!(l2, Locus2d::AtPoint(..)),
+        !matches!(l2, Locus2d::FullPlane),
+        step_well_formed(
+            intersect_loci(id, l1, l2).unwrap(),
+            Map::<EntityId, Point2<T>>::empty(),
+        ),
+    ensures ({
+        let step = intersect_loci(id, l1, l2).unwrap();
+        let p = execute_step(step);
+        point_satisfies_locus(l1, p) && point_satisfies_locus(l2, p)
+    }),
+{
+    let step = intersect_loci(id, l1, l2).unwrap();
+    match (l1, l2) {
+        (Locus2d::OnLine(line1), Locus2d::OnLine(line2)) => {
+            // LineLine: line_line_intersection_2d satisfies both lines
+            use verus_geometry::line_intersection::lemma_ll_intersection_on_l1;
+            use verus_geometry::line_intersection::lemma_ll_intersection_on_l2;
+            lemma_ll_intersection_on_l1(line1, line2);
+            lemma_ll_intersection_on_l2(line1, line2);
+        }
+        (Locus2d::OnCircle(circle), Locus2d::OnLine(line)) => {
+            // CircleLine: execute_step = choose|p| on_circle && on_line
+            // step_well_formed guarantees exists|p| on_circle && on_line
+            // So the choose is valid and satisfies both
+        }
+        (Locus2d::OnLine(line), Locus2d::OnCircle(circle)) => {
+            // Same as above (CircleLine with swapped order)
+        }
+        (Locus2d::OnCircle(c1), Locus2d::OnCircle(c2)) => {
+            // CircleCircle: execute_step = choose|p| on_circle1 && on_circle2
+            // step_well_formed guarantees existence
+        }
+        _ => {
+            // AtPoint/FullPlane excluded by preconditions
+        }
+    }
+}
+
+/// When intersect_loci produces a Determined step from an AtPoint locus,
+/// the step satisfies that AtPoint locus (by eqv reflexivity).
+pub proof fn lemma_intersect_loci_satisfies_atpoint<T: OrderedField>(
+    id: EntityId, p: Point2<T>, other: Locus2d<T>,
+)
+    ensures
+        point_satisfies_locus(
+            Locus2d::AtPoint(p),
+            execute_step(ConstructionStep::<T>::Determined { id, position: p }),
+        ),
+{
+    // Need p.eqv(p) — component-wise reflexivity
+    T::axiom_eqv_reflexive(p.x);
+    T::axiom_eqv_reflexive(p.y);
+}
+
+// ===========================================================================
+//  End-to-end theorem
+// ===========================================================================
+
+/// Master end-to-end theorem:
+/// If a valid, locus-ordered plan exists where each step satisfies its
+/// constraint-derived loci, then executing the plan satisfies all constraints.
+///
+/// This is the main soundness guarantee. The greedy solver (in solver.rs)
+/// produces plans with distinct targets; if additionally every step satisfies
+/// its loci (which lemma_intersect_loci_satisfies_both guarantees for
+/// geometric locus pairs), the resulting execution satisfies all constraints.
+pub proof fn lemma_end_to_end<T: OrderedField>(
+    plan: ConstructionPlan<T>,
+    constraints: Seq<Constraint<T>>,
+)
+    requires
+        // Plan validity
+        plan_valid(plan, constraints),
+        plan_locus_ordered(plan, constraints),
+        // All constraints are well-formed
+        forall|ci: int| 0 <= ci < constraints.len() ==>
+            constraint_well_formed(#[trigger] constraints[ci]),
+        // Every constraint's entities appear in the plan
+        forall|ci: int| 0 <= ci < constraints.len() ==>
+            constraint_entities(constraints[ci]).subset_of(
+                execute_plan(plan).dom()
+            ),
+        // Each step satisfies loci derived from all constraints
+        forall|si: int, ci: int|
+            0 <= si < plan.len() && 0 <= ci < constraints.len() ==> {
+                let target = step_target(#[trigger] plan[si]);
+                let resolved = execute_plan(plan.take(si as int));
+                step_satisfies_locus(
+                    plan[si],
+                    constraint_to_locus(#[trigger] constraints[ci], resolved, target),
+                )
+            },
+    ensures
+        // All constraints are satisfied by the executed plan
+        forall|ci: int| 0 <= ci < constraints.len() ==>
+            constraint_satisfied(#[trigger] constraints[ci], execute_plan(plan)),
+{
+    lemma_valid_plan_satisfies_constraints(plan, constraints);
+}
+
 } // verus!
