@@ -906,6 +906,390 @@ proof fn lemma_lift_add_div_two_eqv<F: OrderedField, R: PositiveRadicand<F>>(
     );
 }
 
+/// In an ordered field, a² + b² ≡ 0 implies a ≡ 0 and b ≡ 0.
+proof fn lemma_sum_of_squares_zero<F: OrderedField>(a: F, b: F)
+    requires
+        a.mul(a).add(b.mul(b)).eqv(F::zero()),
+    ensures
+        a.eqv(F::zero()),
+        b.eqv(F::zero()),
+{
+    // a² ≥ 0 and b² ≥ 0
+    ordered_ring_lemmas::lemma_square_nonneg::<F>(a);
+    ordered_ring_lemmas::lemma_square_nonneg::<F>(b);
+    let aa = a.mul(a);
+    let bb = b.mul(b);
+    // From b² ≥ 0: 0 + a² ≤ b² + a²
+    F::axiom_le_add_monotone(F::zero(), bb, aa);
+    // 0 + a² ≡ a²
+    additive_group_lemmas::lemma_add_zero_left::<F>(aa);
+    // b² + a² ≡ a² + b² ≡ 0
+    F::axiom_add_commutative(bb, aa);
+    F::axiom_eqv_transitive(bb.add(aa), aa.add(bb), F::zero());
+    // So a² ≤ 0
+    F::axiom_le_congruence(F::zero().add(aa), aa, bb.add(aa), F::zero());
+    // a² ≡ 0
+    F::axiom_le_antisymmetric(aa, F::zero());
+    // a ≡ 0
+    lemma_square_zero::<F>(a);
+    // Similarly: from a² ≥ 0: 0 + b² ≤ a² + b²
+    F::axiom_le_add_monotone(F::zero(), aa, bb);
+    additive_group_lemmas::lemma_add_zero_left::<F>(bb);
+    // a² + b² ≡ 0 already given
+    F::axiom_le_congruence(F::zero().add(bb), bb, aa.add(bb), F::zero());
+    F::axiom_le_antisymmetric(bb, F::zero());
+    lemma_square_zero::<F>(b);
+}
+
+/// Lifting a 2D dot product: given component-wise eqv,
+/// ax_l*bx_l + ay_l*by_l ≡ qext(ax*bx + ay*by_f).
+proof fn lemma_lift_dot2_eqv<F: Field, R: Radicand<F>>(
+    ax: F, ay: F, bx: F, by_f: F,
+    ax_l: SpecQuadExt<F, R>, ay_l: SpecQuadExt<F, R>,
+    bx_l: SpecQuadExt<F, R>, by_l: SpecQuadExt<F, R>,
+)
+    requires
+        ax_l.eqv(qext_from_rational::<F, R>(ax)),
+        ay_l.eqv(qext_from_rational::<F, R>(ay)),
+        bx_l.eqv(qext_from_rational::<F, R>(bx)),
+        by_l.eqv(qext_from_rational::<F, R>(by_f)),
+    ensures
+        ax_l.mul(bx_l).add(ay_l.mul(by_l)).eqv(
+            qext_from_rational::<F, R>(ax.mul(bx).add(ay.mul(by_f)))),
+{
+    // ax_l * bx_l ≡ qext(ax) * qext(bx)
+    ring_lemmas::lemma_mul_congruence::<SpecQuadExt<F, R>>(
+        ax_l, qext_from_rational::<F, R>(ax), bx_l, qext_from_rational::<F, R>(bx));
+    // qext(ax*bx) ≡ qext(ax)*qext(bx), flip to get qext(ax)*qext(bx) ≡ qext(ax*bx)
+    lemma_rational_mul::<F, R>(ax, bx);
+    SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+        qext_from_rational::<F, R>(ax.mul(bx)),
+        qext_from_rational::<F, R>(ax).mul(qext_from_rational::<F, R>(bx)));
+    // Transitive: ax_l*bx_l ≡ qext(ax)*qext(bx) ≡ qext(ax*bx)
+    SpecQuadExt::<F, R>::axiom_eqv_transitive(
+        ax_l.mul(bx_l),
+        qext_from_rational::<F, R>(ax).mul(qext_from_rational::<F, R>(bx)),
+        qext_from_rational::<F, R>(ax.mul(bx)));
+    // ay_l * by_l ≡ qext(ay*by_f) — same pattern
+    ring_lemmas::lemma_mul_congruence::<SpecQuadExt<F, R>>(
+        ay_l, qext_from_rational::<F, R>(ay), by_l, qext_from_rational::<F, R>(by_f));
+    lemma_rational_mul::<F, R>(ay, by_f);
+    SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+        qext_from_rational::<F, R>(ay.mul(by_f)),
+        qext_from_rational::<F, R>(ay).mul(qext_from_rational::<F, R>(by_f)));
+    SpecQuadExt::<F, R>::axiom_eqv_transitive(
+        ay_l.mul(by_l),
+        qext_from_rational::<F, R>(ay).mul(qext_from_rational::<F, R>(by_f)),
+        qext_from_rational::<F, R>(ay.mul(by_f)));
+    // Sum: ≡ qext(ax*bx) + qext(ay*by_f)
+    additive_group_lemmas::lemma_add_congruence::<SpecQuadExt<F, R>>(
+        ax_l.mul(bx_l), qext_from_rational::<F, R>(ax.mul(bx)),
+        ay_l.mul(by_l), qext_from_rational::<F, R>(ay.mul(by_f)));
+    // qext(ax*bx) + qext(ay*by_f) ≡ qext(ax*bx + ay*by_f)
+    lemma_rational_add::<F, R>(ax.mul(bx), ay.mul(by_f));
+    SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+        qext_from_rational::<F, R>(ax.mul(bx).add(ay.mul(by_f))),
+        qext_from_rational::<F, R>(ax.mul(bx)).add(qext_from_rational::<F, R>(ay.mul(by_f))));
+    SpecQuadExt::<F, R>::axiom_eqv_transitive(
+        ax_l.mul(bx_l).add(ay_l.mul(by_l)),
+        qext_from_rational::<F, R>(ax.mul(bx)).add(qext_from_rational::<F, R>(ay.mul(by_f))),
+        qext_from_rational::<F, R>(ax.mul(bx).add(ay.mul(by_f))));
+}
+
+/// Reflect-point lifting: reflect at lifted level ≡ lift(reflect at base level).
+proof fn lemma_lift_reflect_point_eqv<F: OrderedField, R: PositiveRadicand<F>>(
+    p: Point2<F>, la: Point2<F>, lb: Point2<F>,
+)
+    ensures
+        reflect_point_across_line(
+            lift_point2::<F, R>(p), lift_point2::<F, R>(la), lift_point2::<F, R>(lb),
+        ).x.eqv(qext_from_rational::<F, R>(
+            reflect_point_across_line(p, la, lb).x)),
+        reflect_point_across_line(
+            lift_point2::<F, R>(p), lift_point2::<F, R>(la), lift_point2::<F, R>(lb),
+        ).y.eqv(qext_from_rational::<F, R>(
+            reflect_point_across_line(p, la, lb).y)),
+{
+    // Base-level intermediates
+    let d = sub2(lb, la);
+    let pa = sub2(p, la);
+    let dot_dd = d.x.mul(d.x).add(d.y.mul(d.y));
+    let dot_pad = pa.x.mul(d.x).add(pa.y.mul(d.y));
+    let t = dot_pad.div(dot_dd);
+    let two = F::one().add(F::one());
+    let proj_x = la.x.add(t.mul(d.x));
+    let proj_y = la.y.add(t.mul(d.y));
+    // Lifted-level intermediates
+    let lp = lift_point2::<F, R>(p);
+    let lla = lift_point2::<F, R>(la);
+    let llb = lift_point2::<F, R>(lb);
+    let d_l = sub2(llb, lla);
+    let pa_l = sub2(lp, lla);
+    let dot_dd_l = d_l.x.mul(d_l.x).add(d_l.y.mul(d_l.y));
+    let dot_pad_l = pa_l.x.mul(d_l.x).add(pa_l.y.mul(d_l.y));
+    let t_l = dot_pad_l.div(dot_dd_l);
+    let two_l = SpecQuadExt::<F, R>::one().add(SpecQuadExt::<F, R>::one());
+    let proj_x_l = lla.x.add(t_l.mul(d_l.x));
+    let proj_y_l = lla.y.add(t_l.mul(d_l.y));
+
+    // Step 1: d_l components ≡ qext(d components)
+    lemma_lift_sub2_eqv::<F, R>(lb, la);
+
+    // Step 2: pa_l components ≡ qext(pa components)
+    lemma_lift_sub2_eqv::<F, R>(p, la);
+
+    // Step 3: dot_dd_l ≡ qext(dot_dd)
+    lemma_lift_dot2_eqv::<F, R>(d.x, d.y, d.x, d.y, d_l.x, d_l.y, d_l.x, d_l.y);
+
+    // Step 4: dot_pad_l ≡ qext(dot_pad)
+    lemma_lift_dot2_eqv::<F, R>(pa.x, pa.y, d.x, d.y, pa_l.x, pa_l.y, d_l.x, d_l.y);
+
+    // Step 5: two_l ≡ qext(two)
+    lemma_lift_two_eqv::<F, R>();
+
+    // Case split on dot_dd
+    ordered_ring_lemmas::lemma_trichotomy::<F>(dot_dd, F::zero());
+    if dot_dd.eqv(F::zero()) {
+        // === DEGENERATE CASE: dot_dd ≡ 0, so d.x ≡ 0 and d.y ≡ 0 ===
+        lemma_sum_of_squares_zero::<F>(d.x, d.y);
+
+        // d_l.x ≡ qext(0) = QE::zero()
+        lemma_rational_congruence::<F, R>(d.x, F::zero());
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            d_l.x, qext_from_rational::<F, R>(d.x), qext_from_rational::<F, R>(F::zero()));
+
+        // d_l.y ≡ QE::zero()
+        lemma_rational_congruence::<F, R>(d.y, F::zero());
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            d_l.y, qext_from_rational::<F, R>(d.y), qext_from_rational::<F, R>(F::zero()));
+
+        // --- Base level: t*d.x ≡ 0, proj_x ≡ la.x ---
+        ring_lemmas::lemma_mul_congruence_right::<F>(t, d.x, F::zero());
+        F::axiom_mul_zero_right(t);
+        F::axiom_eqv_transitive(t.mul(d.x), t.mul(F::zero()), F::zero());
+        additive_group_lemmas::lemma_add_congruence_right::<F>(la.x, t.mul(d.x), F::zero());
+        F::axiom_add_zero_right(la.x);
+        F::axiom_eqv_transitive(proj_x, la.x.add(F::zero()), la.x);
+
+        // t*d.y ≡ 0, proj_y ≡ la.y
+        ring_lemmas::lemma_mul_congruence_right::<F>(t, d.y, F::zero());
+        F::axiom_mul_zero_right(t);
+        F::axiom_eqv_transitive(t.mul(d.y), t.mul(F::zero()), F::zero());
+        additive_group_lemmas::lemma_add_congruence_right::<F>(la.y, t.mul(d.y), F::zero());
+        F::axiom_add_zero_right(la.y);
+        F::axiom_eqv_transitive(proj_y, la.y.add(F::zero()), la.y);
+
+        // --- Lifted level: t_l*d_l.x ≡ QE::zero(), proj_x_l ≡ qext(la.x) ---
+        ring_lemmas::lemma_mul_congruence_right::<SpecQuadExt<F, R>>(
+            t_l, d_l.x, SpecQuadExt::<F, R>::zero());
+        SpecQuadExt::<F, R>::axiom_mul_zero_right(t_l);
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            t_l.mul(d_l.x), t_l.mul(SpecQuadExt::<F, R>::zero()), SpecQuadExt::<F, R>::zero());
+        SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(la.x));
+        additive_group_lemmas::lemma_add_congruence::<SpecQuadExt<F, R>>(
+            qext_from_rational::<F, R>(la.x), qext_from_rational::<F, R>(la.x),
+            t_l.mul(d_l.x), SpecQuadExt::<F, R>::zero());
+        SpecQuadExt::<F, R>::axiom_add_zero_right(qext_from_rational::<F, R>(la.x));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            proj_x_l,
+            qext_from_rational::<F, R>(la.x).add(SpecQuadExt::<F, R>::zero()),
+            qext_from_rational::<F, R>(la.x));
+
+        // t_l*d_l.y ≡ QE::zero(), proj_y_l ≡ qext(la.y)
+        ring_lemmas::lemma_mul_congruence_right::<SpecQuadExt<F, R>>(
+            t_l, d_l.y, SpecQuadExt::<F, R>::zero());
+        SpecQuadExt::<F, R>::axiom_mul_zero_right(t_l);
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            t_l.mul(d_l.y), t_l.mul(SpecQuadExt::<F, R>::zero()), SpecQuadExt::<F, R>::zero());
+        SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(la.y));
+        additive_group_lemmas::lemma_add_congruence::<SpecQuadExt<F, R>>(
+            qext_from_rational::<F, R>(la.y), qext_from_rational::<F, R>(la.y),
+            t_l.mul(d_l.y), SpecQuadExt::<F, R>::zero());
+        SpecQuadExt::<F, R>::axiom_add_zero_right(qext_from_rational::<F, R>(la.y));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            proj_y_l,
+            qext_from_rational::<F, R>(la.y).add(SpecQuadExt::<F, R>::zero()),
+            qext_from_rational::<F, R>(la.y));
+
+        // --- Result x: two_l*proj_x_l - Q(p.x) ≡ two_l*Q(la.x) - Q(p.x) ≡ Q(two*la.x - p.x) ---
+        ring_lemmas::lemma_mul_congruence_right::<SpecQuadExt<F, R>>(
+            two_l, proj_x_l, qext_from_rational::<F, R>(la.x));
+        SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(p.x));
+        additive_group_lemmas::lemma_sub_congruence::<SpecQuadExt<F, R>>(
+            two_l.mul(proj_x_l), two_l.mul(qext_from_rational::<F, R>(la.x)),
+            qext_from_rational::<F, R>(p.x), qext_from_rational::<F, R>(p.x));
+        lemma_lift_two_mul_sub_eqv::<F, R>(la.x, p.x);
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            two_l.mul(proj_x_l).sub(qext_from_rational::<F, R>(p.x)),
+            two_l.mul(qext_from_rational::<F, R>(la.x)).sub(qext_from_rational::<F, R>(p.x)),
+            qext_from_rational::<F, R>(two.mul(la.x).sub(p.x)));
+
+        // Bridge to qext(result.x): result.x = two*proj_x - p.x ≡ two*la.x - p.x
+        ring_lemmas::lemma_mul_congruence_right::<F>(two, proj_x, la.x);
+        F::axiom_eqv_reflexive(p.x);
+        additive_group_lemmas::lemma_sub_congruence::<F>(
+            two.mul(proj_x), two.mul(la.x), p.x, p.x);
+        F::axiom_eqv_symmetric(two.mul(proj_x).sub(p.x), two.mul(la.x).sub(p.x));
+        lemma_rational_congruence::<F, R>(two.mul(la.x).sub(p.x), two.mul(proj_x).sub(p.x));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            two_l.mul(proj_x_l).sub(qext_from_rational::<F, R>(p.x)),
+            qext_from_rational::<F, R>(two.mul(la.x).sub(p.x)),
+            qext_from_rational::<F, R>(two.mul(proj_x).sub(p.x)));
+
+        // --- Result y: same pattern ---
+        ring_lemmas::lemma_mul_congruence_right::<SpecQuadExt<F, R>>(
+            two_l, proj_y_l, qext_from_rational::<F, R>(la.y));
+        SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(p.y));
+        additive_group_lemmas::lemma_sub_congruence::<SpecQuadExt<F, R>>(
+            two_l.mul(proj_y_l), two_l.mul(qext_from_rational::<F, R>(la.y)),
+            qext_from_rational::<F, R>(p.y), qext_from_rational::<F, R>(p.y));
+        lemma_lift_two_mul_sub_eqv::<F, R>(la.y, p.y);
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            two_l.mul(proj_y_l).sub(qext_from_rational::<F, R>(p.y)),
+            two_l.mul(qext_from_rational::<F, R>(la.y)).sub(qext_from_rational::<F, R>(p.y)),
+            qext_from_rational::<F, R>(two.mul(la.y).sub(p.y)));
+        ring_lemmas::lemma_mul_congruence_right::<F>(two, proj_y, la.y);
+        F::axiom_eqv_reflexive(p.y);
+        additive_group_lemmas::lemma_sub_congruence::<F>(
+            two.mul(proj_y), two.mul(la.y), p.y, p.y);
+        F::axiom_eqv_symmetric(two.mul(proj_y).sub(p.y), two.mul(la.y).sub(p.y));
+        lemma_rational_congruence::<F, R>(two.mul(la.y).sub(p.y), two.mul(proj_y).sub(p.y));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            two_l.mul(proj_y_l).sub(qext_from_rational::<F, R>(p.y)),
+            qext_from_rational::<F, R>(two.mul(la.y).sub(p.y)),
+            qext_from_rational::<F, R>(two.mul(proj_y).sub(p.y)));
+
+    } else {
+        // === NON-DEGENERATE CASE: !dot_dd ≡ 0 ===
+
+        // Prove !dot_dd_l ≡ QE::zero() by contradiction (for div_congruence)
+        if dot_dd_l.eqv(SpecQuadExt::<F, R>::zero()) {
+            SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+                dot_dd_l, qext_from_rational::<F, R>(dot_dd));
+            SpecQuadExt::<F, R>::axiom_eqv_transitive(
+                qext_from_rational::<F, R>(dot_dd), dot_dd_l,
+                SpecQuadExt::<F, R>::zero());
+            lemma_qext_from_rational_injective::<F, R>(dot_dd, F::zero());
+        }
+
+        // Step 6: t_l ≡ qext(t) via div_congruence + rational_div
+        lemma_div_congruence::<SpecQuadExt<F, R>>(
+            dot_pad_l, qext_from_rational::<F, R>(dot_pad),
+            dot_dd_l, qext_from_rational::<F, R>(dot_dd));
+        // t_l ≡ qext(dot_pad).div(qext(dot_dd))
+        // rational_div: qext(t) ≡ qext(dot_pad).div(qext(dot_dd)), flip it
+        lemma_rational_div::<F, R>(dot_pad, dot_dd);
+        SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+            qext_from_rational::<F, R>(dot_pad.div(dot_dd)),
+            qext_from_rational::<F, R>(dot_pad).div(qext_from_rational::<F, R>(dot_dd)));
+        // t_l ≡ qext(dot_pad)/qext(dot_dd) ≡ qext(t)
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            t_l,
+            qext_from_rational::<F, R>(dot_pad).div(qext_from_rational::<F, R>(dot_dd)),
+            qext_from_rational::<F, R>(t));
+
+        // Step 7x: t_l*d_l.x ≡ qext(t*d.x)
+        ring_lemmas::lemma_mul_congruence::<SpecQuadExt<F, R>>(
+            t_l, qext_from_rational::<F, R>(t),
+            d_l.x, qext_from_rational::<F, R>(d.x));
+        lemma_rational_mul::<F, R>(t, d.x);
+        SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+            qext_from_rational::<F, R>(t.mul(d.x)),
+            qext_from_rational::<F, R>(t).mul(qext_from_rational::<F, R>(d.x)));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            t_l.mul(d_l.x),
+            qext_from_rational::<F, R>(t).mul(qext_from_rational::<F, R>(d.x)),
+            qext_from_rational::<F, R>(t.mul(d.x)));
+
+        // Step 8x: proj_x_l ≡ qext(proj_x)
+        SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(la.x));
+        additive_group_lemmas::lemma_add_congruence::<SpecQuadExt<F, R>>(
+            qext_from_rational::<F, R>(la.x), qext_from_rational::<F, R>(la.x),
+            t_l.mul(d_l.x), qext_from_rational::<F, R>(t.mul(d.x)));
+        lemma_rational_add::<F, R>(la.x, t.mul(d.x));
+        SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+            qext_from_rational::<F, R>(proj_x),
+            qext_from_rational::<F, R>(la.x).add(qext_from_rational::<F, R>(t.mul(d.x))));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            proj_x_l,
+            qext_from_rational::<F, R>(la.x).add(qext_from_rational::<F, R>(t.mul(d.x))),
+            qext_from_rational::<F, R>(proj_x));
+
+        // Step 9x: result_l.x ≡ qext(result.x)
+        ring_lemmas::lemma_mul_congruence::<SpecQuadExt<F, R>>(
+            two_l, qext_from_rational::<F, R>(two),
+            proj_x_l, qext_from_rational::<F, R>(proj_x));
+        lemma_rational_mul::<F, R>(two, proj_x);
+        SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+            qext_from_rational::<F, R>(two.mul(proj_x)),
+            qext_from_rational::<F, R>(two).mul(qext_from_rational::<F, R>(proj_x)));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            two_l.mul(proj_x_l),
+            qext_from_rational::<F, R>(two).mul(qext_from_rational::<F, R>(proj_x)),
+            qext_from_rational::<F, R>(two.mul(proj_x)));
+        SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(p.x));
+        additive_group_lemmas::lemma_sub_congruence::<SpecQuadExt<F, R>>(
+            two_l.mul(proj_x_l), qext_from_rational::<F, R>(two.mul(proj_x)),
+            qext_from_rational::<F, R>(p.x), qext_from_rational::<F, R>(p.x));
+        lemma_rational_sub::<F, R>(two.mul(proj_x), p.x);
+        SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+            qext_from_rational::<F, R>(two.mul(proj_x).sub(p.x)),
+            qext_from_rational::<F, R>(two.mul(proj_x)).sub(qext_from_rational::<F, R>(p.x)));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            two_l.mul(proj_x_l).sub(qext_from_rational::<F, R>(p.x)),
+            qext_from_rational::<F, R>(two.mul(proj_x)).sub(qext_from_rational::<F, R>(p.x)),
+            qext_from_rational::<F, R>(two.mul(proj_x).sub(p.x)));
+
+        // Step 7y-9y: same for y
+        ring_lemmas::lemma_mul_congruence::<SpecQuadExt<F, R>>(
+            t_l, qext_from_rational::<F, R>(t),
+            d_l.y, qext_from_rational::<F, R>(d.y));
+        lemma_rational_mul::<F, R>(t, d.y);
+        SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+            qext_from_rational::<F, R>(t.mul(d.y)),
+            qext_from_rational::<F, R>(t).mul(qext_from_rational::<F, R>(d.y)));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            t_l.mul(d_l.y),
+            qext_from_rational::<F, R>(t).mul(qext_from_rational::<F, R>(d.y)),
+            qext_from_rational::<F, R>(t.mul(d.y)));
+        SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(la.y));
+        additive_group_lemmas::lemma_add_congruence::<SpecQuadExt<F, R>>(
+            qext_from_rational::<F, R>(la.y), qext_from_rational::<F, R>(la.y),
+            t_l.mul(d_l.y), qext_from_rational::<F, R>(t.mul(d.y)));
+        lemma_rational_add::<F, R>(la.y, t.mul(d.y));
+        SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+            qext_from_rational::<F, R>(proj_y),
+            qext_from_rational::<F, R>(la.y).add(qext_from_rational::<F, R>(t.mul(d.y))));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            proj_y_l,
+            qext_from_rational::<F, R>(la.y).add(qext_from_rational::<F, R>(t.mul(d.y))),
+            qext_from_rational::<F, R>(proj_y));
+        ring_lemmas::lemma_mul_congruence::<SpecQuadExt<F, R>>(
+            two_l, qext_from_rational::<F, R>(two),
+            proj_y_l, qext_from_rational::<F, R>(proj_y));
+        lemma_rational_mul::<F, R>(two, proj_y);
+        SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+            qext_from_rational::<F, R>(two.mul(proj_y)),
+            qext_from_rational::<F, R>(two).mul(qext_from_rational::<F, R>(proj_y)));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            two_l.mul(proj_y_l),
+            qext_from_rational::<F, R>(two).mul(qext_from_rational::<F, R>(proj_y)),
+            qext_from_rational::<F, R>(two.mul(proj_y)));
+        SpecQuadExt::<F, R>::axiom_eqv_reflexive(qext_from_rational::<F, R>(p.y));
+        additive_group_lemmas::lemma_sub_congruence::<SpecQuadExt<F, R>>(
+            two_l.mul(proj_y_l), qext_from_rational::<F, R>(two.mul(proj_y)),
+            qext_from_rational::<F, R>(p.y), qext_from_rational::<F, R>(p.y));
+        lemma_rational_sub::<F, R>(two.mul(proj_y), p.y);
+        SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+            qext_from_rational::<F, R>(two.mul(proj_y).sub(p.y)),
+            qext_from_rational::<F, R>(two.mul(proj_y)).sub(qext_from_rational::<F, R>(p.y)));
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            two_l.mul(proj_y_l).sub(qext_from_rational::<F, R>(p.y)),
+            qext_from_rational::<F, R>(two.mul(proj_y)).sub(qext_from_rational::<F, R>(p.y)),
+            qext_from_rational::<F, R>(two.mul(proj_y).sub(p.y)));
+    }
+}
+
 // ===========================================================================
 //  Main locus correspondence lemma (updated with locus_eqv ensures)
 // ===========================================================================
@@ -1137,7 +1521,13 @@ pub proof fn lemma_lift_constraint_to_locus<F: OrderedField, R: PositiveRadicand
             }
         }
         Constraint::Symmetric { point, original, axis_a, axis_b } => {
-            assume(false); // Needs lift commutes with reflect_point_across_line
+            if target == point && resolved.dom().contains(original)
+                && resolved.dom().contains(axis_a) && resolved.dom().contains(axis_b)
+            {
+                lemma_lift_reflect_point_eqv::<F, R>(
+                    resolved[original], resolved[axis_a], resolved[axis_b]);
+            }
+            // else: both FullPlane
         }
     }
 }
