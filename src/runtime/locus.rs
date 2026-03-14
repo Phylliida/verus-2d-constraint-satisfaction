@@ -73,19 +73,19 @@ pub fn constraint_to_locus_exec(
         all_points_wf(points@),
         resolved_flags@.len() == points@.len(),
         (target as int) < points@.len(),
-        // resolved_flags[i] == true iff entity i is in the resolved map
+        // resolved_flags[i] == true iff entity i is in the partial resolved map
         forall|i: int| 0 <= i < resolved_flags@.len() ==>
             (#[trigger] resolved_flags@[i]) ==
-            vec_to_resolved_map(points_view(points@)).dom().contains(i as nat),
+            partial_resolved_map(points_view(points@), resolved_flags@).dom().contains(i as nat),
     ensures
         out.wf_spec(),
         out.spec_locus() == constraint_to_locus(
             runtime_constraint_model(*rc),
-            vec_to_resolved_map(points_view(points@)),
+            partial_resolved_map(points_view(points@), resolved_flags@),
             target as nat,
         ),
 {
-    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    let ghost resolved = partial_resolved_map(points_view(points@), resolved_flags@);
     let ghost model = runtime_constraint_model(*rc);
 
     match rc {
@@ -526,26 +526,27 @@ pub fn constraint_to_locus_exec(
                 let dot_dd = dx.mul(&dx).add(&dy.mul(&dy));
                 let one = RuntimeRational::from_int(1);
                 let two = one.add(&one);
-                if dot_dd.is_zero() {
-                    // Degenerate: axis points coincide.
-                    // Spec reflect formula with Rational div-by-zero gives 2*axis_a - original.
-                    let rx = two.mul(&points[*axis_a].x).sub(&points[*original].x);
-                    let ry = two.mul(&points[*axis_a].y).sub(&points[*original].y);
-                    let point = RuntimePoint2::new(rx, ry);
-                    proof {
-                        let spec_reflected = reflect_point_across_line(
-                            resolved[*original as nat], resolved[*axis_a as nat], resolved[*axis_b as nat],
-                        );
-                        // Proof gap: when ||d||²≡0, Rational's div(x,0)=x*recip(0)=x*0
-                        // makes t≡0, so reflect = 2*axis_a - original structurally.
-                        assume(point@ == spec_reflected);
-                    }
-                    return RuntimeLocus::AtPoint { point };
-                }
                 // dot_pad = pax*dx + pay*dy
                 let dot_pad = pax.mul(&dx).add(&pay.mul(&dy));
-                // t = dot_pad / dot_dd
-                let t = dot_pad.div(&dot_dd);
+                // t = dot_pad / dot_dd (or dot_pad * dot_dd when degenerate)
+                // For Rational: div(a,b) = a * reciprocal(b).
+                // When b.num == 0, reciprocal(b) == b structurally,
+                // so div(a,b) == a * b. We exploit this to avoid the
+                // RuntimeRational::div non-zero precondition.
+                let t = if dot_dd.is_zero() {
+                    proof {
+                        // dot_dd.is_zero() → dot_dd@.eqv_spec(0) ↔ dot_dd@.num == 0
+                        RationalModel::lemma_eqv_zero_iff_num_zero(dot_dd@);
+                        // Now Z3 knows dot_dd@.num == 0
+                        // reciprocal_spec with num==0 returns self
+                        assert(dot_dd@.reciprocal_spec() == dot_dd@);
+                        // div_spec = mul_spec(self, rhs.reciprocal_spec()) = mul_spec(self, rhs)
+                        assert(dot_pad@.div_spec(dot_dd@) == dot_pad@.mul_spec(dot_dd@));
+                    }
+                    dot_pad.mul(&dot_dd)
+                } else {
+                    dot_pad.div(&dot_dd)
+                };
                 // proj = axis_a + t * d
                 let proj_x = points[*axis_a].x.add(&t.mul(&dx));
                 let proj_y = points[*axis_a].y.add(&t.mul(&dy));

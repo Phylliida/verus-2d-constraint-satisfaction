@@ -30,6 +30,18 @@ pub open spec fn vec_to_resolved_map(
     )
 }
 
+/// Partial resolved map: only entities with flags[i] == true are in the domain.
+/// Used by the greedy solver where not all entities are resolved yet.
+pub open spec fn partial_resolved_map(
+    points: Seq<Point2<RationalModel>>,
+    flags: Seq<bool>,
+) -> ResolvedPoints<RationalModel> {
+    Map::new(
+        |id: nat| (id as int) < points.len() && (id as int) < flags.len() && flags[id as int],
+        |id: nat| points[id as int],
+    )
+}
+
 /// Helper: check that all points in the Vec satisfy wf_spec.
 pub open spec fn all_points_wf(points: Seq<RuntimePoint2>) -> bool {
     forall|i: int| 0 <= i < points.len() ==> (#[trigger] points[i]).wf_spec()
