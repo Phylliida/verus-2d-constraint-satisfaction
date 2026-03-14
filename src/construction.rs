@@ -642,6 +642,21 @@ proof fn lemma_constraint_entities_nonempty<T: OrderedField>(c: Constraint<T>)
         Constraint::Symmetric { point, .. } => {
             assert(constraint_entities(c).contains(point));
         }
+        Constraint::FixedPoint { point, .. } => {
+            assert(constraint_entities(c).contains(point));
+        }
+        Constraint::Ratio { a1, .. } => {
+            assert(constraint_entities(c).contains(a1));
+        }
+        Constraint::Tangent { line_a, .. } => {
+            assert(constraint_entities(c).contains(line_a));
+        }
+        Constraint::CircleTangent { c1, .. } => {
+            assert(constraint_entities(c).contains(c1));
+        }
+        Constraint::Angle { a1, .. } => {
+            assert(constraint_entities(c).contains(a1));
+        }
     }
 }
 
@@ -828,6 +843,33 @@ proof fn lemma_last_step_locus_nontrivial<T: OrderedField>(
             assert(resolved.dom().contains(original));
             assert(resolved.dom().contains(axis_a));
             assert(resolved.dom().contains(axis_b));
+        }
+        Constraint::FixedPoint { point, .. } => {
+            // locus_entities = {point}, so target must be point
+            assert(target == point);
+        }
+        Constraint::Ratio { a1, a2, b1, b2, .. } => {
+            // locus_entities = {a1, a2}, so target is a1 or a2
+            if target == a1 {
+                assert(resolved.dom().contains(a2));
+                assert(resolved.dom().contains(b1));
+                assert(resolved.dom().contains(b2));
+            } else {
+                assert(target == a2);
+                assert(resolved.dom().contains(a1));
+                assert(resolved.dom().contains(b1));
+                assert(resolved.dom().contains(b2));
+            }
+        }
+        Constraint::Tangent { .. } => {
+            // locus_entities = empty set — precondition is false, vacuously true
+            assert(false);
+        }
+        Constraint::CircleTangent { .. } => {
+            assert(false);
+        }
+        Constraint::Angle { .. } => {
+            assert(false);
         }
     }
 }

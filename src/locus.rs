@@ -228,6 +228,39 @@ pub open spec fn constraint_to_locus<T: OrderedField>(
                 Locus2d::FullPlane
             }
         }
+
+        Constraint::FixedPoint { point, x, y } => {
+            if target == point {
+                Locus2d::AtPoint(Point2 { x, y })
+            } else {
+                Locus2d::FullPlane
+            }
+        }
+
+        Constraint::Ratio { a1, a2, b1, b2, ratio_sq } => {
+            if target == a1 && resolved.dom().contains(a2) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
+                let r2 = ratio_sq.mul(sq_dist_2d(resolved[b1], resolved[b2]));
+                Locus2d::OnCircle(circle2_from_center_radius_sq(resolved[a2], r2))
+            } else if target == a2 && resolved.dom().contains(a1) && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
+                let r2 = ratio_sq.mul(sq_dist_2d(resolved[b1], resolved[b2]));
+                Locus2d::OnCircle(circle2_from_center_radius_sq(resolved[a1], r2))
+            } else {
+                Locus2d::FullPlane
+            }
+        }
+
+        Constraint::Tangent { .. } => {
+            // Quartic condition — no line/circle locus possible
+            Locus2d::FullPlane
+        }
+
+        Constraint::CircleTangent { .. } => {
+            Locus2d::FullPlane
+        }
+
+        Constraint::Angle { .. } => {
+            Locus2d::FullPlane
+        }
     }
 }
 
@@ -695,6 +728,38 @@ pub proof fn lemma_constraint_frame<T: OrderedField>(
             assert(resolved.insert(key, p)[axis_a] == resolved[axis_a]);
             assert(resolved.insert(key, p)[axis_b] == resolved[axis_b]);
         }
+        Constraint::FixedPoint { point, .. } => {
+            assert(key != point);
+            assert(resolved.insert(key, p)[point] == resolved[point]);
+        }
+        Constraint::Ratio { a1, a2, b1, b2, .. } => {
+            assert(key != a1 && key != a2 && key != b1 && key != b2);
+            assert(resolved.insert(key, p)[a1] == resolved[a1]);
+            assert(resolved.insert(key, p)[a2] == resolved[a2]);
+            assert(resolved.insert(key, p)[b1] == resolved[b1]);
+            assert(resolved.insert(key, p)[b2] == resolved[b2]);
+        }
+        Constraint::Tangent { line_a, line_b, center, radius_point } => {
+            assert(key != line_a && key != line_b && key != center && key != radius_point);
+            assert(resolved.insert(key, p)[line_a] == resolved[line_a]);
+            assert(resolved.insert(key, p)[line_b] == resolved[line_b]);
+            assert(resolved.insert(key, p)[center] == resolved[center]);
+            assert(resolved.insert(key, p)[radius_point] == resolved[radius_point]);
+        }
+        Constraint::CircleTangent { c1, rp1, c2, rp2 } => {
+            assert(key != c1 && key != rp1 && key != c2 && key != rp2);
+            assert(resolved.insert(key, p)[c1] == resolved[c1]);
+            assert(resolved.insert(key, p)[rp1] == resolved[rp1]);
+            assert(resolved.insert(key, p)[c2] == resolved[c2]);
+            assert(resolved.insert(key, p)[rp2] == resolved[rp2]);
+        }
+        Constraint::Angle { a1, a2, b1, b2, .. } => {
+            assert(key != a1 && key != a2 && key != b1 && key != b2);
+            assert(resolved.insert(key, p)[a1] == resolved[a1]);
+            assert(resolved.insert(key, p)[a2] == resolved[a2]);
+            assert(resolved.insert(key, p)[b1] == resolved[b1]);
+            assert(resolved.insert(key, p)[b2] == resolved[b2]);
+        }
     }
 }
 
@@ -1142,6 +1207,70 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
             } else {
                 assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
             }
+        }
+
+        Constraint::FixedPoint { point, x, y } => {
+            assert(target == point);
+            assert(r.dom().contains(point));
+            assert(r[point] == p);
+            // Locus: AtPoint(Point2{x, y})
+            // point_satisfies_locus: p.eqv(Point2{x,y}) → p.x.eqv(x) && p.y.eqv(y)
+            // constraint: r[point].x.eqv(x) && r[point].y.eqv(y) = p.x.eqv(x) && p.y.eqv(y) ✓
+        }
+
+        Constraint::Ratio { a1, a2, b1, b2, ratio_sq } => {
+            if target == a1 {
+                assert(r.dom().contains(a1) && r.dom().contains(a2));
+                assert(r.dom().contains(b1) && r.dom().contains(b2));
+                if a1 != a2 && a1 != b1 && a1 != b2 {
+                    assert(r[a1] == p);
+                    assert(r[a2] == resolved[a2]);
+                    assert(r[b1] == resolved[b1]);
+                    assert(r[b2] == resolved[b2]);
+                    // Locus: OnCircle(center=resolved[a2], radius_sq=ratio_sq*sq_dist(b1',b2'))
+                    // point_on_circle2: sq_dist(p, resolved[a2]) ≡ ratio_sq*sq_dist(b1',b2')
+                    // constraint: sq_dist(r[a1],r[a2]) ≡ ratio_sq*sq_dist(r[b1],r[b2]) ✓
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            } else if target == a2 {
+                assert(r.dom().contains(a1) && r.dom().contains(a2));
+                assert(r.dom().contains(b1) && r.dom().contains(b2));
+                if a2 != a1 && a2 != b1 && a2 != b2 {
+                    assert(r[a1] == resolved[a1]);
+                    assert(r[a2] == p);
+                    assert(r[b1] == resolved[b1]);
+                    assert(r[b2] == resolved[b2]);
+                    // Locus: OnCircle(center=resolved[a1], radius_sq=ratio_sq*sq_dist(b1',b2'))
+                    // point_on_circle2: sq_dist(p, resolved[a1]) ≡ ratio_sq*sq_dist(b1',b2')
+                    // constraint: sq_dist(r[a1],r[a2]) = sq_dist(resolved[a1], p)
+                    // Bridge: sq_dist(resolved[a1], p) ≡ sq_dist(p, resolved[a1])
+                    lemma_sq_dist_symmetric::<T>(resolved[a1], p);
+                    T::axiom_eqv_transitive(
+                        sq_dist_2d(resolved[a1], p),
+                        sq_dist_2d(p, resolved[a1]),
+                        ratio_sq.mul(sq_dist_2d(resolved[b1], resolved[b2])),
+                    );
+                } else {
+                    assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+                }
+            } else {
+                // target is b1 or b2 — not in locus_entities → FullPlane
+                assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+            }
+        }
+
+        Constraint::Tangent { .. } => {
+            // Always FullPlane — vacuous
+            assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+        }
+
+        Constraint::CircleTangent { .. } => {
+            assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+        }
+
+        Constraint::Angle { .. } => {
+            assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
         }
     }
 }
