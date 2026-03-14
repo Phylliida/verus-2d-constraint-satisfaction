@@ -6,6 +6,9 @@ use verus_geometry::circle2::*;
 use verus_geometry::line_intersection::*;
 use verus_geometry::circle_line::*;
 use verus_geometry::circle_circle::*;
+use verus_geometry::constructed_scalar::*;
+use verus_quadratic_extension::spec::*;
+use verus_quadratic_extension::radicand::*;
 use crate::entities::*;
 use crate::constraints::*;
 use crate::locus::*;
@@ -1005,6 +1008,286 @@ pub proof fn lemma_end_to_end<T: OrderedField>(
             constraint_satisfied(#[trigger] constraints[ci], execute_plan(plan)),
 {
     lemma_valid_plan_satisfies_constraints(plan, constraints);
+}
+
+// ===========================================================================
+//  Extension field step execution
+// ===========================================================================
+
+/// Lift a construction step from F to SpecQuadExt<F, R>.
+pub open spec fn lift_construction_step<F: OrderedField, R: Radicand<F>>(
+    step: ConstructionStep<F>,
+) -> ConstructionStep<SpecQuadExt<F, R>> {
+    match step {
+        ConstructionStep::Fixed { id, position } =>
+            ConstructionStep::Fixed { id, position: lift_point2(position) },
+        ConstructionStep::LineLine { id, line1, line2 } =>
+            ConstructionStep::LineLine { id, line1: lift_line2(line1), line2: lift_line2(line2) },
+        ConstructionStep::CircleLine { id, circle, line, plus } =>
+            ConstructionStep::CircleLine { id, circle: lift_circle2(circle), line: lift_line2(line), plus },
+        ConstructionStep::CircleCircle { id, circle1, circle2, plus } =>
+            ConstructionStep::CircleCircle { id, circle1: lift_circle2(circle1), circle2: lift_circle2(circle2), plus },
+        ConstructionStep::Determined { id, position } =>
+            ConstructionStep::Determined { id, position: lift_point2(position) },
+    }
+}
+
+/// Execute a construction step in the extension field Q(√R).
+/// Unlike execute_step (which uses choose|p|), this is deterministic:
+/// circle intersections use cl_intersection_point / cc_intersection_point
+/// with the actual plus/minus flag.
+pub open spec fn execute_step_in_ext<F: OrderedField, R: PositiveRadicand<F>>(
+    step: ConstructionStep<F>,
+) -> Point2<SpecQuadExt<F, R>> {
+    match step {
+        ConstructionStep::Fixed { position, .. } => lift_point2(position),
+        ConstructionStep::LineLine { line1, line2, .. } =>
+            lift_point2(line_line_intersection_2d(line1, line2)),
+        ConstructionStep::CircleLine { circle, line, plus, .. } =>
+            cl_intersection_point::<F, R>(circle, line, plus),
+        ConstructionStep::CircleCircle { circle1, circle2, plus, .. } =>
+            cc_intersection_point::<F, R>(circle1, circle2, plus),
+        ConstructionStep::Determined { position, .. } => lift_point2(position),
+    }
+}
+
+// ===========================================================================
+//  Lifting lemmas
+// ===========================================================================
+
+/// Lifting preserves step_target.
+pub proof fn lemma_lift_step_target<F: OrderedField, R: Radicand<F>>(
+    step: ConstructionStep<F>,
+)
+    ensures
+        step_target(lift_construction_step::<F, R>(step)) == step_target(step),
+{
+    // Each arm has the same `id` field — trivial by match.
+}
+
+/// THE KEY RESULT: lifting a step with positive discriminant and matching
+/// radicand produces a well-formed step at the extension field level.
+///
+/// This closes the gap: the runtime proves geometric validity + positive
+/// discriminant at T=Rational, and this lemma shows the existential in
+/// step_well_formed is satisfiable at T=SpecQuadExt<Rational, R>.
+pub proof fn lemma_lifted_step_well_formed<F: OrderedField, R: PositiveRadicand<F>>(
+    step: ConstructionStep<F>,
+)
+    requires
+        // Geometric preconditions (non-degenerate lines, distinct centers, non-parallel)
+        match step {
+            ConstructionStep::LineLine { line1, line2, .. } =>
+                !line_det(line1, line2).eqv(F::zero()),
+            ConstructionStep::CircleLine { line, .. } =>
+                line2_nondegenerate(line),
+            ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+                !circle1.center.eqv(circle2.center),
+            _ => true,
+        },
+        // Positive discriminant for circle steps
+        match step {
+            ConstructionStep::CircleLine { circle, line, .. } =>
+                F::zero().lt(cl_discriminant(circle, line)),
+            ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+                F::zero().lt(cc_discriminant(circle1, circle2)),
+            _ => true,
+        },
+        // Radicand matches discriminant for circle steps
+        match step {
+            ConstructionStep::CircleLine { circle, line, .. } =>
+                R::value().eqv(cl_discriminant(circle, line)),
+            ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+                R::value().eqv(cc_discriminant(circle1, circle2)),
+            _ => true,
+        },
+    ensures
+        step_well_formed(
+            lift_construction_step::<F, R>(step),
+            Map::<EntityId, Point2<SpecQuadExt<F, R>>>::empty(),
+        ),
+{
+    match step {
+        ConstructionStep::Fixed { .. } | ConstructionStep::Determined { .. } => {
+            // Trivially true
+        }
+
+        ConstructionStep::LineLine { id, line1, line2 } => {
+            lemma_lifted_ll_well_formed::<F, R>(line1, line2);
+        }
+
+        ConstructionStep::CircleLine { id, circle, line, plus } => {
+            lemma_lifted_cl_well_formed::<F, R>(circle, line, plus);
+        }
+
+        ConstructionStep::CircleCircle { id, circle1, circle2, plus } => {
+            lemma_lifted_cc_well_formed::<F, R>(circle1, circle2, plus);
+        }
+    }
+}
+
+/// Helper: LineLine case of lemma_lifted_step_well_formed.
+proof fn lemma_lifted_ll_well_formed<F: OrderedField, R: PositiveRadicand<F>>(
+    line1: Line2<F>,
+    line2: Line2<F>,
+)
+    requires
+        !line_det(line1, line2).eqv(F::zero()),
+    ensures
+        !line_det(lift_line2::<F, R>(line1), lift_line2::<F, R>(line2)).eqv(
+            SpecQuadExt::<F, R>::zero()
+        ),
+{
+    // line_det(lift(l1), lift(l2)) ≡ qext_from_rational(line_det(l1, l2))
+    lemma_lift_line_det::<F, R>(line1, line2);
+
+    // Suppose for contradiction that line_det(lift(l1), lift(l2)).eqv(QE::zero())
+    // QE::zero() = qext_from_rational(F::zero())
+    // By transitivity + symmetry: qext_from_rational(line_det(l1,l2)).eqv(qext_from_rational(F::zero()))
+    // By injectivity: line_det(l1,l2).eqv(F::zero()) — contradiction
+    if line_det(lift_line2::<F, R>(line1), lift_line2::<F, R>(line2)).eqv(
+        SpecQuadExt::<F, R>::zero()
+    ) {
+        // line_det(lift) ≡ qext_from_rational(line_det(l1,l2))
+        // line_det(lift) ≡ QE::zero() = qext_from_rational(F::zero())
+        // So qext_from_rational(line_det) ≡ qext_from_rational(F::zero())
+        SpecQuadExt::<F, R>::axiom_eqv_symmetric(
+            line_det(lift_line2::<F, R>(line1), lift_line2::<F, R>(line2)),
+            qext_from_rational::<F, R>(line_det(line1, line2)),
+        );
+        F::axiom_eqv_reflexive(F::zero());
+        SpecQuadExt::<F, R>::axiom_eqv_transitive(
+            qext_from_rational::<F, R>(line_det(line1, line2)),
+            line_det(lift_line2::<F, R>(line1), lift_line2::<F, R>(line2)),
+            qext_from_rational::<F, R>(F::zero()),
+        );
+        lemma_qext_from_rational_injective::<F, R>(line_det(line1, line2), F::zero());
+        // Now line_det(l1, l2).eqv(F::zero()) — contradicts requires
+    }
+}
+
+/// Helper: CircleLine case of lemma_lifted_step_well_formed.
+proof fn lemma_lifted_cl_well_formed<F: OrderedField, R: PositiveRadicand<F>>(
+    circle: Circle2<F>,
+    line: Line2<F>,
+    plus: bool,
+)
+    requires
+        line2_nondegenerate(line),
+        F::zero().lt(cl_discriminant(circle, line)),
+        R::value().eqv(cl_discriminant(circle, line)),
+    ensures
+        line2_nondegenerate(lift_line2::<F, R>(line)),
+        exists|p: Point2<SpecQuadExt<F, R>>|
+            point_on_circle2(lift_circle2::<F, R>(circle), p)
+            && point_on_line2(lift_line2::<F, R>(line), p),
+{
+    // Nondegeneracy preserved
+    lemma_lift_line2_nondegenerate::<F, R>(line);
+
+    // Witness: p = cl_intersection_point(circle, line, plus)
+    let p = cl_intersection_point::<F, R>(circle, line, plus);
+
+    // On line
+    lemma_cl_intersection_on_line::<F, R>(circle, line, plus);
+    // ensures: point_on_line2(lift_line2(line), p)
+
+    // On circle: lemma gives sq_dist(p, lift(center)).eqv(qext_from_rational(r²))
+    lemma_cl_intersection_on_circle::<F, R>(circle, line, plus);
+    // ensures: sq_dist_2d(p, lift_point2(center)).eqv(qext_from_rational(circle.radius_sq))
+    // This is exactly point_on_circle2(lift_circle2(circle), p) since:
+    //   lift_circle2(circle).center = lift_point2(circle.center)
+    //   lift_circle2(circle).radius_sq = qext_from_rational(circle.radius_sq)
+    //   point_on_circle2 = sq_dist_2d(p, center).eqv(radius_sq)
+}
+
+/// Helper: CircleCircle case of lemma_lifted_step_well_formed.
+proof fn lemma_lifted_cc_well_formed<F: OrderedField, R: PositiveRadicand<F>>(
+    circle1: Circle2<F>,
+    circle2: Circle2<F>,
+    plus: bool,
+)
+    requires
+        !circle1.center.eqv(circle2.center),
+        F::zero().lt(cc_discriminant(circle1, circle2)),
+        R::value().eqv(cc_discriminant(circle1, circle2)),
+    ensures
+        !lift_point2::<F, R>(circle1.center).eqv(lift_point2::<F, R>(circle2.center)),
+        exists|p: Point2<SpecQuadExt<F, R>>|
+            point_on_circle2(lift_circle2::<F, R>(circle1), p)
+            && point_on_circle2(lift_circle2::<F, R>(circle2), p),
+{
+    // Centers distinct when lifted
+    lemma_lift_centers_distinct::<F, R>(circle1.center, circle2.center);
+
+    // Witness: p = cc_intersection_point(circle1, circle2, plus)
+    let p = cc_intersection_point::<F, R>(circle1, circle2, plus);
+
+    // On c1: sq_dist(p, lift(c1.center)).eqv(qext_from_rational(c1.radius_sq))
+    lemma_cc_intersection_on_c1::<F, R>(circle1, circle2, plus);
+    // = point_on_circle2(lift_circle2(c1), p)
+
+    // On c2: sq_dist(p, lift(c2.center)).eqv(qext_from_rational(c2.radius_sq))
+    lemma_cc_intersection_on_c2::<F, R>(circle1, circle2, plus);
+    // = point_on_circle2(lift_circle2(c2), p)
+}
+
+/// Geometric correctness of execute_step_in_ext: the computed point
+/// satisfies the relevant loci (on circle, on line).
+pub proof fn lemma_execute_step_in_ext_satisfies_loci<F: OrderedField, R: PositiveRadicand<F>>(
+    step: ConstructionStep<F>,
+)
+    requires
+        // Geometric validity
+        match step {
+            ConstructionStep::LineLine { line1, line2, .. } =>
+                !line_det(line1, line2).eqv(F::zero()),
+            ConstructionStep::CircleLine { line, .. } =>
+                line2_nondegenerate(line),
+            ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+                !circle1.center.eqv(circle2.center),
+            _ => true,
+        },
+        // Positive discriminant for circle steps
+        match step {
+            ConstructionStep::CircleLine { circle, line, .. } =>
+                F::zero().lt(cl_discriminant(circle, line)),
+            ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+                F::zero().lt(cc_discriminant(circle1, circle2)),
+            _ => true,
+        },
+        // Radicand matches discriminant for circle steps
+        match step {
+            ConstructionStep::CircleLine { circle, line, .. } =>
+                R::value().eqv(cl_discriminant(circle, line)),
+            ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+                R::value().eqv(cc_discriminant(circle1, circle2)),
+            _ => true,
+        },
+    ensures
+        match step {
+            ConstructionStep::CircleLine { circle, line, .. } =>
+                point_on_circle2(lift_circle2::<F, R>(circle), execute_step_in_ext::<F, R>(step))
+                && point_on_line2(lift_line2::<F, R>(line), execute_step_in_ext::<F, R>(step)),
+            ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+                point_on_circle2(lift_circle2::<F, R>(circle1), execute_step_in_ext::<F, R>(step))
+                && point_on_circle2(lift_circle2::<F, R>(circle2), execute_step_in_ext::<F, R>(step)),
+            _ => true,
+        },
+{
+    match step {
+        ConstructionStep::CircleLine { id, circle, line, plus } => {
+            // execute_step_in_ext = cl_intersection_point(circle, line, plus)
+            lemma_cl_intersection_on_circle::<F, R>(circle, line, plus);
+            lemma_cl_intersection_on_line::<F, R>(circle, line, plus);
+        }
+        ConstructionStep::CircleCircle { id, circle1, circle2, plus } => {
+            // execute_step_in_ext = cc_intersection_point(c1, c2, plus)
+            lemma_cc_intersection_on_c1::<F, R>(circle1, circle2, plus);
+            lemma_cc_intersection_on_c2::<F, R>(circle1, circle2, plus);
+        }
+        _ => {}
+    }
 }
 
 } // verus!
