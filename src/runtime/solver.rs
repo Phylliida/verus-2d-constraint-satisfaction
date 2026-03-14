@@ -28,6 +28,23 @@ verus! {
 //  Spec helpers
 // ===========================================================================
 
+/// Whether a construction step's geometric preconditions are met.
+/// This is `step_well_formed` minus the existential witness requirement
+/// for circle steps (which needs a base-field intersection point that
+/// may not exist at T=Rational for circle intersections in Q(sqrt(D))).
+pub open spec fn step_geometrically_valid(step: ConstructionStep<RationalModel>) -> bool {
+    match step {
+        ConstructionStep::Fixed { .. } => true,
+        ConstructionStep::LineLine { line1, line2, .. } =>
+            !line_det(line1, line2).eqv(RationalModel::from_int_spec(0)),
+        ConstructionStep::CircleLine { line, .. } =>
+            line2_nondegenerate(line),
+        ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+            !circle1.center.eqv(circle2.center),
+        ConstructionStep::Determined { .. } => true,
+    }
+}
+
 /// Whether a construction step's circle discriminant is positive.
 /// Non-circle steps are trivially true.
 pub open spec fn step_has_positive_discriminant(step: ConstructionStep<RationalModel>) -> bool {
@@ -876,6 +893,19 @@ pub fn solve_all_variants(
         forall|si: int| 0 <= si < out@.len() ==>
             forall|j: int| 0 <= j < (#[trigger] out@[si])@.len() ==>
                 step_has_positive_discriminant((#[trigger] out@[si]@[j]).spec_step()),
+        // All targets are valid entity indices
+        forall|si: int| 0 <= si < out@.len() ==>
+            forall|j: int| 0 <= j < (#[trigger] out@[si])@.len() ==>
+                (step_target((#[trigger] out@[si]@[j]).spec_step()) as int) < old(points)@.len(),
+        // All variants have equal length
+        out@.len() > 0 ==>
+            forall|si: int| 0 <= si < out@.len() ==>
+                (#[trigger] out@[si])@.len() == out@[0]@.len(),
+        // All steps satisfy geometric preconditions (step_well_formed minus
+        // the existential witness for circle steps)
+        forall|si: int| 0 <= si < out@.len() ==>
+            forall|j: int| 0 <= j < (#[trigger] out@[si])@.len() ==>
+                step_geometrically_valid((#[trigger] out@[si]@[j]).spec_step()),
 {
     let plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
     let k = count_circle_steps(&plan);
@@ -903,6 +933,9 @@ pub fn solve_all_variants(
             forall|i: int, j: int|
                 0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
                 step_target(#[trigger] plan@[i].spec_step()) != step_target(#[trigger] plan@[j].spec_step()),
+            // Base plan targets are valid
+            forall|i: int| 0 <= i < plan@.len() ==>
+                (step_target(#[trigger] plan@[i].spec_step()) as int) < old(points)@.len(),
             forall|si: int| 0 <= si < results@.len() ==>
                 forall|j: int| 0 <= j < (#[trigger] results@[si])@.len() ==>
                     (#[trigger] results@[si]@[j]).wf_spec(),
@@ -915,10 +948,21 @@ pub fn solve_all_variants(
             forall|si: int| 0 <= si < results@.len() ==>
                 forall|j: int| 0 <= j < (#[trigger] results@[si])@.len() ==>
                     step_has_positive_discriminant((#[trigger] results@[si]@[j]).spec_step()),
+            // Target validity for results
+            forall|si: int| 0 <= si < results@.len() ==>
+                forall|j: int| 0 <= j < (#[trigger] results@[si])@.len() ==>
+                    (step_target((#[trigger] results@[si]@[j]).spec_step()) as int) < old(points)@.len(),
+            // All result variants have same length as base plan
+            forall|si: int| 0 <= si < results@.len() ==>
+                (#[trigger] results@[si])@.len() == plan@.len(),
+            // Geometric validity for results
+            forall|si: int| 0 <= si < results@.len() ==>
+                forall|j: int| 0 <= j < (#[trigger] results@[si])@.len() ==>
+                    step_geometrically_valid((#[trigger] results@[si]@[j]).spec_step()),
         decreases n - mask,
     {
         let variant = make_sign_variant(&plan, mask);
-        // Derive distinct targets for variant from base plan
+        // Derive properties for variant from base plan via target preservation
         proof {
             assert forall|i: int, j: int|
                 0 <= i < variant@.len() && 0 <= j < variant@.len() && i != j
@@ -926,13 +970,22 @@ pub fn solve_all_variants(
                 step_target(#[trigger] variant@[i].spec_step()) !=
                 step_target(#[trigger] variant@[j].spec_step())
             by {
-                // make_sign_variant preserves targets:
-                // step_target(variant[i]) == step_target(plan[i])
-                // step_target(variant[j]) == step_target(plan[j])
-                // Base plan has distinct targets:
-                // step_target(plan[i]) != step_target(plan[j])
                 assert(step_target(variant@[i].spec_step()) == step_target(plan@[i].spec_step()));
                 assert(step_target(variant@[j].spec_step()) == step_target(plan@[j].spec_step()));
+            }
+            // Target validity: variant targets == plan targets < old(points).len()
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                (step_target((#[trigger] variant@[j]).spec_step()) as int) < old(points)@.len()
+            by {
+                assert(step_target(variant@[j].spec_step()) == step_target(plan@[j].spec_step()));
+            }
+            // Geometric validity: wf_spec() implies step_geometrically_valid
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                step_geometrically_valid((#[trigger] variant@[j]).spec_step())
+            by {
+                assert(variant@[j].wf_spec());
             }
         }
         if check_variant_feasible(&variant) {
