@@ -3,6 +3,8 @@ use verus_algebra::traits::*;
 use verus_geometry::point2::*;
 use verus_geometry::line2::*;
 use verus_geometry::circle2::*;
+use verus_geometry::circle_line::cl_discriminant;
+use verus_geometry::circle_circle::cc_discriminant;
 use verus_geometry::line_intersection::*;
 use verus_geometry::runtime::point2::*;
 use verus_geometry::runtime::line2::*;
@@ -16,11 +18,28 @@ use crate::locus::*;
 use crate::construction::*;
 use crate::runtime::constraint::*;
 use crate::runtime::locus::*;
-use crate::runtime::construction::RuntimeStepData;
+use crate::runtime::construction::{RuntimeStepData, execute_line_line_step};
+use crate::solver::lemma_intersect_loci_target;
 
 type RationalModel = verus_rational::rational::Rational;
 
 verus! {
+
+// ===========================================================================
+//  Spec helpers
+// ===========================================================================
+
+/// Whether a construction step's circle discriminant is positive.
+/// Non-circle steps are trivially true.
+pub open spec fn step_has_positive_discriminant(step: ConstructionStep<RationalModel>) -> bool {
+    match step {
+        ConstructionStep::CircleLine { circle, line, .. } =>
+            RationalModel::from_int_spec(0).lt(cl_discriminant(circle, line)),
+        ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+            RationalModel::from_int_spec(0).lt(cc_discriminant(circle1, circle2)),
+        _ => true,
+    }
+}
 
 // ===========================================================================
 //  Runtime locus intersection
@@ -246,7 +265,8 @@ pub fn find_and_intersect_loci(
         forall|i: int| 0 <= i < loci@.len() ==> (#[trigger] loci@[i]).wf_spec(),
     ensures
         match out {
-            Some(step) => step.wf_spec(),
+            Some(step) => step.wf_spec()
+                && step_target(step.spec_step()) == target as nat,
             None => true,
         },
 {
@@ -342,7 +362,470 @@ pub fn find_and_intersect_loci(
     loci_mut.set_and_swap(first_idx, &mut dummy2);
     let l1 = dummy2;
 
-    intersect_loci_exec(target, l1, l2)
+    let ghost l1_spec = l1.spec_locus();
+    let ghost l2_spec = l2.spec_locus();
+    let result = intersect_loci_exec(target, l1, l2);
+    proof {
+        lemma_intersect_loci_target::<RationalModel>(target as nat, l1_spec, l2_spec);
+    }
+    result
+}
+
+// ===========================================================================
+//  Copy helpers
+// ===========================================================================
+
+/// Deep-copy a RuntimePoint2.
+fn copy_point(p: &RuntimePoint2) -> (out: RuntimePoint2)
+    requires p.wf_spec(),
+    ensures out.wf_spec(), out@ == p@,
+{
+    RuntimePoint2::new(copy_rational(&p.x), copy_rational(&p.y))
+}
+
+/// Deep-copy a RuntimeLine2.
+fn copy_line(l: &RuntimeLine2) -> (out: RuntimeLine2)
+    requires l.wf_spec(),
+    ensures out.wf_spec(), out@ == l@,
+{
+    RuntimeLine2::new(copy_rational(&l.a), copy_rational(&l.b), copy_rational(&l.c))
+}
+
+/// Deep-copy a RuntimeCircle2.
+fn copy_circle(c: &RuntimeCircle2) -> (out: RuntimeCircle2)
+    requires c.wf_spec(),
+    ensures out.wf_spec(), out@ == c@,
+{
+    let center = copy_point(&c.center);
+    let r_sq = copy_rational(&c.radius_sq);
+    RuntimeCircle2::from_center_radius_sq(center, r_sq)
+}
+
+/// Deep-copy a RuntimeStepData.
+fn copy_step(s: &RuntimeStepData) -> (out: RuntimeStepData)
+    requires s.wf_spec(),
+    ensures out.wf_spec(), out.spec_step() == s.spec_step(),
+{
+    match s {
+        RuntimeStepData::Fixed { x, y, model } => {
+            RuntimeStepData::Fixed {
+                x: copy_rational(x),
+                y: copy_rational(y),
+                model: Ghost(model@),
+            }
+        }
+        RuntimeStepData::LineLine { l1, l2, model } => {
+            RuntimeStepData::LineLine {
+                l1: copy_line(l1),
+                l2: copy_line(l2),
+                model: Ghost(model@),
+            }
+        }
+        RuntimeStepData::CircleLine { circle, line, plus, model } => {
+            RuntimeStepData::CircleLine {
+                circle: copy_circle(circle),
+                line: copy_line(line),
+                plus: *plus,
+                model: Ghost(model@),
+            }
+        }
+        RuntimeStepData::CircleCircle { c1, c2, plus, model } => {
+            RuntimeStepData::CircleCircle {
+                c1: copy_circle(c1),
+                c2: copy_circle(c2),
+                plus: *plus,
+                model: Ghost(model@),
+            }
+        }
+        RuntimeStepData::Determined { x, y, model } => {
+            RuntimeStepData::Determined {
+                x: copy_rational(x),
+                y: copy_rational(y),
+                model: Ghost(model@),
+            }
+        }
+    }
+}
+
+// ===========================================================================
+//  Greedy solver
+// ===========================================================================
+
+/// Greedy solver: iteratively resolve free entities by collecting loci
+/// from constraints and intersecting them.
+///
+/// On each iteration, scans free_ids for a resolvable entity (one with
+/// at least two non-trivial loci, or a single AtPoint locus).
+/// For circle intersection steps, no coordinate is written to the points
+/// array (the plan records the step but coordinates live in Q(sqrt(D))).
+/// For line-line and determined steps, the rational coordinates are written.
+///
+/// Returns the construction plan (sequence of steps).
+pub fn greedy_solve_exec(
+    free_ids: &Vec<usize>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: &mut Vec<RuntimePoint2>,
+    resolved_flags: &mut Vec<bool>,
+) -> (out: Vec<RuntimeStepData>)
+    requires
+        old(points)@.len() == old(resolved_flags)@.len(),
+        all_points_wf(old(points)@),
+        forall|i: int| 0 <= i < free_ids@.len() ==>
+            (free_ids@[i] as int) < old(points)@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], old(points)@.len() as nat),
+        forall|i: int| 0 <= i < old(resolved_flags)@.len() ==>
+            (#[trigger] old(resolved_flags)@[i]) ==
+            partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
+                .dom().contains(i as nat),
+    ensures
+        forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
+        points@.len() == old(points)@.len(),
+        resolved_flags@.len() == old(resolved_flags)@.len(),
+        all_points_wf(points@),
+{
+    let mut plan: Vec<RuntimeStepData> = Vec::new();
+    let n = free_ids.len();
+    let mut iter: usize = 0;
+    assert(resolved_flags@.len() == points@.len());
+
+    while iter < n
+        invariant
+            0 <= iter <= n,
+            n == free_ids@.len(),
+            points@.len() == old(points)@.len(),
+            resolved_flags@.len() == old(resolved_flags)@.len(),
+            resolved_flags@.len() == points@.len(),
+            all_points_wf(points@),
+            forall|i: int| 0 <= i < free_ids@.len() ==>
+                (free_ids@[i] as int) < points@.len(),
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
+            forall|i: int| 0 <= i < resolved_flags@.len() ==>
+                (#[trigger] resolved_flags@[i]) ==
+                partial_resolved_map(points_view(points@), resolved_flags@)
+                    .dom().contains(i as nat),
+            forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+        decreases n - iter,
+    {
+        let mut found = false;
+        let mut fi: usize = 0;
+        assert(resolved_flags@.len() == points@.len());
+        while fi < n
+            invariant_except_break
+                !found,
+            invariant
+                0 <= fi <= n,
+                n == free_ids@.len(),
+                points@.len() == old(points)@.len(),
+                resolved_flags@.len() == old(resolved_flags)@.len(),
+                resolved_flags@.len() == points@.len(),
+                all_points_wf(points@),
+                forall|i: int| 0 <= i < free_ids@.len() ==>
+                    (free_ids@[i] as int) < points@.len(),
+                forall|i: int| 0 <= i < constraints@.len() ==>
+                    runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
+                forall|i: int| 0 <= i < resolved_flags@.len() ==>
+                    (#[trigger] resolved_flags@[i]) ==
+                    partial_resolved_map(points_view(points@), resolved_flags@)
+                        .dom().contains(i as nat),
+                forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+            ensures
+                points@.len() == old(points)@.len(),
+                resolved_flags@.len() == old(resolved_flags)@.len(),
+                resolved_flags@.len() == points@.len(),
+                all_points_wf(points@),
+                forall|i: int| 0 <= i < free_ids@.len() ==>
+                    (free_ids@[i] as int) < points@.len(),
+                forall|i: int| 0 <= i < constraints@.len() ==>
+                    runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
+                forall|i: int| 0 <= i < resolved_flags@.len() ==>
+                    (#[trigger] resolved_flags@[i]) ==
+                    partial_resolved_map(points_view(points@), resolved_flags@)
+                        .dom().contains(i as nat),
+                forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+            decreases n - fi,
+        {
+            let target = free_ids[fi];
+            assert((free_ids@[fi as int] as int) < points@.len());
+            assert((target as int) < points@.len());
+            assert((target as int) < resolved_flags@.len());
+            if resolved_flags[target] {
+                fi = fi + 1;
+            } else {
+                let loci = collect_loci_exec(constraints, points, resolved_flags, target);
+                let step_opt = find_and_intersect_loci(target, loci);
+                match step_opt {
+                    Some(step) => {
+                        // For rational steps, update the points array
+                        match &step {
+                            RuntimeStepData::Determined { x, y, .. } => {
+                                let mut pt = RuntimePoint2::new(
+                                    copy_rational(x), copy_rational(y),
+                                );
+                                points.set_and_swap(target, &mut pt);
+                            }
+                            RuntimeStepData::Fixed { x, y, .. } => {
+                                let mut pt = RuntimePoint2::new(
+                                    copy_rational(x), copy_rational(y),
+                                );
+                                points.set_and_swap(target, &mut pt);
+                            }
+                            RuntimeStepData::LineLine { l1, l2, .. } => {
+                                let mut pt = execute_line_line_step(l1, l2);
+                                points.set_and_swap(target, &mut pt);
+                            }
+                            // Circle steps: don't update coordinates (live in Q(sqrt(D)))
+                            RuntimeStepData::CircleLine { .. } => {}
+                            RuntimeStepData::CircleCircle { .. } => {}
+                        }
+                        // Mark resolved
+                        let mut flag = true;
+                        resolved_flags.set_and_swap(target, &mut flag);
+
+                        // Re-establish the partial_resolved_map invariant
+                        proof {
+                            // After set_and_swap, resolved_flags@[target] == true
+                            // and points@[target] is the new point (wf_spec)
+                            // For all i != target, nothing changed
+                            assert forall|i: int| 0 <= i < resolved_flags@.len() implies
+                                (#[trigger] resolved_flags@[i]) ==
+                                partial_resolved_map(points_view(points@), resolved_flags@)
+                                    .dom().contains(i as nat)
+                            by {
+                                // partial_resolved_map.dom().contains(i as nat)
+                                // == (i < points.len() && i < flags.len() && flags[i])
+                                // == flags[i]  (since both lens are the same and i < len)
+                            }
+                        }
+
+                        plan.push(step);
+                        found = true;
+                        break;
+                    }
+                    None => {
+                        fi = fi + 1;
+                    }
+                }
+            }
+        }
+
+        if !found {
+            break;
+        }
+        iter = iter + 1;
+    }
+    plan
+}
+
+// ===========================================================================
+//  Sign variant enumeration
+// ===========================================================================
+
+/// Count the number of circle intersection steps in a plan.
+pub fn count_circle_steps(plan: &Vec<RuntimeStepData>) -> (out: usize)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+    ensures
+        out <= plan@.len(),
+{
+    let mut count: usize = 0;
+    let mut i: usize = 0;
+    while i < plan.len()
+        invariant
+            0 <= i <= plan@.len(),
+            count <= i,
+        decreases plan@.len() - i,
+    {
+        match &plan[i] {
+            RuntimeStepData::CircleLine { .. } => { count = count + 1; }
+            RuntimeStepData::CircleCircle { .. } => { count = count + 1; }
+            _ => {}
+        }
+        i = i + 1;
+    }
+    count
+}
+
+/// Flip the `plus` sign of a circle step. Non-circle steps are returned unchanged.
+/// Takes ownership and returns a new step with the sign flipped.
+fn flip_step_sign(s: RuntimeStepData) -> (out: RuntimeStepData)
+    requires s.wf_spec(),
+    ensures out.wf_spec(),
+{
+    match s {
+        RuntimeStepData::CircleLine { circle, line, plus, model } => {
+            let ghost new_model = match model@ {
+                ConstructionStep::CircleLine { id, circle: c, line: l, .. } =>
+                    ConstructionStep::<RationalModel>::CircleLine {
+                        id, circle: c, line: l, plus: !plus,
+                    },
+                _ => model@, // unreachable
+            };
+            RuntimeStepData::CircleLine {
+                circle, line, plus: !plus,
+                model: Ghost(new_model),
+            }
+        }
+        RuntimeStepData::CircleCircle { c1, c2, plus, model } => {
+            let ghost new_model = match model@ {
+                ConstructionStep::CircleCircle { id, circle1, circle2, .. } =>
+                    ConstructionStep::<RationalModel>::CircleCircle {
+                        id, circle1, circle2, plus: !plus,
+                    },
+                _ => model@, // unreachable
+            };
+            RuntimeStepData::CircleCircle {
+                c1, c2, plus: !plus,
+                model: Ghost(new_model),
+            }
+        }
+        _ => s,
+    }
+}
+
+/// Create a sign variant of a plan by flipping the k-th circle step
+/// when bit k of sign_mask is 1.
+fn make_sign_variant(
+    plan: &Vec<RuntimeStepData>,
+    sign_mask: u64,
+) -> (out: Vec<RuntimeStepData>)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+    ensures
+        out@.len() == plan@.len(),
+        forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
+{
+    let mut result: Vec<RuntimeStepData> = Vec::new();
+    let mut circle_idx: u64 = 0;
+    let mut i: usize = 0;
+    while i < plan.len()
+        invariant
+            0 <= i <= plan@.len(),
+            result@.len() == i as int,
+            circle_idx <= i as u64,
+            forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+            forall|j: int| 0 <= j < result@.len() ==> (#[trigger] result@[j]).wf_spec(),
+        decreases plan@.len() - i,
+    {
+        let s = copy_step(&plan[i]);
+        match &plan[i] {
+            RuntimeStepData::CircleLine { .. } => {
+                if circle_idx < 64 && (sign_mask >> circle_idx) & 1 == 1 {
+                    result.push(flip_step_sign(s));
+                } else {
+                    result.push(s);
+                }
+                circle_idx = circle_idx + 1;
+            }
+            RuntimeStepData::CircleCircle { .. } => {
+                if circle_idx < 64 && (sign_mask >> circle_idx) & 1 == 1 {
+                    result.push(flip_step_sign(s));
+                } else {
+                    result.push(s);
+                }
+                circle_idx = circle_idx + 1;
+            }
+            _ => {
+                result.push(s);
+            }
+        }
+        i = i + 1;
+    }
+    result
+}
+
+/// Check if a plan variant is feasible: all circle steps have positive discriminant.
+fn check_variant_feasible(plan: &Vec<RuntimeStepData>) -> (out: bool)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+{
+    let mut i: usize = 0;
+    let zero = RuntimeRational::from_int(0);
+    while i < plan.len()
+        invariant
+            0 <= i <= plan@.len(),
+            zero.wf_spec(),
+            zero@ == RationalModel::from_int_spec(0),
+            forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+        decreases plan@.len() - i,
+    {
+        match &plan[i] {
+            RuntimeStepData::CircleLine { circle, line, .. } => {
+                let disc = verus_geometry::runtime::circle_line::cl_discriminant_exec(circle, line);
+                if !zero.lt(&disc) {
+                    return false;
+                }
+            }
+            RuntimeStepData::CircleCircle { c1, c2, .. } => {
+                let disc = verus_geometry::runtime::circle_circle::cc_discriminant_exec(c1, c2);
+                if !zero.lt(&disc) {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        i = i + 1;
+    }
+    true
+}
+
+/// Solve all sign variants: run the greedy solver, then enumerate
+/// all 2^k sign combinations (where k = number of circle steps).
+/// Returns all feasible plan variants.
+pub fn solve_all_variants(
+    free_ids: &Vec<usize>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: &mut Vec<RuntimePoint2>,
+    resolved_flags: &mut Vec<bool>,
+) -> (out: Vec<Vec<RuntimeStepData>>)
+    requires
+        old(points)@.len() == old(resolved_flags)@.len(),
+        all_points_wf(old(points)@),
+        forall|i: int| 0 <= i < free_ids@.len() ==>
+            (free_ids@[i] as int) < old(points)@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], old(points)@.len() as nat),
+        forall|i: int| 0 <= i < old(resolved_flags)@.len() ==>
+            (#[trigger] old(resolved_flags)@[i]) ==
+            partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
+                .dom().contains(i as nat),
+    ensures
+        forall|si: int| 0 <= si < out@.len() ==>
+            forall|j: int| 0 <= j < (#[trigger] out@[si])@.len() ==>
+                (#[trigger] out@[si]@[j]).wf_spec(),
+{
+    let plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
+    let k = count_circle_steps(&plan);
+
+    if k == 0 || k > 63 {
+        // No circle steps, or too many to enumerate — return base plan
+        let mut results: Vec<Vec<RuntimeStepData>> = Vec::new();
+        results.push(plan);
+        return results;
+    }
+
+    let n: u64 = 1u64 << (k as u64);
+    let mut results: Vec<Vec<RuntimeStepData>> = Vec::new();
+    let mut mask: u64 = 0;
+    while mask < n
+        invariant
+            0 <= mask <= n,
+            n == 1u64 << (k as u64),
+            k <= 63,
+            forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+            forall|si: int| 0 <= si < results@.len() ==>
+                forall|j: int| 0 <= j < (#[trigger] results@[si])@.len() ==>
+                    (#[trigger] results@[si]@[j]).wf_spec(),
+        decreases n - mask,
+    {
+        let variant = make_sign_variant(&plan, mask);
+        if check_variant_feasible(&variant) {
+            results.push(variant);
+        }
+        mask = mask + 1;
+    }
+    results
 }
 
 } // verus!
