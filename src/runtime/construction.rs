@@ -18,6 +18,7 @@ use verus_quadratic_extension::runtime::RuntimeQExtRat;
 use verus_geometry::constructed_scalar::{lift_line2, lift_point2, qext_from_rational};
 use verus_geometry::voronoi::sq_dist_2d;
 use crate::construction::*;
+use crate::construction_ext::is_rational_step;
 use crate::entities::*;
 
 use verus_rational::runtime_rational::RuntimeRational;
@@ -160,13 +161,13 @@ pub fn execute_circle_circle_step<R: PositiveRadicand<RationalModel>>(
 /// The caller MUST provide a matching spec step — wf_spec checks correspondence.
 pub enum RuntimeStepData {
     /// Known position (fixed input or determined by a single locus).
-    PointStep { x: RuntimeRational, y: RuntimeRational, model: Ghost<ConstructionStep<RationalModel>> },
+    PointStep { target: usize, x: RuntimeRational, y: RuntimeRational, model: Ghost<ConstructionStep<RationalModel>> },
     /// Intersection of two lines.
-    LineLine { l1: RuntimeLine2, l2: RuntimeLine2, model: Ghost<ConstructionStep<RationalModel>> },
+    LineLine { target: usize, l1: RuntimeLine2, l2: RuntimeLine2, model: Ghost<ConstructionStep<RationalModel>> },
     /// Intersection of a circle and a line.
-    CircleLine { circle: RuntimeCircle2, line: RuntimeLine2, plus: bool, model: Ghost<ConstructionStep<RationalModel>> },
+    CircleLine { target: usize, circle: RuntimeCircle2, line: RuntimeLine2, plus: bool, model: Ghost<ConstructionStep<RationalModel>> },
     /// Intersection of two circles.
-    CircleCircle { c1: RuntimeCircle2, c2: RuntimeCircle2, plus: bool, model: Ghost<ConstructionStep<RationalModel>> },
+    CircleCircle { target: usize, c1: RuntimeCircle2, c2: RuntimeCircle2, plus: bool, model: Ghost<ConstructionStep<RationalModel>> },
 }
 
 impl RuntimeStepData {
@@ -174,33 +175,33 @@ impl RuntimeStepData {
     /// and all geometric preconditions for execution are met.
     pub open spec fn wf_spec(&self) -> bool {
         match self {
-            RuntimeStepData::PointStep { x, y, model } =>
+            RuntimeStepData::PointStep { target, x, y, model } =>
                 x.wf_spec() && y.wf_spec() &&
                 match model@ {
-                    ConstructionStep::PointStep { position, .. } =>
-                        x@ == position.x && y@ == position.y,
+                    ConstructionStep::PointStep { id, position, .. } =>
+                        x@ == position.x && y@ == position.y && *target as nat == id,
                     _ => false,
                 },
-            RuntimeStepData::LineLine { l1, l2, model } =>
+            RuntimeStepData::LineLine { target, l1, l2, model } =>
                 l1.wf_spec() && l2.wf_spec() &&
                 !line_det::<RationalModel>(l1@, l2@).eqv(RationalModel::from_int_spec(0)) &&
                 match model@ {
-                    ConstructionStep::LineLine { line1, line2, .. } =>
-                        l1@ == line1 && l2@ == line2,
+                    ConstructionStep::LineLine { id, line1, line2, .. } =>
+                        l1@ == line1 && l2@ == line2 && *target as nat == id,
                     _ => false,
                 },
-            RuntimeStepData::CircleLine { circle, line, plus, model } =>
+            RuntimeStepData::CircleLine { target, circle, line, plus, model } =>
                 circle.wf_spec() && line.wf_spec() && line2_nondegenerate(line@) &&
                 match model@ {
-                    ConstructionStep::CircleLine { circle: c, line: l, plus: p, .. } =>
-                        circle@ == c && line@ == l && *plus == p,
+                    ConstructionStep::CircleLine { id, circle: c, line: l, plus: p, .. } =>
+                        circle@ == c && line@ == l && *plus == p && *target as nat == id,
                     _ => false,
                 },
-            RuntimeStepData::CircleCircle { c1, c2, plus, model } =>
+            RuntimeStepData::CircleCircle { target, c1, c2, plus, model } =>
                 c1.wf_spec() && c2.wf_spec() && !c1@.center.eqv(c2@.center) &&
                 match model@ {
-                    ConstructionStep::CircleCircle { circle1, circle2, plus: p, .. } =>
-                        c1@ == circle1 && c2@ == circle2 && *plus == p,
+                    ConstructionStep::CircleCircle { id, circle1, circle2, plus: p, .. } =>
+                        c1@ == circle1 && c2@ == circle2 && *plus == p && *target as nat == id,
                     _ => false,
                 },
         }
@@ -213,6 +214,30 @@ impl RuntimeStepData {
             RuntimeStepData::LineLine { model, .. } => model@,
             RuntimeStepData::CircleLine { model, .. } => model@,
             RuntimeStepData::CircleCircle { model, .. } => model@,
+        }
+    }
+
+    /// Runtime target entity ID.
+    pub fn target_id(&self) -> (out: usize)
+        requires self.wf_spec(),
+        ensures out as nat == step_target(self.spec_step()),
+    {
+        match self {
+            RuntimeStepData::PointStep { target, .. } => *target,
+            RuntimeStepData::LineLine { target, .. } => *target,
+            RuntimeStepData::CircleLine { target, .. } => *target,
+            RuntimeStepData::CircleCircle { target, .. } => *target,
+        }
+    }
+
+    /// Whether this is a circle step (not rational).
+    pub fn is_circle_step(&self) -> (out: bool)
+        requires self.wf_spec(),
+        ensures out == !is_rational_step(self.spec_step()),
+    {
+        match self {
+            RuntimeStepData::CircleLine { .. } | RuntimeStepData::CircleCircle { .. } => true,
+            _ => false,
         }
     }
 }
@@ -310,17 +335,17 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
         out.matches_spec_step(step.spec_step()),
 {
     match step {
-        RuntimeStepData::PointStep { x, y, model } => {
+        RuntimeStepData::PointStep { target, x, y, model } => {
             let point = execute_fixed_step(x, y);
             let ghost eid = step_target(model@);
             RuntimeConstructionResult::RationalPoint { point, entity_id: Ghost(eid) }
         }
-        RuntimeStepData::LineLine { l1, l2, model } => {
+        RuntimeStepData::LineLine { target, l1, l2, model } => {
             let point = execute_line_line_step(l1, l2);
             let ghost eid = step_target(model@);
             RuntimeConstructionResult::RationalPoint { point, entity_id: Ghost(eid) }
         }
-        RuntimeStepData::CircleLine { circle, line, plus, model } => {
+        RuntimeStepData::CircleLine { target, circle, line, plus, model } => {
             let point = execute_circle_line_step::<R>(circle, line, *plus);
             proof {
                 lemma_cl_intersection_on_line::<RationalModel, R>(circle@, line@, *plus);
@@ -329,7 +354,7 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
             let ghost eid = step_target(model@);
             RuntimeConstructionResult::QExtPoint { point, entity_id: Ghost(eid) }
         }
-        RuntimeStepData::CircleCircle { c1, c2, plus, model } => {
+        RuntimeStepData::CircleCircle { target, c1, c2, plus, model } => {
             let point = execute_circle_circle_step::<R>(c1, c2, *plus);
             proof {
                 lemma_cc_intersection_on_c1::<RationalModel, R>(c1@, c2@, *plus);
