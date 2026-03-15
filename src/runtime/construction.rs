@@ -104,7 +104,6 @@ pub fn execute_circle_line_step<R: PositiveRadicand<RationalModel>>(
     line: &RuntimeLine2,
     plus: bool,
 ) -> (out: RuntimeQExtPoint2<R>)
-    where R: verus_quadratic_extension::runtime::RuntimeRadicand<R>
     requires
         circle.wf_spec(),
         line.wf_spec(),
@@ -137,7 +136,6 @@ pub fn execute_circle_circle_step<R: PositiveRadicand<RationalModel>>(
     c2: &RuntimeCircle2,
     plus: bool,
 ) -> (out: RuntimeQExtPoint2<R>)
-    where R: verus_quadratic_extension::runtime::RuntimeRadicand<R>
     requires
         c1.wf_spec(),
         c2.wf_spec(),
@@ -325,7 +323,6 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
 pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
     step: &RuntimeStepData,
 ) -> (out: RuntimeConstructionResult<R>)
-    where R: verus_quadratic_extension::runtime::RuntimeRadicand<R>
     requires
         step.wf_spec(),
         step_radicand_matches::<R>(step.spec_step()),
@@ -372,7 +369,6 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
 pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
     steps: &Vec<RuntimeStepData>,
 ) -> (out: Vec<RuntimeConstructionResult<R>>)
-    where R: verus_quadratic_extension::runtime::RuntimeRadicand<R>
     requires
         forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
         forall|i: int| 0 <= i < steps@.len() ==> step_radicand_matches::<R>(#[trigger] steps@[i].spec_step()),
