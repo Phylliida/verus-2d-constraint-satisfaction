@@ -1286,4 +1286,43 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
     }
 }
 
+// ===========================================================================
+//  Nontrivial locus depends only on domain
+// ===========================================================================
+
+/// The FullPlane/nontrivial classification of constraint_to_locus depends
+/// only on `resolved.dom()`, not on the actual point values. Two resolved
+/// maps with the same domain produce the same nontrivial/FullPlane decision.
+pub proof fn lemma_locus_nontrivial_depends_on_domain<T: OrderedField>(
+    c: Constraint<T>, r1: ResolvedPoints<T>, r2: ResolvedPoints<T>, target: EntityId,
+)
+    requires r1.dom() =~= r2.dom(),
+    ensures locus_is_nontrivial(constraint_to_locus(c, r1, target))
+         == locus_is_nontrivial(constraint_to_locus(c, r2, target)),
+{
+    // Each arm of constraint_to_locus checks only target equality with entity IDs
+    // and resolved.dom().contains(...) — same domain → same branching.
+    match c {
+        Constraint::Coincident { a, b } => {}
+        Constraint::DistanceSq { a, b, .. } => {}
+        Constraint::FixedX { point, .. } => {}
+        Constraint::FixedY { point, .. } => {}
+        Constraint::SameX { a, b } => {}
+        Constraint::SameY { a, b } => {}
+        Constraint::PointOnLine { point, line_a, line_b } => {}
+        Constraint::EqualLengthSq { a1, a2, b1, b2 } => {}
+        Constraint::Midpoint { mid, a, b } => {}
+        Constraint::Perpendicular { a1, a2, b1, b2 } => {}
+        Constraint::Parallel { a1, a2, b1, b2 } => {}
+        Constraint::Collinear { a, b, c } => {}
+        Constraint::PointOnCircle { point, center, radius_point } => {}
+        Constraint::Symmetric { point, original, axis_a, axis_b } => {}
+        Constraint::FixedPoint { point, .. } => {}
+        Constraint::Ratio { a1, a2, b1, b2, .. } => {}
+        Constraint::Tangent { .. } => {}
+        Constraint::CircleTangent { .. } => {}
+        Constraint::Angle { .. } => {}
+    }
+}
+
 } // verus!
