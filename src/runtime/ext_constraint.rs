@@ -1,0 +1,357 @@
+use vstd::prelude::*;
+use verus_algebra::traits::*;
+use verus_geometry::point2::*;
+use verus_geometry::line2::*;
+use verus_geometry::voronoi::sq_dist_2d;
+use verus_geometry::constructed_scalar::{qext_from_rational, lift_point2};
+use verus_geometry::runtime::point2::*;
+use verus_rational::runtime_rational::RuntimeRational;
+use verus_linalg::runtime::copy_rational;
+use verus_quadratic_extension::radicand::*;
+use verus_quadratic_extension::spec::*;
+use verus_quadratic_extension::runtime::{RuntimeQExtRat, RuntimeRadicand};
+use crate::entities::*;
+use crate::constraints::*;
+use crate::construction::step_target;
+use crate::construction_ext::{lift_constraint, is_rational_step};
+use crate::runtime::constraint::*;
+use crate::runtime::construction::*;
+
+type RationalModel = verus_rational::rational::Rational;
+
+verus! {
+
+// ===========================================================================
+//  2a: QExt embedding helpers
+// ===========================================================================
+
+/// Embed a rational value into Q(√d): v ↦ v + 0·√d
+fn embed_rational<R: Radicand<RationalModel>>(
+    v: &RuntimeRational,
+) -> (out: RuntimeQExtRat<R>)
+    requires v.wf_spec(),
+    ensures out.wf_spec(), out@ == qext_from_rational::<RationalModel, R>(v@),
+{
+    let re = copy_rational(v);
+    let im = RuntimeRational::from_int(0);
+    RuntimeQExtRat::<R>::new(re, im)
+}
+
+/// Embed a rational point into Q(√d): (x, y) ↦ (x + 0·√d, y + 0·√d)
+fn embed_rational_point<R: Radicand<RationalModel>>(
+    p: &RuntimePoint2,
+) -> (out: RuntimeQExtPoint2<R>)
+    requires p.wf_spec(),
+    ensures out.wf_spec(), out@ == lift_point2::<RationalModel, R>(p@),
+{
+    let x = embed_rational::<R>(&p.x);
+    let y = embed_rational::<R>(&p.y);
+    RuntimeQExtPoint2 { x, y, model: Ghost(lift_point2::<RationalModel, R>(p@)) }
+}
+
+// ===========================================================================
+//  2b: QExt arithmetic helpers
+// ===========================================================================
+
+/// QExt squared distance: ||a - b||²
+fn qext_sq_dist_2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    a: &RuntimeQExtPoint2<R>,
+    b: &RuntimeQExtPoint2<R>,
+) -> (out: RuntimeQExtRat<R>)
+    requires a.wf_spec(), b.wf_spec(),
+    ensures out.wf_spec(), out@ == sq_dist_2d::<SpecQuadExt<RationalModel, R>>(a@, b@),
+{
+    let dx = a.x.sub_exec(&b.x);
+    let dy = a.y.sub_exec(&b.y);
+    let dx2 = dx.mul_exec::<RR>(&dx);
+    let dy2 = dy.mul_exec::<RR>(&dy);
+    dx2.add_exec(&dy2)
+}
+
+/// QExt line2_from_points: line through two points, returns (a, b, c) coefficients.
+/// Mirrors spec: a = -(q.y - p.y), b = q.x - p.x, c = -(a*p.x + b*p.y)
+fn qext_line2_from_points<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    p: &RuntimeQExtPoint2<R>,
+    q: &RuntimeQExtPoint2<R>,
+) -> (out: (RuntimeQExtRat<R>, RuntimeQExtRat<R>, RuntimeQExtRat<R>))
+    requires p.wf_spec(), q.wf_spec(),
+    ensures
+        out.0.wf_spec(), out.1.wf_spec(), out.2.wf_spec(),
+        ({
+            let line = line2_from_points::<SpecQuadExt<RationalModel, R>>(p@, q@);
+            out.0@ == line.a && out.1@ == line.b && out.2@ == line.c
+        }),
+{
+    // spec: a = q.y.sub(p.y).neg(), b = q.x.sub(p.x), c = a.mul(p.x).add(b.mul(p.y)).neg()
+    // a = (q.y - p.y).neg() = p.y - q.y
+    let a = q.y.sub_exec(&p.y).neg_exec();
+    let b = q.x.sub_exec(&p.x);
+    // c = -(a * p.x + b * p.y)
+    let ax = a.mul_exec::<RR>(&p.x);
+    let by = b.mul_exec::<RR>(&p.y);
+    let sum = ax.add_exec(&by);
+    let c = sum.neg_exec();
+    (a, b, c)
+}
+
+/// QExt line2_eval: a*p.x + b*p.y + c
+fn qext_line2_eval<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    la: &RuntimeQExtRat<R>,
+    lb: &RuntimeQExtRat<R>,
+    lc: &RuntimeQExtRat<R>,
+    p: &RuntimeQExtPoint2<R>,
+) -> (out: RuntimeQExtRat<R>)
+    requires la.wf_spec(), lb.wf_spec(), lc.wf_spec(), p.wf_spec(),
+    ensures
+        out.wf_spec(),
+        out@ == line2_eval::<SpecQuadExt<RationalModel, R>>(
+            Line2 { a: la@, b: lb@, c: lc@ }, p@),
+{
+    let ax = la.mul_exec::<RR>(&p.x);
+    let by = lb.mul_exec::<RR>(&p.y);
+    let sum = ax.add_exec(&by);
+    sum.add_exec(lc)
+}
+
+// ===========================================================================
+//  2c: Build extension resolved vec
+// ===========================================================================
+
+/// Spec helper: view an ext points vec as a resolved map.
+pub open spec fn ext_vec_to_resolved_map<R: Radicand<RationalModel>>(
+    ext_points: Seq<RuntimeQExtPoint2<R>>,
+) -> ResolvedPoints<SpecQuadExt<RationalModel, R>> {
+    Map::new(
+        |id: nat| (id as int) < ext_points.len(),
+        |id: nat| ext_points[id as int]@,
+    )
+}
+
+/// Build a Vec of QExt points from execution results + plan steps + initial (rational) points.
+/// Initial points are embedded; execution results are either embedded (rational)
+/// or copied (QExt). The output vec has the same length as initial_points.
+/// The plan steps provide exec-level target IDs for indexing.
+pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    results: &Vec<RuntimeConstructionResult<R>>,
+    steps: &Vec<RuntimeStepData>,
+    initial_points: &Vec<RuntimePoint2>,
+) -> (out: Vec<RuntimeQExtPoint2<R>>)
+    requires
+        all_points_wf(initial_points@),
+        results@.len() == steps@.len(),
+        forall|i: int| 0 <= i < results@.len() ==> (#[trigger] results@[i]).wf_spec(),
+        forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
+        forall|i: int| 0 <= i < results@.len() ==>
+            (#[trigger] results@[i]).entity_id() == step_target(steps@[i].spec_step()),
+        forall|i: int| 0 <= i < steps@.len() ==>
+            (step_target(#[trigger] steps@[i].spec_step()) as int) < initial_points@.len(),
+    ensures
+        out@.len() == initial_points@.len(),
+        forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
+{
+    let n = initial_points.len();
+
+    // Start by embedding all initial points
+    let mut ext_points: Vec<RuntimeQExtPoint2<R>> = Vec::new();
+    let mut i: usize = 0;
+    while i < n
+        invariant
+            i <= n,
+            n == initial_points@.len(),
+            ext_points@.len() == i as int,
+            all_points_wf(initial_points@),
+            forall|j: int| 0 <= j < ext_points@.len() ==> (#[trigger] ext_points@[j]).wf_spec(),
+        decreases n - i,
+    {
+        let pt = embed_rational_point::<R>(&initial_points[i]);
+        ext_points.push(pt);
+        i = i + 1;
+    }
+
+    // Overwrite with execution results using plan step targets for indexing
+    let mut ri: usize = 0;
+    while ri < results.len()
+        invariant
+            ri <= results@.len(),
+            ext_points@.len() == n as int,
+            n == initial_points@.len(),
+            results@.len() == steps@.len(),
+            forall|i: int| 0 <= i < results@.len() ==> (#[trigger] results@[i]).wf_spec(),
+            forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
+            forall|i: int| 0 <= i < steps@.len() ==>
+                (step_target(#[trigger] steps@[i].spec_step()) as int) < n,
+            forall|j: int| 0 <= j < ext_points@.len() ==> (#[trigger] ext_points@[j]).wf_spec(),
+        decreases results@.len() - ri,
+    {
+        let idx = steps[ri].target_id();
+        match &results[ri] {
+            RuntimeConstructionResult::RationalPoint { point, entity_id } => {
+                let embedded = embed_rational_point::<R>(point);
+                let mut swap = embedded;
+                ext_points.set_and_swap(idx, &mut swap);
+            }
+            RuntimeConstructionResult::QExtPoint { point, entity_id } => {
+                let copied = RuntimeQExtPoint2 {
+                    x: point.x.copy_exec(),
+                    y: point.y.copy_exec(),
+                    model: Ghost(point@),
+                };
+                let mut swap = copied;
+                ext_points.set_and_swap(idx, &mut swap);
+            }
+        }
+        ri = ri + 1;
+    }
+    ext_points
+}
+
+// ===========================================================================
+//  2d: Verification constraint checkers at QExt level
+// ===========================================================================
+
+/// Check Tangent constraint at QExt level:
+/// eval² ≡ norm_sq · r_sq
+/// where eval = line2_eval(line_from_points(la, lb), center),
+///       norm_sq = a² + b²,
+///       r_sq = sq_dist_2d(center, radius_point).
+fn check_tangent_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    line_a_pt: &RuntimeQExtPoint2<R>,
+    line_b_pt: &RuntimeQExtPoint2<R>,
+    center: &RuntimeQExtPoint2<R>,
+    radius_point: &RuntimeQExtPoint2<R>,
+) -> (out: bool)
+    requires
+        line_a_pt.wf_spec(), line_b_pt.wf_spec(),
+        center.wf_spec(), radius_point.wf_spec(),
+{
+    let (la, lb, lc) = qext_line2_from_points::<R, RR>(line_a_pt, line_b_pt);
+    let eval = qext_line2_eval::<R, RR>(&la, &lb, &lc, center);
+    let eval_sq = eval.mul_exec::<RR>(&eval);
+    let a_sq = la.mul_exec::<RR>(&la);
+    let b_sq = lb.mul_exec::<RR>(&lb);
+    let norm_sq = a_sq.add_exec(&b_sq);
+    let r_sq = qext_sq_dist_2d::<R, RR>(center, radius_point);
+    let lhs = eval_sq;
+    let rhs = norm_sq.mul_exec::<RR>(&r_sq);
+    lhs.eq_exec(&rhs)
+}
+
+/// Check CircleTangent constraint at QExt level:
+/// (d - r1 - r2)² ≡ 4 · r1 · r2
+/// where d = sq_dist_2d(c1, c2), r1 = sq_dist_2d(c1, rp1), r2 = sq_dist_2d(c2, rp2).
+fn check_circle_tangent_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    c1: &RuntimeQExtPoint2<R>,
+    rp1: &RuntimeQExtPoint2<R>,
+    c2: &RuntimeQExtPoint2<R>,
+    rp2: &RuntimeQExtPoint2<R>,
+) -> (out: bool)
+    requires c1.wf_spec(), rp1.wf_spec(), c2.wf_spec(), rp2.wf_spec(),
+{
+    let d = qext_sq_dist_2d::<R, RR>(c1, c2);
+    let r1 = qext_sq_dist_2d::<R, RR>(c1, rp1);
+    let r2 = qext_sq_dist_2d::<R, RR>(c2, rp2);
+    // four = 1+1+1+1 = (1+1)*(1+1)
+    let one = RuntimeQExtRat::<R>::one_exec();
+    let two = one.add_exec(&one);
+    let four = two.mul_exec::<RR>(&two);
+    // diff = d - r1 - r2
+    let diff = d.sub_exec(&r1).sub_exec(&r2);
+    let lhs = diff.mul_exec::<RR>(&diff);
+    let rhs = four.mul_exec::<RR>(&r1).mul_exec::<RR>(&r2);
+    lhs.eq_exec(&rhs)
+}
+
+/// Check Angle constraint at QExt level:
+/// dp² ≡ cos_sq · n1 · n2
+/// where dp = dot(d1, d2), n1 = |d1|², n2 = |d2|²,
+///       d1 = a2 - a1, d2 = b2 - b1.
+fn check_angle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    a1: &RuntimeQExtPoint2<R>,
+    a2: &RuntimeQExtPoint2<R>,
+    b1: &RuntimeQExtPoint2<R>,
+    b2: &RuntimeQExtPoint2<R>,
+    cos_sq: &RuntimeRational,
+) -> (out: bool)
+    requires
+        a1.wf_spec(), a2.wf_spec(), b1.wf_spec(), b2.wf_spec(),
+        cos_sq.wf_spec(),
+{
+    // d1 = a2 - a1
+    let dx1 = a2.x.sub_exec(&a1.x);
+    let dy1 = a2.y.sub_exec(&a1.y);
+    // d2 = b2 - b1
+    let dx2 = b2.x.sub_exec(&b1.x);
+    let dy2 = b2.y.sub_exec(&b1.y);
+    // dp = d1.x * d2.x + d1.y * d2.y
+    let dp = dx1.mul_exec::<RR>(&dx2).add_exec(&dy1.mul_exec::<RR>(&dy2));
+    // n1 = d1.x² + d1.y²
+    let n1 = dx1.mul_exec::<RR>(&dx1).add_exec(&dy1.mul_exec::<RR>(&dy1));
+    // n2 = d2.x² + d2.y²
+    let n2 = dx2.mul_exec::<RR>(&dx2).add_exec(&dy2.mul_exec::<RR>(&dy2));
+    // cos_sq embedded into QExt
+    let cos_sq_ext = embed_rational::<R>(cos_sq);
+    let lhs = dp.mul_exec::<RR>(&dp);
+    let rhs = cos_sq_ext.mul_exec::<RR>(&n1).mul_exec::<RR>(&n2);
+    lhs.eq_exec(&rhs)
+}
+
+// ===========================================================================
+//  2e: Check all verification constraints at QExt level
+// ===========================================================================
+
+/// Check all verification constraints are satisfied by the ext-level resolved points.
+pub fn check_all_verification_constraints_ext<
+    R: PositiveRadicand<RationalModel>,
+    RR: RuntimeRadicand<R>,
+>(
+    constraints: &Vec<RuntimeConstraint>,
+    ext_points: &Vec<RuntimeQExtPoint2<R>>,
+    n_points: usize,
+) -> (out: bool)
+    requires
+        n_points == ext_points@.len(),
+        forall|i: int| 0 <= i < ext_points@.len() ==> (#[trigger] ext_points@[i]).wf_spec(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+{
+    let mut ci: usize = 0;
+    while ci < constraints.len()
+        invariant
+            ci <= constraints@.len(),
+            n_points == ext_points@.len(),
+            forall|i: int| 0 <= i < ext_points@.len() ==> (#[trigger] ext_points@[i]).wf_spec(),
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+        decreases constraints@.len() - ci,
+    {
+        let ok = match &constraints[ci] {
+            RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, .. } => {
+                check_tangent_ext::<R, RR>(
+                    &ext_points[*line_a], &ext_points[*line_b],
+                    &ext_points[*center], &ext_points[*radius_point],
+                )
+            }
+            RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } => {
+                check_circle_tangent_ext::<R, RR>(
+                    &ext_points[*c1], &ext_points[*rp1],
+                    &ext_points[*c2], &ext_points[*rp2],
+                )
+            }
+            RuntimeConstraint::Angle { a1, a2, b1, b2, cos_sq, .. } => {
+                check_angle_ext::<R, RR>(
+                    &ext_points[*a1], &ext_points[*a2],
+                    &ext_points[*b1], &ext_points[*b2],
+                    cos_sq,
+                )
+            }
+            _ => true, // Non-verification constraints: skip
+        };
+        if !ok {
+            return false;
+        }
+        ci = ci + 1;
+    }
+    true
+}
+
+} // verus!

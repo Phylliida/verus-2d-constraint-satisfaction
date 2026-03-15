@@ -290,6 +290,15 @@ pub open spec fn is_independent_circle_plan<F: OrderedField>(
 /// agrees with the lifted base map at those entries.
 ///
 /// Implies `is_independent_circle_plan` (strictly stronger).
+/// A plan is "domain-independent" if, at each step si, every constraint
+/// referencing the step target has no OTHER entities that are BOTH
+/// (a) in the resolved map at step si, AND (b) circle targets.
+///
+/// This is weaker than requiring ALL other entities to be non-circle-targets,
+/// which would fail for full plans (with initial PointSteps) when a constraint
+/// references both an initial entity and a circle target that comes later.
+/// With initial-first ordering, circle targets are NOT yet in the domain at
+/// initial steps, so the condition is vacuously satisfied for those steps.
 pub open spec fn is_fully_independent_plan<F: OrderedField>(
     plan: ConstructionPlan<F>,
     constraints: Seq<Constraint<F>>,
@@ -302,6 +311,7 @@ pub open spec fn is_fully_independent_plan<F: OrderedField>(
             && constraint_entities(constraints[ci]).contains(target)
             ==> forall|e: EntityId|
                 constraint_entities(constraints[ci]).contains(e) && e != target
+                && execute_plan(plan.take(i)).dom().contains(e)
                 ==> !circle_targets(plan).contains(e)
     }
 }

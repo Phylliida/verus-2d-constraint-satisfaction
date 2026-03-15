@@ -6,3 +6,7 @@ pub mod constraint;
 pub mod locus;
 #[cfg(verus_keep_ghost)]
 pub mod solver;
+#[cfg(verus_keep_ghost)]
+pub mod ext_constraint;
+#[cfg(verus_keep_ghost)]
+pub mod pipeline;
