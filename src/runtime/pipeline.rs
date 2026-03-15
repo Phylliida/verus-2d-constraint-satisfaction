@@ -1674,6 +1674,16 @@ fn copy_plan(plan: &Vec<RuntimeStepData>) -> (out: Vec<RuntimeStepData>)
     result
 }
 
+/// Helper: take(m).take(n) =~= take(n) for n <= m.
+proof fn lemma_take_take<A>(s: Seq<A>, m: int, n: int)
+    requires 0 <= n <= m <= s.len(),
+    ensures s.take(m).take(n) =~= s.take(n),
+{
+    assert forall|k: int| 0 <= k < n implies
+        s.take(m).take(n)[k] == s.take(n)[k]
+    by {}
+}
+
 /// Helper: plan_to_spec distributes over concatenation.
 proof fn lemma_plan_to_spec_concat(a: Seq<RuntimeStepData>, b: Seq<RuntimeStepData>)
     ensures plan_to_spec(a + b) =~= plan_to_spec(a) + plan_to_spec(b),
@@ -1731,6 +1741,8 @@ fn build_full_plan_runtime(
             i <= n,
             n == initial_points@.len(),
             n == initial_flags@.len(),
+            pts_spec == points_view(initial_points@),
+            pts_spec.len() == n as int,
             all_points_wf(initial_points@),
             plan_to_spec(init_steps@) =~=
                 initial_point_steps(pts_spec.take(i as int), initial_flags@.take(i as int)),
@@ -1752,6 +1764,10 @@ fn build_full_plan_runtime(
                 }),
             };
             proof {
+                // wf_spec: chain x@/y@ → pts_spec[i].x/y via point wf + points_view
+                assert(initial_points@[i as int].wf_spec());
+                assert(step.wf_spec());
+
                 // Show plan_to_spec(init_steps@.push(step))
                 //   == plan_to_spec(init_steps@).push(step.spec_step())
                 let old_spec = plan_to_spec(init_steps@);
@@ -1766,31 +1782,15 @@ fn build_full_plan_runtime(
                 assert(plan_to_spec(new_seq) =~= old_spec.push(step.spec_step()));
 
                 // Help Z3 with take nesting: take(i+1).take(i) =~= take(i)
-                let pts_next = pts_spec.take(i as int + 1);
-                let flg_next = initial_flags@.take(i as int + 1);
-                assert forall|k: int| 0 <= k < i implies
-                    pts_next.take(i as int)[k] == pts_spec.take(i as int)[k] by {}
-                assert(pts_next.take(i as int) =~= pts_spec.take(i as int));
-                assert forall|k: int| 0 <= k < i implies
-                    flg_next.take(i as int)[k] == initial_flags@.take(i as int)[k] by {}
-                assert(flg_next.take(i as int) =~= initial_flags@.take(i as int));
-                assert(flg_next[i as int] == initial_flags@[i as int]);
-                assert(pts_next[i as int] == pts_spec[i as int]);
+                lemma_take_take::<Point2<RationalModel>>(pts_spec, i as int + 1, i as int);
+                lemma_take_take::<bool>(initial_flags@, i as int + 1, i as int);
             }
             init_steps.push(step);
         } else {
             proof {
                 // flags[i] == false: initial_point_steps unchanged
-                let pts_next = pts_spec.take(i as int + 1);
-                let flg_next = initial_flags@.take(i as int + 1);
-                assert forall|k: int| 0 <= k < i implies
-                    pts_next.take(i as int)[k] == pts_spec.take(i as int)[k] by {}
-                assert(pts_next.take(i as int) =~= pts_spec.take(i as int));
-                assert forall|k: int| 0 <= k < i implies
-                    flg_next.take(i as int)[k] == initial_flags@.take(i as int)[k] by {}
-                assert(flg_next.take(i as int) =~= initial_flags@.take(i as int));
-                assert(flg_next[i as int] == initial_flags@[i as int]);
-                // flags[i] == false → initial_point_steps unchanged
+                lemma_take_take::<Point2<RationalModel>>(pts_spec, i as int + 1, i as int);
+                lemma_take_take::<bool>(initial_flags@, i as int + 1, i as int);
             }
         }
         i = i + 1;
