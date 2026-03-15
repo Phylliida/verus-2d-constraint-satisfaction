@@ -3016,57 +3016,85 @@ proof fn lemma_lift_preserves_nontriviality<F: OrderedField, R: PositiveRadicand
     }
 }
 
-// --- Nontrivial locus implies non-degeneracy ---
+// --- Non-degeneracy transfer from base to extension level ---
 
-/// If a constraint's locus is nontrivial, the non-degeneracy condition holds.
-/// For Symmetric: nontrivial means AtPoint branch, which requires norm_sq ≢ 0,
-/// which is exactly constraint_locus_nondegenerate.
-/// For all other constraints: constraint_locus_nondegenerate is trivially true.
-proof fn lemma_nontrivial_implies_nondegenerate<T: OrderedField>(
-    c: Constraint<T>,
-    resolved: ResolvedPoints<T>,
+/// Transfers constraint_locus_nondegenerate from base to extension level.
+/// For non-Symmetric: trivially true at ext level.
+/// For Symmetric: uses entry-wise eqv to transfer norm_sq ≢ 0.
+proof fn lemma_nondegen_transfers_to_ext<R: PositiveRadicand<RationalModel>>(
+    c: Constraint<RationalModel>,
+    base_resolved: ResolvedPoints<RationalModel>,
+    ext_resolved: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
     target: EntityId,
 )
     requires
-        locus_is_nontrivial(constraint_to_locus(c, resolved, target)),
+        constraint_locus_nondegenerate(c, base_resolved, target),
+        constraint_well_formed(c),
+        ext_resolved.dom() =~= base_resolved.dom(),
+        forall|e: EntityId|
+            constraint_entities(c).contains(e) && e != target
+            && ext_resolved.dom().contains(e)
+            ==> ext_resolved[e].eqv(
+                lift_resolved_map::<RationalModel, R>(base_resolved)[e]),
     ensures
-        constraint_locus_nondegenerate(c, resolved, target),
+        constraint_locus_nondegenerate(
+            lift_constraint::<RationalModel, R>(c), ext_resolved, target),
 {
     match c {
-        Constraint::Coincident { .. } => {}
-        Constraint::DistanceSq { .. } => {}
-        Constraint::FixedX { .. } => {}
-        Constraint::FixedY { .. } => {}
-        Constraint::SameX { .. } => {}
-        Constraint::SameY { .. } => {}
-        Constraint::PointOnLine { .. } => {}
-        Constraint::EqualLengthSq { .. } => {}
-        Constraint::Midpoint { .. } => {}
-        Constraint::Perpendicular { .. } => {}
-        Constraint::Parallel { .. } => {}
-        Constraint::Collinear { .. } => {}
-        Constraint::PointOnCircle { .. } => {}
         Constraint::Symmetric { point, original, axis_a, axis_b } => {
-            // Nontrivial means target==point, entities in dom, AND norm_sq ≢ 0
-            if target == point && resolved.dom().contains(original)
-                && resolved.dom().contains(axis_a) && resolved.dom().contains(axis_b)
+            if target == point && base_resolved.dom().contains(axis_a)
+                && base_resolved.dom().contains(axis_b)
             {
-                let d = sub2(resolved[axis_b], resolved[axis_a]);
-                let norm_sq = d.x.mul(d.x).add(d.y.mul(d.y));
-                if norm_sq.eqv(T::zero()) {
-                    // If norm_sq ≡ 0, constraint_to_locus returns FullPlane
-                    assert(constraint_to_locus(c, resolved, target)
-                        == Locus2d::<T>::FullPlane);
-                    // But locus is nontrivial → contradiction
+                // constraint_locus_nondegenerate's norm is sq_dist_2d(axis_b, axis_a)
+                let base_norm = sq_dist_2d(base_resolved[axis_b], base_resolved[axis_a]);
+
+                // Help Z3 trigger the quantified entry-eqv precondition
+                assert(constraint_entities(c).contains(axis_a));
+                assert(constraint_entities(c).contains(axis_b));
+                assert(axis_a != target);
+                assert(axis_b != target);
+                assert(ext_resolved.dom().contains(axis_a));
+                assert(ext_resolved.dom().contains(axis_b));
+
+                let ext_b = ext_resolved[axis_b];
+                let ext_a = ext_resolved[axis_a];
+                let lift_b = lift_point2::<RationalModel, R>(base_resolved[axis_b]);
+                let lift_a = lift_point2::<RationalModel, R>(base_resolved[axis_a]);
+
+                // Step 1: sq_dist(ext_b, ext_a) ≡ sq_dist(lift_b, lift_a)
+                lemma_sq_dist_congruence::<SpecQuadExt<RationalModel, R>>(
+                    ext_b, ext_a, lift_b, lift_a);
+
+                // Step 2: sq_dist(lift_b, lift_a) ≡ qext(base_norm)
+                lemma_lift_sq_dist_2d_eqv::<RationalModel, R>(
+                    base_resolved[axis_b], base_resolved[axis_a]);
+
+                // Step 3: sq_dist(ext_b, ext_a) ≡ qext(base_norm)
+                let ext_norm = sq_dist_2d(ext_b, ext_a);
+                SpecQuadExt::<RationalModel, R>::axiom_eqv_transitive(
+                    ext_norm,
+                    sq_dist_2d(lift_b, lift_a),
+                    qext_from_rational::<RationalModel, R>(base_norm));
+
+                // Step 4: qext(base_norm) ≢ QExt::zero() → ext_norm ≢ QExt::zero()
+                // If ext_norm ≡ 0, then qext(base_norm) ≡ 0 (transitivity),
+                // then base_norm ≡ 0 (from re component), contradiction.
+                if ext_norm.eqv(SpecQuadExt::<RationalModel, R>::zero()) {
+                    SpecQuadExt::<RationalModel, R>::axiom_eqv_symmetric(
+                        ext_norm,
+                        qext_from_rational::<RationalModel, R>(base_norm));
+                    SpecQuadExt::<RationalModel, R>::axiom_eqv_transitive(
+                        qext_from_rational::<RationalModel, R>(base_norm),
+                        ext_norm,
+                        SpecQuadExt::<RationalModel, R>::zero());
+                    // qext(base_norm) ≡ 0 → base_norm.eqv(0) from re component
+                    lemma_qext_from_rational_re::<RationalModel, R>(base_norm);
                 }
-                // So norm_sq ≢ 0 → nondegenerate
             }
         }
-        Constraint::FixedPoint { .. } => {}
-        Constraint::Ratio { .. } => {}
-        Constraint::Tangent { .. } => {}
-        Constraint::CircleTangent { .. } => {}
-        Constraint::Angle { .. } => {}
+        _ => {
+            // Non-Symmetric: trivially true at ext level
+        }
     }
 }
 
@@ -3126,7 +3154,7 @@ proof fn lemma_constraint_entry_eqv<R: PositiveRadicand<RationalModel>>(
 // --- Rational step: per-ci wrapper ---
 
 /// Complete per-constraint proof for rational steps at the extension level.
-/// Uses base satisfaction (from plan_structurally_sound) + lifting chain.
+/// Uses base satisfaction + entry-wise eqv + nondegen transfer.
 proof fn lemma_rational_step_ext_ci<R: PositiveRadicand<RationalModel>>(
     plan: ConstructionPlan<RationalModel>,
     constraints: Seq<Constraint<RationalModel>>,
@@ -3150,6 +3178,9 @@ proof fn lemma_rational_step_ext_ci<R: PositiveRadicand<RationalModel>>(
             constraint_to_locus(constraints[ci],
                 execute_plan(plan.take(si as int)), step_target(plan[si])),
             execute_step(plan[si])),
+        // Base non-degeneracy for this constraint at this step
+        constraint_locus_nondegenerate(
+            constraints[ci], execute_plan(plan.take(si as int)), step_target(plan[si])),
         // Domain facts
         execute_plan(lift_plan::<RationalModel, R>(plan).take(si as int)).dom()
             =~= execute_plan(plan.take(si as int)).dom(),
@@ -3194,8 +3225,8 @@ proof fn lemma_rational_step_ext_ci<R: PositiveRadicand<RationalModel>>(
     // 3. Entry-wise eqv (extracted to avoid rlimit)
     lemma_constraint_entry_eqv::<R>(plan, constraints, si, ci);
 
-    // 4. Non-degeneracy: nontrivial ext locus implies nondegenerate
-    lemma_nontrivial_implies_nondegenerate(lift_c, ext_resolved, target);
+    // 4. Transfer non-degeneracy from base to ext level
+    lemma_nondegen_transfers_to_ext::<R>(base_c, base_resolved, ext_resolved, target);
 
     // 5. Delegate to ext_locus_single
     lemma_rational_step_ext_locus_single::<R>(
@@ -3264,6 +3295,9 @@ proof fn lemma_rational_step_satisfies_ext_loci<R: PositiveRadicand<RationalMode
             lift_constraint::<RationalModel, R>(constraints[ci]),
             ext_resolved,
             lift_resolved_map::<RationalModel, R>(base_resolved), target);
+        // Extract base non-degeneracy from plan_structurally_sound
+        assert(constraint_locus_nondegenerate(
+            constraints[ci], base_resolved, target));
         lemma_rational_step_ext_ci::<R>(plan, constraints, si, ci);
     };
 
@@ -3725,6 +3759,106 @@ pub open spec fn plan_structurally_sound<R: PositiveRadicand<RationalModel>>(
         0 <= si < plan.len() && !is_rational_step(plan[si]) ==>
         step_loci_match_geometry(
             plan[si], constraints, execute_plan(plan.take(si as int)))
+
+    // Non-degeneracy for Symmetric constraints (axis non-degenerate)
+    // Trivially true for all non-Symmetric constraints.
+    &&& forall|si: int, ci: int|
+        #![trigger plan[si], constraints[ci]]
+        0 <= si < plan.len() && 0 <= ci < constraints.len() ==>
+        constraint_locus_nondegenerate(
+            constraints[ci], execute_plan(plan.take(si as int)), step_target(plan[si]))
+}
+
+// ===========================================================================
+//  Round 5: Master bridge lemma
+// ===========================================================================
+
+/// Master bridge: for a structurally sound plan where verification constraints
+/// are satisfied at the extension level, ALL constraints are satisfied at the
+/// extension level.
+///
+/// Composes:
+/// 1. lemma_lift_plan_valid → plan validity at ext level
+/// 2. lemma_lift_plan_locus_ordered → locus ordering at ext level
+/// 3. Per-step loci satisfaction (rational: lemma_rational_step_satisfies_ext_loci,
+///    circle: lemma_circle_step_satisfies_ext_loci)
+/// 4. lemma_end_to_end at extension level
+pub proof fn lemma_solver_to_soundness<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+)
+    requires
+        plan_structurally_sound::<R>(plan, constraints),
+        // Verification constraints satisfied at extension level
+        forall|ci: int| 0 <= ci < constraints.len()
+            && is_verification_constraint(#[trigger] constraints[ci])
+            ==> constraint_satisfied(
+                lift_constraint::<RationalModel, R>(constraints[ci]),
+                execute_plan(lift_plan::<RationalModel, R>(plan))),
+    ensures
+        forall|ci: int| 0 <= ci < constraints.len() ==>
+            constraint_satisfied(
+                #[trigger] lift_constraints::<RationalModel, R>(constraints)[ci],
+                execute_plan(lift_plan::<RationalModel, R>(plan))),
+{
+    let lift_plan_val = lift_plan::<RationalModel, R>(plan);
+    let lift_constraints_val = lift_constraints::<RationalModel, R>(constraints);
+
+    // 1. Plan validity at ext level
+    lemma_lift_plan_valid::<R>(plan, constraints);
+
+    // 2. Locus ordering at ext level
+    lemma_lift_plan_locus_ordered::<RationalModel, R>(plan, constraints);
+
+    // 3. Constraint well-formedness at ext level
+    assert forall|ci: int| 0 <= ci < lift_constraints_val.len() implies
+        constraint_well_formed(#[trigger] lift_constraints_val[ci])
+    by {
+        assert(lift_constraints_val[ci]
+            == lift_constraint::<RationalModel, R>(constraints[ci]));
+        lemma_lift_constraint_well_formed::<RationalModel, R>(constraints[ci]);
+    };
+
+    // 4. Entity coverage at ext level
+    lemma_lift_plan_domain::<RationalModel, R>(plan);
+    assert forall|ci: int| 0 <= ci < lift_constraints_val.len() implies
+        constraint_entities(lift_constraints_val[ci]).subset_of(
+            execute_plan(lift_plan_val).dom())
+    by {
+        assert(lift_constraints_val[ci]
+            == lift_constraint::<RationalModel, R>(constraints[ci]));
+        lemma_lift_constraint_entities::<RationalModel, R>(constraints[ci]);
+    };
+
+    // 5. Per-step loci satisfaction at ext level
+    assert forall|si: int| 0 <= si < lift_plan_val.len() implies
+        step_satisfies_all_constraint_loci(
+            #[trigger] lift_plan_val[si],
+            lift_constraints_val,
+            execute_plan(lift_plan_val.take(si as int)))
+    by {
+        assert(lift_plan_val[si]
+            == lift_construction_step::<RationalModel, R>(plan[si]));
+        if is_rational_step(plan[si]) {
+            lemma_rational_step_satisfies_ext_loci::<R>(plan, constraints, si);
+        } else {
+            lemma_circle_step_satisfies_ext_loci::<R>(plan, constraints, si);
+        }
+    };
+
+    // 6. Verification constraints at ext level
+    assert forall|ci: int| 0 <= ci < lift_constraints_val.len()
+        && is_verification_constraint(#[trigger] lift_constraints_val[ci])
+    implies constraint_satisfied(
+        lift_constraints_val[ci], execute_plan(lift_plan_val))
+    by {
+        assert(lift_constraints_val[ci]
+            == lift_constraint::<RationalModel, R>(constraints[ci]));
+        lemma_lift_is_verification_constraint::<RationalModel, R>(constraints[ci]);
+    };
+
+    // 7. Apply lemma_end_to_end at the extension level
+    lemma_end_to_end(lift_plan_val, lift_constraints_val);
 }
 
 } // verus!
