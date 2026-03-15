@@ -7,7 +7,7 @@ use verus_geometry::circle_line::cl_discriminant;
 use verus_geometry::circle_circle::cc_discriminant;
 use verus_geometry::line_intersection::*;
 use verus_geometry::runtime::point2::*;
-use verus_geometry::runtime::line2::*;
+use verus_geometry::runtime::line2::{RuntimeLine2, line2_eval_exec};
 use verus_geometry::runtime::circle2::*;
 use verus_geometry::runtime::line_intersection::*;
 use verus_rational::runtime_rational::RuntimeRational;
@@ -39,6 +39,16 @@ verus! {
 // ===========================================================================
 //  Spec helpers
 // ===========================================================================
+
+/// Convert a runtime plan Vec to spec-level ConstructionPlan.
+pub open spec fn plan_to_spec(plan: Seq<RuntimeStepData>) -> ConstructionPlan<RationalModel> {
+    Seq::new(plan.len() as nat, |i: int| plan[i].spec_step())
+}
+
+/// Convert a runtime constraints Vec to spec-level Seq<Constraint>.
+pub open spec fn constraints_to_spec(constraints: Seq<RuntimeConstraint>) -> Seq<Constraint<RationalModel>> {
+    Seq::new(constraints.len() as nat, |i: int| runtime_constraint_model(constraints[i]))
+}
 
 /// Whether a construction step's geometric preconditions are met.
 /// This is `step_well_formed` minus the existential witness requirement
@@ -1435,70 +1445,313 @@ fn check_at_most_two_nontrivial_exec(
 // ===========================================================================
 
 /// Helper: get all entity IDs of a runtime constraint as a small Vec.
-fn constraint_entity_ids(rc: &RuntimeConstraint) -> (out: Vec<usize>)
+fn constraint_entity_ids(rc: &RuntimeConstraint, n_points: usize) -> (out: Vec<usize>)
+    requires runtime_constraint_wf(*rc, n_points as nat),
+    ensures
+        // Forward: all Vec elements are in constraint_entities
+        forall|j: int| 0 <= j < out@.len() ==>
+            constraint_entities(runtime_constraint_model(*rc)).contains(#[trigger] out@[j] as nat),
+        // Backward: all constraint_entities elements are in the Vec
+        forall|e: nat| constraint_entities(runtime_constraint_model(*rc)).contains(e) ==>
+            exists|j: int| 0 <= j < out@.len() && out@[j] as nat == e,
+        // All elements < n_points
+        forall|j: int| 0 <= j < out@.len() ==> (#[trigger] out@[j] as int) < n_points,
 {
     match rc {
         RuntimeConstraint::Coincident { a, b, .. } => {
-            let mut v = Vec::new(); v.push(*a); v.push(*b); v
+            let mut v = Vec::new(); v.push(*a); v.push(*b);
+            proof { assert(v@[0] == *a); assert(v@[1] == *b); } v
         }
         RuntimeConstraint::DistanceSq { a, b, .. } => {
-            let mut v = Vec::new(); v.push(*a); v.push(*b); v
+            let mut v = Vec::new(); v.push(*a); v.push(*b);
+            proof { assert(v@[0] == *a); assert(v@[1] == *b); } v
         }
         RuntimeConstraint::FixedX { point, .. } => {
-            let mut v = Vec::new(); v.push(*point); v
+            let mut v = Vec::new(); v.push(*point);
+            proof { assert(v@[0] == *point); } v
         }
         RuntimeConstraint::FixedY { point, .. } => {
-            let mut v = Vec::new(); v.push(*point); v
+            let mut v = Vec::new(); v.push(*point);
+            proof { assert(v@[0] == *point); } v
         }
         RuntimeConstraint::SameX { a, b, .. } => {
-            let mut v = Vec::new(); v.push(*a); v.push(*b); v
+            let mut v = Vec::new(); v.push(*a); v.push(*b);
+            proof { assert(v@[0] == *a); assert(v@[1] == *b); } v
         }
         RuntimeConstraint::SameY { a, b, .. } => {
-            let mut v = Vec::new(); v.push(*a); v.push(*b); v
+            let mut v = Vec::new(); v.push(*a); v.push(*b);
+            proof { assert(v@[0] == *a); assert(v@[1] == *b); } v
         }
         RuntimeConstraint::PointOnLine { point, line_a, line_b, .. } => {
-            let mut v = Vec::new(); v.push(*point); v.push(*line_a); v.push(*line_b); v
+            let mut v = Vec::new(); v.push(*point); v.push(*line_a); v.push(*line_b);
+            proof { assert(v@[0] == *point); assert(v@[1] == *line_a); assert(v@[2] == *line_b); } v
         }
         RuntimeConstraint::EqualLengthSq { a1, a2, b1, b2, .. } => {
-            let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2); v
+            let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2);
+            proof { assert(v@[0] == *a1); assert(v@[1] == *a2); assert(v@[2] == *b1); assert(v@[3] == *b2); } v
         }
         RuntimeConstraint::Midpoint { mid, a, b, .. } => {
-            let mut v = Vec::new(); v.push(*mid); v.push(*a); v.push(*b); v
+            let mut v = Vec::new(); v.push(*mid); v.push(*a); v.push(*b);
+            proof { assert(v@[0] == *mid); assert(v@[1] == *a); assert(v@[2] == *b); } v
         }
         RuntimeConstraint::Perpendicular { a1, a2, b1, b2, .. } => {
-            let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2); v
+            let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2);
+            proof { assert(v@[0] == *a1); assert(v@[1] == *a2); assert(v@[2] == *b1); assert(v@[3] == *b2); } v
         }
         RuntimeConstraint::Parallel { a1, a2, b1, b2, .. } => {
-            let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2); v
+            let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2);
+            proof { assert(v@[0] == *a1); assert(v@[1] == *a2); assert(v@[2] == *b1); assert(v@[3] == *b2); } v
         }
         RuntimeConstraint::Collinear { a, b, c, .. } => {
-            let mut v = Vec::new(); v.push(*a); v.push(*b); v.push(*c); v
+            let mut v = Vec::new(); v.push(*a); v.push(*b); v.push(*c);
+            proof { assert(v@[0] == *a); assert(v@[1] == *b); assert(v@[2] == *c); } v
         }
         RuntimeConstraint::PointOnCircle { point, center, radius_point, .. } => {
-            let mut v = Vec::new(); v.push(*point); v.push(*center); v.push(*radius_point); v
+            let mut v = Vec::new(); v.push(*point); v.push(*center); v.push(*radius_point);
+            proof { assert(v@[0] == *point); assert(v@[1] == *center); assert(v@[2] == *radius_point); } v
         }
         RuntimeConstraint::Symmetric { point, original, axis_a, axis_b, .. } => {
-            let mut v = Vec::new(); v.push(*point); v.push(*original); v.push(*axis_a); v.push(*axis_b); v
+            let mut v = Vec::new(); v.push(*point); v.push(*original); v.push(*axis_a); v.push(*axis_b);
+            proof { assert(v@[0] == *point); assert(v@[1] == *original); assert(v@[2] == *axis_a); assert(v@[3] == *axis_b); } v
         }
         RuntimeConstraint::FixedPoint { point, .. } => {
-            let mut v = Vec::new(); v.push(*point); v
+            let mut v = Vec::new(); v.push(*point);
+            proof { assert(v@[0] == *point); } v
         }
         RuntimeConstraint::Ratio { a1, a2, b1, b2, .. } => {
-            let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2); v
+            let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2);
+            proof { assert(v@[0] == *a1); assert(v@[1] == *a2); assert(v@[2] == *b1); assert(v@[3] == *b2); } v
         }
         RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, .. } => {
-            let mut v = Vec::new(); v.push(*line_a); v.push(*line_b); v.push(*center); v.push(*radius_point); v
+            let mut v = Vec::new(); v.push(*line_a); v.push(*line_b); v.push(*center); v.push(*radius_point);
+            proof { assert(v@[0] == *line_a); assert(v@[1] == *line_b); assert(v@[2] == *center); assert(v@[3] == *radius_point); } v
         }
         RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } => {
-            let mut v = Vec::new(); v.push(*c1); v.push(*rp1); v.push(*c2); v.push(*rp2); v
+            let mut v = Vec::new(); v.push(*c1); v.push(*rp1); v.push(*c2); v.push(*rp2);
+            proof { assert(v@[0] == *c1); assert(v@[1] == *rp1); assert(v@[2] == *c2); assert(v@[3] == *rp2); } v
         }
         RuntimeConstraint::Angle { a1, a2, b1, b2, .. } => {
-            let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2); v
+            let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2);
+            proof { assert(v@[0] == *a1); assert(v@[1] == *a2); assert(v@[2] == *b1); assert(v@[3] == *b2); } v
         }
     }
 }
 
 // --- 1a: check_is_fully_independent_exec ---
+
+/// Build a boolean flag array where flags[e] == true iff e is a circle step target.
+fn build_circle_flags(
+    plan: &Vec<RuntimeStepData>,
+    n_points: usize,
+) -> (out: Vec<bool>)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
+    ensures
+        out@.len() == n_points as int,
+        forall|e: int| 0 <= e < n_points ==>
+            (out@[e] == circle_targets(plan_to_spec(plan@)).contains(e as nat)),
+{
+    let ghost plan_spec = plan_to_spec(plan@);
+
+    let mut flags: Vec<bool> = Vec::new();
+    let mut k: usize = 0;
+    while k < n_points
+        invariant k <= n_points, flags@.len() == k as int,
+            forall|e: int| 0 <= e < k ==> flags@[e] == false,
+        decreases n_points - k,
+    {
+        flags.push(false);
+        k = k + 1;
+    }
+
+    let mut si: usize = 0;
+    while si < plan.len()
+        invariant
+            si <= plan@.len(),
+            flags@.len() == n_points as int,
+            plan_spec == plan_to_spec(plan@),
+            forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+            forall|i: int| 0 <= i < plan@.len() ==>
+                (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
+            // Forward: flagged → is circle target
+            forall|e: int| 0 <= e < n_points && flags@[e] ==>
+                circle_targets(plan_spec).contains(e as nat),
+            // Backward partial: circle steps [0, si) have targets flagged
+            forall|k: int| 0 <= k < si && !is_rational_step(plan_spec[k]) ==>
+                flags@[step_target(plan_spec[k]) as int] == true,
+        decreases plan@.len() - si,
+    {
+        if plan[si].is_circle_step() {
+            let t = plan[si].target_id();
+            proof {
+                assert(!is_rational_step(plan_spec[si as int]));
+                assert(step_target(plan_spec[si as int]) == t as nat);
+            }
+            flags.set(t, true);
+        }
+        si = si + 1;
+    }
+
+    proof {
+        // Backward: if e ∈ circle_targets(plan_spec), then flags[e] is true
+        assert forall|e: int| 0 <= e < n_points &&
+            circle_targets(plan_spec).contains(e as nat)
+        implies flags@[e] == true
+        by {
+            let k = choose|k: int| 0 <= k < plan_spec.len() &&
+                !is_rational_step(#[trigger] plan_spec[k]) &&
+                step_target(plan_spec[k]) == e as nat;
+            assert(!is_rational_step(plan_spec[k]));
+            assert(flags@[step_target(plan_spec[k]) as int] == true);
+        }
+        // Combine into biconditional
+        assert forall|e: int| 0 <= e < n_points implies
+            flags@[e] == circle_targets(plan_spec).contains(e as nat)
+        by {
+            if flags@[e] {
+                assert(circle_targets(plan_spec).contains(e as nat));
+            }
+            if circle_targets(plan_spec).contains(e as nat) {
+                assert(flags@[e] == true);
+            }
+        }
+    }
+    flags
+}
+
+/// Check one constraint is independent w.r.t. target and circle_flags.
+/// Returns true if: either target is not in the constraint's entities,
+/// or all other entities are not flagged as circle targets.
+fn check_one_constraint_independent(
+    rc: &RuntimeConstraint,
+    target: usize,
+    circle_flags: &Vec<bool>,
+    n_points: usize,
+) -> (out: bool)
+    requires
+        runtime_constraint_wf(*rc, n_points as nat),
+        circle_flags@.len() == n_points as int,
+        (target as int) < n_points,
+    ensures
+        out && constraint_entities(runtime_constraint_model(*rc)).contains(target as nat) ==>
+            forall|e: EntityId|
+                constraint_entities(runtime_constraint_model(*rc)).contains(e) && e != (target as nat)
+                ==> (e as int) < n_points && !circle_flags@[e as int],
+{
+    let entities = constraint_entity_ids(rc, n_points);
+
+    // Check if target is among entities
+    let mut has_target = false;
+    let mut ei: usize = 0;
+    while ei < entities.len()
+        invariant
+            ei <= entities@.len(),
+            !has_target ==> forall|j: int| 0 <= j < ei ==> entities@[j] != target,
+        decreases entities@.len() - ei,
+    {
+        if entities[ei] == target { has_target = true; }
+        ei = ei + 1;
+    }
+
+    if !has_target {
+        // target not in constraint entities → postcondition vacuously true
+        proof {
+            if constraint_entities(runtime_constraint_model(*rc)).contains(target as nat) {
+                // By backward ensures of constraint_entity_ids, there is a j
+                let j = choose|j: int| 0 <= j < entities@.len()
+                    && entities@[j] as nat == (target as nat);
+                // entities@[j] as nat == target as nat means entities@[j] == target (both usize)
+                assert(entities@[j] != target); // from !has_target invariant
+                assert(false); // contradiction
+            }
+        }
+        return true;
+    }
+
+    // has_target: check all other entities are not flagged
+    let mut ei2: usize = 0;
+    while ei2 < entities.len()
+        invariant
+            ei2 <= entities@.len(),
+            circle_flags@.len() == n_points as int,
+            forall|j: int| 0 <= j < ei2 && entities@[j] != target ==>
+                !circle_flags@[entities@[j] as int],
+            forall|j: int| 0 <= j < entities@.len() ==>
+                constraint_entities(runtime_constraint_model(*rc)).contains(entities@[j] as nat),
+            forall|j: int| 0 <= j < entities@.len() ==>
+                (entities@[j] as int) < n_points,
+        decreases entities@.len() - ei2,
+    {
+        let e = entities[ei2];
+        if e != target && circle_flags[e] {
+            return false;
+        }
+        ei2 = ei2 + 1;
+    }
+
+    // All other entities are not flagged → prove postcondition
+    proof {
+        assert forall|e_nat: EntityId|
+            constraint_entities(runtime_constraint_model(*rc)).contains(e_nat)
+            && e_nat != (target as nat)
+        implies (e_nat as int) < n_points && !circle_flags@[e_nat as int]
+        by {
+            let j = choose|j: int| 0 <= j < entities@.len()
+                && entities@[j] as nat == e_nat;
+            // entities@[j] as nat == e_nat != target as nat, so entities@[j] != target
+            assert(entities@[j] != target);
+            assert(!circle_flags@[entities@[j] as int]);
+            assert((entities@[j] as int) < n_points);
+            // entities@[j] as int == e_nat as int since both < n_points
+        }
+    }
+    true
+}
+
+/// Check all constraints are independent for a given step target.
+fn check_all_constraints_for_target(
+    constraints: &Vec<RuntimeConstraint>,
+    target: usize,
+    circle_flags: &Vec<bool>,
+    n_points: usize,
+) -> (out: bool)
+    requires
+        circle_flags@.len() == n_points as int,
+        (target as int) < n_points,
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+    ensures
+        out ==> forall|ci: int| #![trigger constraints@[ci]]
+            0 <= ci < constraints@.len()
+            && constraint_entities(runtime_constraint_model(constraints@[ci])).contains(target as nat)
+            ==> forall|e: EntityId|
+                constraint_entities(runtime_constraint_model(constraints@[ci])).contains(e) && e != (target as nat)
+                ==> (e as int) < n_points && !circle_flags@[e as int],
+{
+    let mut ci: usize = 0;
+    while ci < constraints.len()
+        invariant
+            ci <= constraints@.len(),
+            circle_flags@.len() == n_points as int,
+            (target as int) < n_points,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+            forall|ci_idx: int| #![trigger constraints@[ci_idx]]
+                0 <= ci_idx < ci
+                && constraint_entities(runtime_constraint_model(constraints@[ci_idx])).contains(target as nat)
+                ==> forall|e: EntityId|
+                    constraint_entities(runtime_constraint_model(constraints@[ci_idx])).contains(e) && e != (target as nat)
+                    ==> (e as int) < n_points && !circle_flags@[e as int],
+        decreases constraints@.len() - ci,
+    {
+        let ok = check_one_constraint_independent(&constraints[ci], target, circle_flags, n_points);
+        if !ok { return false; }
+        ci = ci + 1;
+    }
+    true
+}
 
 /// Check that a plan is fully independent: for every step's target, every
 /// constraint referencing that target has no OTHER entities that are circle targets.
@@ -1513,90 +1766,73 @@ fn check_is_fully_independent_exec(
             (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
         forall|i: int| 0 <= i < constraints@.len() ==>
             runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+    ensures
+        out ==> is_fully_independent_plan(plan_to_spec(plan@), constraints_to_spec(constraints@)),
 {
-    // Build circle_flags: circle_flags[e] == true iff e is a circle step target
-    let mut circle_flags: Vec<bool> = Vec::new();
-    let mut k: usize = 0;
-    while k < n_points
-        invariant k <= n_points, circle_flags@.len() == k as int,
-        decreases n_points - k,
-    {
-        circle_flags.push(false);
-        k = k + 1;
-    }
+    let ghost plan_spec = plan_to_spec(plan@);
+    let ghost cstr_spec = constraints_to_spec(constraints@);
 
-    // Mark circle targets
+    let circle_flags = build_circle_flags(plan, n_points);
+
     let mut si: usize = 0;
     while si < plan.len()
         invariant
             si <= plan@.len(),
             circle_flags@.len() == n_points as int,
-            forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
-            forall|i: int| 0 <= i < plan@.len() ==>
-                (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
-        decreases plan@.len() - si,
-    {
-        if plan[si].is_circle_step() {
-            let t = plan[si].target_id();
-            circle_flags.set(t, true);
-        }
-        si = si + 1;
-    }
-
-    // Check independence: for each step, no constraint referencing its target
-    // has OTHER entities that are circle targets
-    let mut si2: usize = 0;
-    while si2 < plan.len()
-        invariant
-            si2 <= plan@.len(),
-            circle_flags@.len() == n_points as int,
+            plan_spec == plan_to_spec(plan@),
+            cstr_spec == constraints_to_spec(constraints@),
             forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
             forall|i: int| 0 <= i < plan@.len() ==>
                 (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
             forall|i: int| 0 <= i < constraints@.len() ==>
                 runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
-        decreases plan@.len() - si2,
+            forall|e: int| 0 <= e < n_points ==>
+                (circle_flags@[e] == circle_targets(plan_spec).contains(e as nat)),
+            // Independence holds for all si' < si
+            forall|si_idx: int| #![trigger plan_spec[si_idx]]
+                0 <= si_idx < si ==>
+                forall|ci_idx: int| #![trigger cstr_spec[ci_idx]]
+                    0 <= ci_idx < cstr_spec.len()
+                    && constraint_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si_idx]))
+                    ==> forall|e: EntityId|
+                        constraint_entities(cstr_spec[ci_idx]).contains(e) && e != step_target(plan_spec[si_idx])
+                        ==> !circle_targets(plan_spec).contains(e),
+        decreases plan@.len() - si,
     {
-        let target = plan[si2].target_id();
-        let mut ci: usize = 0;
-        while ci < constraints.len()
-            invariant
-                ci <= constraints@.len(),
-                circle_flags@.len() == n_points as int,
-                forall|i: int| 0 <= i < constraints@.len() ==>
-                    runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
-            decreases constraints@.len() - ci,
-        {
-            let entities = constraint_entity_ids(&constraints[ci]);
-            // Check if target is in this constraint's entities
-            let mut has_target = false;
-            let mut ei: usize = 0;
-            while ei < entities.len()
-                invariant ei <= entities@.len(),
-                decreases entities@.len() - ei,
-            {
-                if entities[ei] == target {
-                    has_target = true;
-                }
-                ei = ei + 1;
+        let target = plan[si].target_id();
+        let ok = check_all_constraints_for_target(constraints, target, &circle_flags, n_points);
+        if !ok { return false; }
+        // Extend invariant: check_all_constraints_for_target ensures independence
+        // for all ci w.r.t. target in terms of circle_flags.
+        // Convert to circle_targets via flag correspondence.
+        proof {
+            let target_nat: nat = target as nat;
+            assert(target_nat == step_target(plan_spec[si as int]));
+            assert forall|ci_idx: int, e: EntityId|
+                0 <= ci_idx < cstr_spec.len()
+                && constraint_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si as int]))
+                && constraint_entities(cstr_spec[ci_idx]).contains(e)
+                && e != step_target(plan_spec[si as int])
+            implies !circle_targets(plan_spec).contains(e)
+            by {
+                // Unfold: cstr_spec[ci_idx] == runtime_constraint_model(constraints@[ci_idx])
+                assert(cstr_spec[ci_idx] == runtime_constraint_model(constraints@[ci_idx]));
+                // Trigger the ensures of check_all_constraints_for_target:
+                // constraint_entities(runtime_constraint_model(constraints@[ci_idx])).contains(target as nat)
+                // → for all e' != target_nat: (e' as int) < n_points && !circle_flags@[e' as int]
+                assert(constraint_entities(runtime_constraint_model(constraints@[ci_idx]))
+                    .contains(target_nat));
+                assert(constraint_entities(runtime_constraint_model(constraints@[ci_idx]))
+                    .contains(e));
+                assert(e != target_nat);
+                // From check_all_constraints_for_target ensures:
+                assert((e as int) < n_points);
+                assert(!circle_flags@[e as int]);
+                // From flag correspondence:
+                assert(!circle_targets(plan_spec).contains(e));
             }
-            if has_target {
-                // Check all OTHER entities are not circle targets
-                let mut ei2: usize = 0;
-                while ei2 < entities.len()
-                    invariant ei2 <= entities@.len(), circle_flags@.len() == n_points as int,
-                    decreases entities@.len() - ei2,
-                {
-                    let e = entities[ei2];
-                    if e != target && e < n_points && circle_flags[e] {
-                        return false;
-                    }
-                    ei2 = ei2 + 1;
-                }
-            }
-            ci = ci + 1;
         }
-        si2 = si2 + 1;
+        si = si + 1;
     }
     true
 }
@@ -1756,6 +1992,567 @@ fn check_constraint_locus_nondegenerate_exec(
         }
         ci = ci + 1;
     }
+    true
+}
+
+// --- 1b_helper: is_locus_entity_exec ---
+
+/// Check if target is in constraint_locus_entities for a given constraint.
+fn is_locus_entity_exec(rc: &RuntimeConstraint, target: usize, n_points: usize) -> (out: bool)
+    requires
+        runtime_constraint_wf(*rc, n_points as nat),
+        (target as int) < n_points,
+    ensures
+        out == constraint_locus_entities(
+            runtime_constraint_model(*rc)).contains(target as nat),
+{
+    match rc {
+        RuntimeConstraint::Coincident { a, b, .. } => *a == target || *b == target,
+        RuntimeConstraint::DistanceSq { a, b, .. } => *a == target || *b == target,
+        RuntimeConstraint::FixedX { point, .. } => *point == target,
+        RuntimeConstraint::FixedY { point, .. } => *point == target,
+        RuntimeConstraint::SameX { a, b, .. } => *a == target || *b == target,
+        RuntimeConstraint::SameY { a, b, .. } => *a == target || *b == target,
+        RuntimeConstraint::PointOnLine { point, .. } => *point == target,
+        RuntimeConstraint::EqualLengthSq { a1, a2, .. } => *a1 == target || *a2 == target,
+        RuntimeConstraint::Midpoint { mid, a, b, .. } =>
+            *mid == target || *a == target || *b == target,
+        RuntimeConstraint::Perpendicular { a1, a2, .. } => *a1 == target || *a2 == target,
+        RuntimeConstraint::Parallel { a1, a2, .. } => *a1 == target || *a2 == target,
+        RuntimeConstraint::Collinear { a, b, c, .. } =>
+            *a == target || *b == target || *c == target,
+        RuntimeConstraint::PointOnCircle { point, .. } => *point == target,
+        RuntimeConstraint::Symmetric { point, .. } => *point == target,
+        RuntimeConstraint::FixedPoint { point, .. } => *point == target,
+        RuntimeConstraint::Ratio { a1, a2, .. } => *a1 == target || *a2 == target,
+        RuntimeConstraint::Tangent { .. } => false,
+        RuntimeConstraint::CircleTangent { .. } => false,
+        RuntimeConstraint::Angle { .. } => false,
+    }
+}
+
+// --- 1b_helper: is_entity_of_constraint_exec ---
+
+/// Check if target is in constraint_entities for a given constraint.
+fn is_entity_of_constraint_exec(rc: &RuntimeConstraint, target: usize, n_points: usize) -> (out: bool)
+    requires
+        runtime_constraint_wf(*rc, n_points as nat),
+        (target as int) < n_points,
+    ensures
+        out == constraint_entities(
+            runtime_constraint_model(*rc)).contains(target as nat),
+{
+    match rc {
+        RuntimeConstraint::Coincident { a, b, .. } => *a == target || *b == target,
+        RuntimeConstraint::DistanceSq { a, b, .. } => *a == target || *b == target,
+        RuntimeConstraint::FixedX { point, .. } => *point == target,
+        RuntimeConstraint::FixedY { point, .. } => *point == target,
+        RuntimeConstraint::SameX { a, b, .. } => *a == target || *b == target,
+        RuntimeConstraint::SameY { a, b, .. } => *a == target || *b == target,
+        RuntimeConstraint::PointOnLine { point, line_a, line_b, .. } =>
+            *point == target || *line_a == target || *line_b == target,
+        RuntimeConstraint::EqualLengthSq { a1, a2, b1, b2, .. } =>
+            *a1 == target || *a2 == target || *b1 == target || *b2 == target,
+        RuntimeConstraint::Midpoint { mid, a, b, .. } =>
+            *mid == target || *a == target || *b == target,
+        RuntimeConstraint::Perpendicular { a1, a2, b1, b2, .. } =>
+            *a1 == target || *a2 == target || *b1 == target || *b2 == target,
+        RuntimeConstraint::Parallel { a1, a2, b1, b2, .. } =>
+            *a1 == target || *a2 == target || *b1 == target || *b2 == target,
+        RuntimeConstraint::Collinear { a, b, c, .. } =>
+            *a == target || *b == target || *c == target,
+        RuntimeConstraint::PointOnCircle { point, center, radius_point, .. } =>
+            *point == target || *center == target || *radius_point == target,
+        RuntimeConstraint::Symmetric { point, original, axis_a, axis_b, .. } =>
+            *point == target || *original == target || *axis_a == target || *axis_b == target,
+        RuntimeConstraint::FixedPoint { point, .. } => *point == target,
+        RuntimeConstraint::Ratio { a1, a2, b1, b2, .. } =>
+            *a1 == target || *a2 == target || *b1 == target || *b2 == target,
+        RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, .. } =>
+            *line_a == target || *line_b == target || *center == target || *radius_point == target,
+        RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } =>
+            *c1 == target || *rp1 == target || *c2 == target || *rp2 == target,
+        RuntimeConstraint::Angle { a1, a2, b1, b2, .. } =>
+            *a1 == target || *a2 == target || *b1 == target || *b2 == target,
+    }
+}
+
+// --- 1b: check_plan_locus_ordered_exec ---
+
+/// Check that the plan is locus-ordered for all constraints.
+/// For every (ci, si) where step target is in constraint_entities but NOT in
+/// constraint_locus_entities: either it's a verification constraint, or there
+/// exists a later step whose target IS in constraint_locus_entities.
+fn check_plan_locus_ordered_exec(
+    plan: &Vec<RuntimeStepData>,
+    constraints: &Vec<RuntimeConstraint>,
+    n_points: usize,
+) -> (out: bool)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+    ensures
+        out ==> plan_locus_ordered(plan_to_spec(plan@), constraints_to_spec(constraints@)),
+{
+    let ghost plan_spec = plan_to_spec(plan@);
+    let ghost cstr_spec = constraints_to_spec(constraints@);
+
+    let mut si: usize = 0;
+    while si < plan.len()
+        invariant
+            si <= plan@.len(),
+            plan_spec == plan_to_spec(plan@),
+            cstr_spec == constraints_to_spec(constraints@),
+            forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+            forall|i: int| 0 <= i < plan@.len() ==>
+                (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+            // Spec: locus-ordered property holds for all si' < si
+            forall|ci_idx: int, si_idx: int|
+                #![trigger plan_spec[si_idx], cstr_spec[ci_idx]]
+                0 <= ci_idx < cstr_spec.len() && 0 <= si_idx < si &&
+                constraint_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si_idx])) &&
+                !constraint_locus_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si_idx]))
+                ==> (
+                    is_verification_constraint(cstr_spec[ci_idx])
+                    || exists|si_loc: int|
+                        si_idx < si_loc < plan_spec.len() &&
+                        constraint_locus_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si_loc]))
+                ),
+        decreases plan@.len() - si,
+    {
+        let target = plan[si].target_id();
+        let mut ci: usize = 0;
+        while ci < constraints.len()
+            invariant
+                ci <= constraints@.len(),
+                (target as int) < n_points,
+                target as nat == step_target(plan_spec[si as int]),
+                plan_spec == plan_to_spec(plan@),
+                cstr_spec == constraints_to_spec(constraints@),
+                forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+                forall|i: int| 0 <= i < plan@.len() ==>
+                    (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
+                forall|i: int| 0 <= i < constraints@.len() ==>
+                    runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+                si < plan@.len(),
+                // Spec: for all si' < si, all ci': property holds (from outer)
+                forall|ci_idx: int, si_idx: int|
+                    #![trigger plan_spec[si_idx], cstr_spec[ci_idx]]
+                    0 <= ci_idx < cstr_spec.len() && 0 <= si_idx < si &&
+                    constraint_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si_idx])) &&
+                    !constraint_locus_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si_idx]))
+                    ==> (
+                        is_verification_constraint(cstr_spec[ci_idx])
+                        || exists|si_loc: int|
+                            si_idx < si_loc < plan_spec.len() &&
+                            constraint_locus_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si_loc]))
+                    ),
+                // Spec: for si and all ci' < ci: property holds
+                forall|ci_idx: int|
+                    #![trigger cstr_spec[ci_idx]]
+                    0 <= ci_idx < ci &&
+                    constraint_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si as int])) &&
+                    !constraint_locus_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si as int]))
+                    ==> (
+                        is_verification_constraint(cstr_spec[ci_idx])
+                        || exists|si_loc: int|
+                            (si as int) < si_loc < plan_spec.len() &&
+                            constraint_locus_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si_loc]))
+                    ),
+            decreases constraints@.len() - ci,
+        {
+            let in_entities = is_entity_of_constraint_exec(&constraints[ci], target, n_points);
+            let in_locus = is_locus_entity_exec(&constraints[ci], target, n_points);
+
+            if in_entities && !in_locus {
+                let is_verif = is_verification_constraint_exec(&constraints[ci], n_points);
+                if !is_verif {
+                    // Search forward for a later step with target in locus_entities
+                    let mut found_later = false;
+                    let ghost mut witness: int = 0;
+                    assert(si < plan.len()); // ensures si + 1 fits in usize
+                    let mut si_loc: usize = si + 1;
+                    while si_loc < plan.len()
+                        invariant
+                            si < plan@.len(),
+                            si + 1 <= si_loc <= plan@.len(),
+                            plan_spec == plan_to_spec(plan@),
+                            cstr_spec == constraints_to_spec(constraints@),
+                            forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+                            forall|i: int| 0 <= i < plan@.len() ==>
+                                (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
+                            forall|i: int| 0 <= i < constraints@.len() ==>
+                                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+                            ci < constraints@.len(),
+                            // found_later: explicit witness tracked
+                            found_later ==> (
+                                (si as int) < witness < (si_loc as int) &&
+                                constraint_locus_entities(cstr_spec[ci as int]).contains(
+                                    step_target(plan_spec[witness]))),
+                        decreases plan@.len() - si_loc,
+                    {
+                        let loc_target = plan[si_loc].target_id();
+                        if is_locus_entity_exec(&constraints[ci], loc_target, n_points) {
+                            found_later = true;
+                            proof { witness = si_loc as int; }
+                        }
+                        si_loc = si_loc + 1;
+                    }
+                    if !found_later {
+                        return false;
+                    }
+                }
+            }
+            ci = ci + 1;
+        }
+        si = si + 1;
+    }
+    true
+}
+
+// --- 1e_helper: point_satisfies_locus_exec ---
+
+/// Check if a point satisfies a locus at runtime.
+fn point_satisfies_locus_exec(
+    locus: &RuntimeLocus,
+    p: &RuntimePoint2,
+) -> (out: bool)
+    requires
+        locus.wf_spec(),
+        p.wf_spec(),
+    ensures
+        out ==> point_satisfies_locus(locus.spec_locus(), p@),
+{
+    match locus {
+        RuntimeLocus::FullPlane => true,
+        RuntimeLocus::OnLine { line } => {
+            let val = line2_eval_exec(line, p);
+            let zero = RuntimeRational::from_int(0);
+            val.eq(&zero)
+        }
+        RuntimeLocus::OnCircle { circle } => {
+            let d = sq_dist_2d_exec(p, &circle.center);
+            d.eq(&circle.radius_sq)
+        }
+        RuntimeLocus::AtPoint { point } => {
+            point.x.eq(&p.x) && point.y.eq(&p.y)
+        }
+    }
+}
+
+// --- 1e: check_step_satisfaction_replay_exec ---
+
+/// Replay the plan and check:
+/// - For rational steps: all constraint loci are satisfied by the executed point
+/// - For circle steps: all nontrivial loci match the step's built-in circle/line
+///   (checked via field-wise eqv comparison of the RuntimeLocus with step geometry)
+/// - At each step: Symmetric constraint axis non-degeneracy
+///
+/// Takes the solver's plan + constraints + a COPY of the initial points/flags
+/// (state before the solver ran). The function replays by executing rational steps
+/// and updating the running state, mirroring what greedy_solve_exec does.
+fn check_step_satisfaction_replay_exec(
+    plan: &Vec<RuntimeStepData>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: &mut Vec<RuntimePoint2>,
+    resolved_flags: &mut Vec<bool>,
+) -> (out: bool)
+    requires
+        old(points)@.len() == old(resolved_flags)@.len(),
+        all_points_wf(old(points)@),
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (step_target((#[trigger] plan@[i]).spec_step()) as int) < old(points)@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], old(points)@.len() as nat),
+        forall|i: int| 0 <= i < old(resolved_flags)@.len() ==>
+            (#[trigger] old(resolved_flags)@[i]) ==
+            partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
+                .dom().contains(i as nat),
+        // Each step geometrically valid (from solver ensures)
+        forall|i: int| 0 <= i < plan@.len() ==>
+            step_geometrically_valid((#[trigger] plan@[i]).spec_step()),
+    ensures
+        points@.len() == old(points)@.len(),
+        resolved_flags@.len() == old(resolved_flags)@.len(),
+{
+    let n_points = points.len();
+    let mut si: usize = 0;
+
+    while si < plan.len()
+        invariant
+            si <= plan@.len(),
+            points@.len() == old(points)@.len(),
+            resolved_flags@.len() == old(resolved_flags)@.len(),
+            resolved_flags@.len() == points@.len(),
+            n_points == points@.len(),
+            all_points_wf(points@),
+            forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+            forall|i: int| 0 <= i < plan@.len() ==>
+                (step_target((#[trigger] plan@[i]).spec_step()) as int) < points@.len(),
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+            forall|i: int| 0 <= i < resolved_flags@.len() ==>
+                (#[trigger] resolved_flags@[i]) ==
+                partial_resolved_map(points_view(points@), resolved_flags@)
+                    .dom().contains(i as nat),
+            forall|i: int| 0 <= i < plan@.len() ==>
+                step_geometrically_valid((#[trigger] plan@[i]).spec_step()),
+        decreases plan@.len() - si,
+    {
+        let target = plan[si].target_id();
+
+        // Compute all loci for this step's target
+        let loci = collect_loci_exec(constraints, points, resolved_flags, target);
+
+        match &plan[si] {
+            RuntimeStepData::PointStep { target: _, x, y, .. } => {
+                // Execute: point is (x, y)
+                let pt = RuntimePoint2::new(copy_rational(x), copy_rational(y));
+                // Check all loci satisfied
+                let mut ci: usize = 0;
+                while ci < loci.len()
+                    invariant
+                        ci <= loci@.len(),
+                        loci@.len() == constraints@.len(),
+                        pt.wf_spec(),
+                        forall|j: int| 0 <= j < loci@.len() ==> (#[trigger] loci@[j]).wf_spec(),
+                        // Length preservation for early returns
+                        points@.len() == old(points)@.len(),
+                        resolved_flags@.len() == old(resolved_flags)@.len(),
+                    decreases loci@.len() - ci,
+                {
+                    if !point_satisfies_locus_exec(&loci[ci], &pt) {
+                        return false;
+                    }
+                    ci = ci + 1;
+                }
+                // Update running state
+                let mut swap_pt = pt;
+                points.set_and_swap(target, &mut swap_pt);
+            }
+            RuntimeStepData::LineLine { target: _, l1, l2, .. } => {
+                // Execute the intersection
+                let pt = execute_line_line_step(l1, l2);
+                // Check all loci satisfied
+                let mut ci: usize = 0;
+                while ci < loci.len()
+                    invariant
+                        ci <= loci@.len(),
+                        loci@.len() == constraints@.len(),
+                        pt.wf_spec(),
+                        forall|j: int| 0 <= j < loci@.len() ==> (#[trigger] loci@[j]).wf_spec(),
+                        points@.len() == old(points)@.len(),
+                        resolved_flags@.len() == old(resolved_flags)@.len(),
+                    decreases loci@.len() - ci,
+                {
+                    if !point_satisfies_locus_exec(&loci[ci], &pt) {
+                        return false;
+                    }
+                    ci = ci + 1;
+                }
+                // Update running state
+                let mut swap_pt = pt;
+                points.set_and_swap(target, &mut swap_pt);
+            }
+            RuntimeStepData::CircleLine { target: _, circle, line, .. } => {
+                // Check nontrivial loci match step geometry
+                let mut ci: usize = 0;
+                while ci < loci.len()
+                    invariant
+                        ci <= loci@.len(),
+                        loci@.len() == constraints@.len(),
+                        circle.wf_spec(),
+                        line.wf_spec(),
+                        forall|j: int| 0 <= j < loci@.len() ==> (#[trigger] loci@[j]).wf_spec(),
+                        points@.len() == old(points)@.len(),
+                        resolved_flags@.len() == old(resolved_flags)@.len(),
+                    decreases loci@.len() - ci,
+                {
+                    match &loci[ci] {
+                        RuntimeLocus::FullPlane => { /* trivial, ok */ }
+                        RuntimeLocus::OnCircle { circle: locus_circle } => {
+                            if !locus_circle.center.x.eq(&circle.center.x)
+                                || !locus_circle.center.y.eq(&circle.center.y)
+                                || !locus_circle.radius_sq.eq(&circle.radius_sq) {
+                                return false;
+                            }
+                        }
+                        RuntimeLocus::OnLine { line: locus_line } => {
+                            if !locus_line.a.eq(&line.a)
+                                || !locus_line.b.eq(&line.b)
+                                || !locus_line.c.eq(&line.c) {
+                                return false;
+                            }
+                        }
+                        RuntimeLocus::AtPoint { .. } => {
+                            return false;
+                        }
+                    }
+                    ci = ci + 1;
+                }
+            }
+            RuntimeStepData::CircleCircle { target: _, c1, c2, .. } => {
+                // Check nontrivial loci match step geometry
+                let mut ci: usize = 0;
+                while ci < loci.len()
+                    invariant
+                        ci <= loci@.len(),
+                        loci@.len() == constraints@.len(),
+                        c1.wf_spec(),
+                        c2.wf_spec(),
+                        forall|j: int| 0 <= j < loci@.len() ==> (#[trigger] loci@[j]).wf_spec(),
+                        points@.len() == old(points)@.len(),
+                        resolved_flags@.len() == old(resolved_flags)@.len(),
+                    decreases loci@.len() - ci,
+                {
+                    match &loci[ci] {
+                        RuntimeLocus::FullPlane => { /* trivial, ok */ }
+                        RuntimeLocus::OnCircle { circle: locus_circle } => {
+                            let match_c1 =
+                                locus_circle.center.x.eq(&c1.center.x)
+                                && locus_circle.center.y.eq(&c1.center.y)
+                                && locus_circle.radius_sq.eq(&c1.radius_sq);
+                            let match_c2 =
+                                locus_circle.center.x.eq(&c2.center.x)
+                                && locus_circle.center.y.eq(&c2.center.y)
+                                && locus_circle.radius_sq.eq(&c2.radius_sq);
+                            if !match_c1 && !match_c2 {
+                                return false;
+                            }
+                        }
+                        _ => {
+                            return false;
+                        }
+                    }
+                    ci = ci + 1;
+                }
+            }
+        }
+
+        // Check Symmetric constraint nondegeneracy at this step
+        let mut ci2: usize = 0;
+        while ci2 < constraints.len()
+            invariant
+                ci2 <= constraints@.len(),
+                n_points == points@.len(),
+                resolved_flags@.len() == n_points,
+                all_points_wf(points@),
+                forall|i: int| 0 <= i < constraints@.len() ==>
+                    runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+                points@.len() == old(points)@.len(),
+                resolved_flags@.len() == old(resolved_flags)@.len(),
+            decreases constraints@.len() - ci2,
+        {
+            match &constraints[ci2] {
+                RuntimeConstraint::Symmetric { point, axis_a, axis_b, .. } => {
+                    if *point == target {
+                        if resolved_flags[*axis_a] && resolved_flags[*axis_b] {
+                            let d = sq_dist_2d_exec(&points[*axis_a], &points[*axis_b]);
+                            let zero = RuntimeRational::from_int(0);
+                            if d.eq(&zero) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            ci2 = ci2 + 1;
+        }
+
+        // Mark target as resolved (mirroring solver behavior)
+        let mut flag = true;
+        resolved_flags.set_and_swap(target, &mut flag);
+
+        proof {
+            assert forall|i: int| 0 <= i < resolved_flags@.len() implies
+                (#[trigger] resolved_flags@[i]) ==
+                partial_resolved_map(points_view(points@), resolved_flags@)
+                    .dom().contains(i as nat)
+            by { }
+        }
+
+        si = si + 1;
+    }
+    true
+}
+
+// --- 1f: verify_plan_soundness_exec ---
+
+/// Assembly: check all plan_structurally_sound conjuncts not already ensured
+/// by solve_all_variants. Returns true if all checks pass.
+///
+/// Preconditions come from solve_all_variants ensures (wf_spec, distinct targets,
+/// geometric validity, positive discriminant, valid entity IDs).
+///
+/// This performs runtime checks for:
+/// - constraint_well_formed (all constraints)
+/// - is_fully_independent_plan
+/// - step_radicand_matches (circle discriminants match R::value())
+/// - plan_locus_ordered
+/// - step satisfaction replay (rational step loci + circle step geometry match + nondegeneracy)
+pub fn verify_plan_soundness_exec<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    plan: &Vec<RuntimeStepData>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: &mut Vec<RuntimePoint2>,
+    resolved_flags: &mut Vec<bool>,
+) -> (out: bool)
+    requires
+        old(points)@.len() == old(resolved_flags)@.len(),
+        all_points_wf(old(points)@),
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+        forall|i: int, j: int|
+            0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
+            step_target(#[trigger] plan@[i].spec_step()) != step_target(#[trigger] plan@[j].spec_step()),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (step_target((#[trigger] plan@[i]).spec_step()) as int) < old(points)@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], old(points)@.len() as nat),
+        forall|i: int| 0 <= i < old(resolved_flags)@.len() ==>
+            (#[trigger] old(resolved_flags)@[i]) ==
+            partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
+                .dom().contains(i as nat),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            step_has_positive_discriminant((#[trigger] plan@[i]).spec_step()),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            step_geometrically_valid((#[trigger] plan@[i]).spec_step()),
+    ensures
+        points@.len() == old(points)@.len(),
+        resolved_flags@.len() == old(resolved_flags)@.len(),
+{
+    let n_points = points.len();
+
+    // 1b: constraint well-formedness
+    if !check_constraint_well_formed_exec(constraints, n_points) {
+        return false;
+    }
+
+    // 1a: independence
+    if !check_is_fully_independent_exec(plan, constraints, n_points) {
+        return false;
+    }
+
+    // 1c: radicand matching
+    if !check_step_radicand_matches_exec::<R, RR>(plan) {
+        return false;
+    }
+
+    // 1b: locus ordering
+    if !check_plan_locus_ordered_exec(plan, constraints, n_points) {
+        return false;
+    }
+
+    // 1d + 1e: step satisfaction replay (includes nondegeneracy checks)
+    if !check_step_satisfaction_replay_exec(plan, constraints, points, resolved_flags) {
+        return false;
+    }
+
     true
 }
 
