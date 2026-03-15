@@ -441,7 +441,7 @@ fn copy_circle(c: &RuntimeCircle2) -> (out: RuntimeCircle2)
 }
 
 /// Deep-copy a RuntimeStepData.
-fn copy_step(s: &RuntimeStepData) -> (out: RuntimeStepData)
+pub fn copy_step(s: &RuntimeStepData) -> (out: RuntimeStepData)
     requires s.wf_spec(),
     ensures out.wf_spec(), out.spec_step() == s.spec_step(),
 {
@@ -2307,6 +2307,11 @@ fn check_step_satisfaction_replay_exec(
     {
         let target = plan[si].target_id();
 
+        // Check at most two nontrivial loci for this target
+        if !check_at_most_two_nontrivial_exec(target, constraints, resolved_flags, n_points) {
+            return false;
+        }
+
         // Compute all loci for this step's target
         let loci = collect_loci_exec(constraints, points, resolved_flags, target);
 
@@ -2525,30 +2530,43 @@ pub fn verify_plan_soundness_exec<R: PositiveRadicand<RationalModel>, RR: Runtim
     ensures
         points@.len() == old(points)@.len(),
         resolved_flags@.len() == old(resolved_flags)@.len(),
+        out ==> forall|j: int| 0 <= j < plan@.len() ==>
+            step_radicand_matches::<R>((#[trigger] plan@[j]).spec_step()),
+        out ==> forall|ci: int| 0 <= ci < constraints@.len() ==>
+            constraint_well_formed(
+                runtime_constraint_model(#[trigger] constraints@[ci])),
+        out ==> is_fully_independent_plan(
+            plan_to_spec(plan@), constraints_to_spec(constraints@)),
+        out ==> plan_locus_ordered(
+            plan_to_spec(plan@), constraints_to_spec(constraints@)),
 {
     let n_points = points.len();
 
     // 1b: constraint well-formedness
-    if !check_constraint_well_formed_exec(constraints, n_points) {
+    let cwf = check_constraint_well_formed_exec(constraints, n_points);
+    if !cwf {
         return false;
     }
 
     // 1a: independence
-    if !check_is_fully_independent_exec(plan, constraints, n_points) {
+    let indep = check_is_fully_independent_exec(plan, constraints, n_points);
+    if !indep {
         return false;
     }
 
     // 1c: radicand matching
-    if !check_step_radicand_matches_exec::<R, RR>(plan) {
+    let radicand_ok = check_step_radicand_matches_exec::<R, RR>(plan);
+    if !radicand_ok {
         return false;
     }
 
-    // 1b: locus ordering
-    if !check_plan_locus_ordered_exec(plan, constraints, n_points) {
+    // 1d: locus ordering
+    let locus_ord = check_plan_locus_ordered_exec(plan, constraints, n_points);
+    if !locus_ord {
         return false;
     }
 
-    // 1d + 1e: step satisfaction replay (includes nondegeneracy checks)
+    // 1e + 1f: step satisfaction replay (includes nondegeneracy checks)
     if !check_step_satisfaction_replay_exec(plan, constraints, points, resolved_flags) {
         return false;
     }
