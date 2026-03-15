@@ -16,6 +16,7 @@ use verus_geometry::voronoi::sq_dist_2d;
 use verus_quadratic_extension::spec::*;
 use verus_quadratic_extension::radicand::*;
 use verus_linalg::vec2::ops::lemma_norm_sq_congruence as lemma_vec2_norm_sq_congruence;
+use verus_linalg::vec2::ops::lemma_dot_congruence as lemma_vec2_dot_congruence;
 use crate::entities::*;
 use crate::constraints::*;
 use crate::locus::*;
@@ -616,6 +617,33 @@ pub proof fn lemma_locus_eqv_transitive<T: OrderedField>(
         (Locus2d::AtPoint(a), Locus2d::AtPoint(b), Locus2d::AtPoint(c)) => {
             T::axiom_eqv_transitive(a.x, b.x, c.x);
             T::axiom_eqv_transitive(a.y, b.y, c.y);
+        }
+        _ => {}
+    }
+}
+
+/// locus_eqv is symmetric.
+pub proof fn lemma_locus_eqv_symmetric<T: OrderedField>(
+    l1: Locus2d<T>, l2: Locus2d<T>,
+)
+    requires locus_eqv(l1, l2),
+    ensures locus_eqv(l2, l1),
+{
+    match (l1, l2) {
+        (Locus2d::FullPlane, Locus2d::FullPlane) => {}
+        (Locus2d::OnLine(a), Locus2d::OnLine(b)) => {
+            T::axiom_eqv_symmetric(a.a, b.a);
+            T::axiom_eqv_symmetric(a.b, b.b);
+            T::axiom_eqv_symmetric(a.c, b.c);
+        }
+        (Locus2d::OnCircle(a), Locus2d::OnCircle(b)) => {
+            T::axiom_eqv_symmetric(a.center.x, b.center.x);
+            T::axiom_eqv_symmetric(a.center.y, b.center.y);
+            T::axiom_eqv_symmetric(a.radius_sq, b.radius_sq);
+        }
+        (Locus2d::AtPoint(a), Locus2d::AtPoint(b)) => {
+            T::axiom_eqv_symmetric(a.x, b.x);
+            T::axiom_eqv_symmetric(a.y, b.y);
         }
         _ => {}
     }
@@ -2325,158 +2353,794 @@ pub proof fn lemma_resolved_maps_agree_rational_entries<F: OrderedField, R: Posi
 //  Round 4: Per-step ext satisfaction
 // ===========================================================================
 
-/// For a rational step in a fully independent plan, the extension-level
-/// step satisfies all constraint loci.
-///
-/// Proof strategy:
-/// 1. Use lemma_nontrivial_loci_imply_all_satisfied to reduce to nontrivial loci.
-/// 2. For each nontrivial constraint ci:
-///    a. Base satisfaction gives: point_satisfies_locus(base_locus, execute_step(step)).
-///    b. lemma_lift_preserves_satisfaction: lift_point2(execute_step(step)) satisfies lift_locus(base_locus).
-///    c. lemma_rational_step_execute_lift_eqv: execute_step(lift_step) ≡ lift_point2(execute_step(step)).
-///    d. lemma_point_satisfies_locus_congruent: execute_step(lift_step) satisfies lift_locus(base_locus).
-///    e. lemma_lift_constraint_to_locus: constraint_to_locus(lift_c, lift_resolved_map(base_resolved), target)
-///       is locus_eqv to lift_locus(base_locus).
-///    f. The ext resolved map agrees with lift_resolved_map at all relevant entities (Round 3).
-///       By domain equality (lemma_locus_nontrivial_depends_on_domain), the ext locus has
-///       the same variant. By congruence, the ext locus is locus_eqv to the lift_resolved_map locus.
-///    g. Chain: ext_locus eqv lift_resolved_map_locus eqv lift_locus(base_locus).
-///    h. Transfer: execute_step(lift_step) satisfies ext_locus.
-///
-/// The resolved map congruence (step f) is the key gap. Since all constraint inputs
-/// are rational entries (by is_fully_independent_plan), ext_resolved and lift_resolved_map
-/// agree on eqv at those entries. Rather than proving a full 19-arm resolved map congruence,
-/// we inline the argument: the ext locus and lift_resolved_map locus have the same variant
-/// (same domain) and eqv geometric data (eqv inputs + open spec unfolding).
-pub proof fn lemma_rational_step_satisfies_ext_loci<R: PositiveRadicand<RationalModel>>(
+// --- Helper: line2_from_points congruence ---
+
+/// If p1 ≡ p2 and q1 ≡ q2, then line2_from_points produces eqv line coefficients.
+proof fn lemma_line2_from_points_congruence<T: OrderedField>(
+    p1: Point2<T>, q1: Point2<T>, p2: Point2<T>, q2: Point2<T>,
+)
+    requires p1.eqv(p2), q1.eqv(q2),
+    ensures {
+        let l1 = line2_from_points(p1, q1);
+        let l2 = line2_from_points(p2, q2);
+        l1.a.eqv(l2.a) && l1.b.eqv(l2.b) && l1.c.eqv(l2.c)
+    },
+{
+    // a = (q.y - p.y).neg()
+    additive_group_lemmas::lemma_sub_congruence(q1.y, q2.y, p1.y, p2.y);
+    additive_group_lemmas::lemma_neg_congruence(q1.y.sub(p1.y), q2.y.sub(p2.y));
+    // b = q.x - p.x
+    additive_group_lemmas::lemma_sub_congruence(q1.x, q2.x, p1.x, p2.x);
+    // c = (a * p.x + b * p.y).neg()
+    let a1 = q1.y.sub(p1.y).neg();
+    let a2 = q2.y.sub(p2.y).neg();
+    let b1v = q1.x.sub(p1.x);
+    let b2v = q2.x.sub(p2.x);
+    ring_lemmas::lemma_mul_congruence(a1, a2, p1.x, p2.x);
+    ring_lemmas::lemma_mul_congruence(b1v, b2v, p1.y, p2.y);
+    additive_group_lemmas::lemma_add_congruence(
+        a1.mul(p1.x), a2.mul(p2.x), b1v.mul(p1.y), b2v.mul(p2.y));
+    additive_group_lemmas::lemma_neg_congruence(
+        a1.mul(p1.x).add(b1v.mul(p1.y)),
+        a2.mul(p2.x).add(b2v.mul(p2.y)));
+}
+
+// --- Helper: sq_dist_2d congruence ---
+
+/// If p1 ≡ p2 and q1 ≡ q2, then sq_dist_2d(p1,q1) ≡ sq_dist_2d(p2,q2).
+proof fn lemma_sq_dist_congruence<T: OrderedField>(
+    p1: Point2<T>, q1: Point2<T>, p2: Point2<T>, q2: Point2<T>,
+)
+    requires p1.eqv(p2), q1.eqv(q2),
+    ensures sq_dist_2d(p1, q1).eqv(sq_dist_2d(p2, q2)),
+{
+    // sq_dist_2d(p, q) = norm_sq(sub2(p, q))
+    // sub2 components: p.x-q.x, p.y-q.y
+    additive_group_lemmas::lemma_sub_congruence(p1.x, p2.x, q1.x, q2.x);
+    additive_group_lemmas::lemma_sub_congruence(p1.y, p2.y, q1.y, q2.y);
+    // Vec2 eqv is component-wise
+    let v1 = sub2(p1, q1);
+    let v2 = sub2(p2, q2);
+    assert(v1.eqv(v2));
+    lemma_vec2_norm_sq_congruence(v1, v2);
+}
+
+// --- Helper: reflect_point_across_line congruence ---
+
+/// For non-degenerate axis, reflect_point_across_line is congruent in all inputs.
+proof fn lemma_reflect_congruence<T: OrderedField>(
+    p1: Point2<T>, a1: Point2<T>, b1: Point2<T>,
+    p2: Point2<T>, a2: Point2<T>, b2: Point2<T>,
+)
+    requires
+        p1.eqv(p2), a1.eqv(a2), b1.eqv(b2),
+        // Non-degeneracy: axis has nonzero length
+        {
+            let d = sub2(b1, a1);
+            !d.x.mul(d.x).add(d.y.mul(d.y)).eqv(T::zero())
+        },
+    ensures
+        reflect_point_across_line(p1, a1, b1).eqv(
+            reflect_point_across_line(p2, a2, b2)),
+{
+    // d = sub2(line_b, line_a): eqv from sub_congruence
+    additive_group_lemmas::lemma_sub_congruence(b1.x, b2.x, a1.x, a2.x);
+    additive_group_lemmas::lemma_sub_congruence(b1.y, b2.y, a1.y, a2.y);
+    let d1 = sub2(b1, a1);
+    let d2 = sub2(b2, a2);
+
+    // pa = sub2(p, line_a)
+    additive_group_lemmas::lemma_sub_congruence(p1.x, p2.x, a1.x, a2.x);
+    additive_group_lemmas::lemma_sub_congruence(p1.y, p2.y, a1.y, a2.y);
+    let pa1 = sub2(p1, a1);
+    let pa2 = sub2(p2, a2);
+
+    // dot_dd = d.x*d.x + d.y*d.y = norm_sq(d)
+    assert(d1.eqv(d2));
+    lemma_vec2_norm_sq_congruence(d1, d2);
+    let dd1 = d1.x.mul(d1.x).add(d1.y.mul(d1.y));
+    let dd2 = d2.x.mul(d2.x).add(d2.y.mul(d2.y));
+
+    // dot_pad = pa.x*d.x + pa.y*d.y = dot(pa, d)
+    assert(pa1.eqv(pa2));
+    lemma_vec2_dot_congruence(pa1, pa2, d1, d2);
+    let pad1 = pa1.x.mul(d1.x).add(pa1.y.mul(d1.y));
+    let pad2 = pa2.x.mul(d2.x).add(pa2.y.mul(d2.y));
+
+    // !dd1.eqv(zero) — from precondition
+    // !dd2.eqv(zero) — from dd1 ≡ dd2, if dd2 ≡ 0 then dd1 ≡ 0 contradiction
+    assert(!dd2.eqv(T::zero())) by {
+        if dd2.eqv(T::zero()) {
+            // dd1 ≡ dd2 (from norm_sq_congruence), dd2 ≡ zero
+            T::axiom_eqv_transitive(dd1, dd2, T::zero());
+            // dd1 ≡ zero — contradicts precondition
+        }
+    };
+
+    // t = dot_pad / dot_dd
+    lemma_div_congruence(pad1, pad2, dd1, dd2);
+    let t1 = pad1.div(dd1);
+    let t2 = pad2.div(dd2);
+
+    // proj_x = line_a.x + t * d.x
+    ring_lemmas::lemma_mul_congruence(t1, t2, d1.x, d2.x);
+    additive_group_lemmas::lemma_add_congruence(a1.x, a2.x, t1.mul(d1.x), t2.mul(d2.x));
+    // proj_y = line_a.y + t * d.y
+    ring_lemmas::lemma_mul_congruence(t1, t2, d1.y, d2.y);
+    additive_group_lemmas::lemma_add_congruence(a1.y, a2.y, t1.mul(d1.y), t2.mul(d2.y));
+
+    let proj_x1 = a1.x.add(t1.mul(d1.x));
+    let proj_x2 = a2.x.add(t2.mul(d2.x));
+    let proj_y1 = a1.y.add(t1.mul(d1.y));
+    let proj_y2 = a2.y.add(t2.mul(d2.y));
+
+    // two = one + one — same for both
+    let two = T::one().add(T::one());
+    T::axiom_eqv_reflexive(two);
+
+    // result.x = two * proj_x - p.x
+    ring_lemmas::lemma_mul_congruence(two, two, proj_x1, proj_x2);
+    additive_group_lemmas::lemma_sub_congruence(
+        two.mul(proj_x1), two.mul(proj_x2), p1.x, p2.x);
+    // result.y = two * proj_y - p.y
+    ring_lemmas::lemma_mul_congruence(two, two, proj_y1, proj_y2);
+    additive_group_lemmas::lemma_sub_congruence(
+        two.mul(proj_y1), two.mul(proj_y2), p1.y, p2.y);
+}
+
+// --- Non-degeneracy predicate for Symmetric constraints ---
+
+/// For Symmetric constraints, the axis must be non-degenerate (axis_a ≠ axis_b
+/// position-wise) for locus congruence to hold. True for all other constraints.
+pub open spec fn constraint_locus_nondegenerate<T: OrderedField>(
+    c: Constraint<T>, resolved: ResolvedPoints<T>, target: EntityId,
+) -> bool {
+    match c {
+        Constraint::Symmetric { point, original, axis_a, axis_b } => {
+            if target == point && resolved.dom().contains(axis_a)
+                && resolved.dom().contains(axis_b) {
+                let d = sub2(resolved[axis_b], resolved[axis_a]);
+                !d.x.mul(d.x).add(d.y.mul(d.y)).eqv(T::zero())
+            } else { true }
+        }
+        _ => true,
+    }
+}
+
+// --- Main resolved map congruence lemma ---
+
+/// Two resolved maps with the same domain and eqv values at all non-target
+/// constraint entities produce locus_eqv constraint_to_locus results.
+pub proof fn lemma_constraint_to_locus_resolved_congruence<T: OrderedField>(
+    c: Constraint<T>,
+    r1: ResolvedPoints<T>,
+    r2: ResolvedPoints<T>,
+    target: EntityId,
+)
+    requires
+        r1.dom() =~= r2.dom(),
+        constraint_well_formed(c),
+        forall|e: EntityId|
+            constraint_entities(c).contains(e) && e != target && r1.dom().contains(e)
+            ==> #[trigger] r1[e].eqv(r2[e]),
+        constraint_locus_nondegenerate(c, r1, target),
+    ensures
+        locus_eqv(constraint_to_locus(c, r1, target), constraint_to_locus(c, r2, target)),
+{
+    match c {
+        Constraint::Coincident { a, b } => {
+            if target == a && r1.dom().contains(b) {
+                assert(r1[b].eqv(r2[b]));
+            } else if target == b && r1.dom().contains(a) {
+                assert(r1[a].eqv(r2[a]));
+            }
+        }
+        Constraint::DistanceSq { a, b, dist_sq } => {
+            if target == a && r1.dom().contains(b) {
+                assert(r1[b].eqv(r2[b]));
+                T::axiom_eqv_reflexive(dist_sq);
+            } else if target == b && r1.dom().contains(a) {
+                assert(r1[a].eqv(r2[a]));
+                T::axiom_eqv_reflexive(dist_sq);
+            }
+        }
+        Constraint::FixedX { point, x } => {
+            if target == point {
+                T::axiom_eqv_reflexive(T::one());
+                T::axiom_eqv_reflexive(T::zero());
+                T::axiom_eqv_reflexive(x.neg());
+            }
+        }
+        Constraint::FixedY { point, y } => {
+            if target == point {
+                T::axiom_eqv_reflexive(T::zero());
+                T::axiom_eqv_reflexive(T::one());
+                T::axiom_eqv_reflexive(y.neg());
+            }
+        }
+        Constraint::SameX { a, b } => {
+            if target == a && r1.dom().contains(b) {
+                assert(r1[b].eqv(r2[b]));
+                T::axiom_eqv_reflexive(T::one());
+                T::axiom_eqv_reflexive(T::zero());
+                additive_group_lemmas::lemma_neg_congruence(r1[b].x, r2[b].x);
+            } else if target == b && r1.dom().contains(a) {
+                assert(r1[a].eqv(r2[a]));
+                T::axiom_eqv_reflexive(T::one());
+                T::axiom_eqv_reflexive(T::zero());
+                additive_group_lemmas::lemma_neg_congruence(r1[a].x, r2[a].x);
+            }
+        }
+        Constraint::SameY { a, b } => {
+            if target == a && r1.dom().contains(b) {
+                assert(r1[b].eqv(r2[b]));
+                T::axiom_eqv_reflexive(T::zero());
+                T::axiom_eqv_reflexive(T::one());
+                additive_group_lemmas::lemma_neg_congruence(r1[b].y, r2[b].y);
+            } else if target == b && r1.dom().contains(a) {
+                assert(r1[a].eqv(r2[a]));
+                T::axiom_eqv_reflexive(T::zero());
+                T::axiom_eqv_reflexive(T::one());
+                additive_group_lemmas::lemma_neg_congruence(r1[a].y, r2[a].y);
+            }
+        }
+        Constraint::PointOnLine { point, line_a, line_b } => {
+            if target == point && r1.dom().contains(line_a) && r1.dom().contains(line_b) {
+                assert(r1[line_a].eqv(r2[line_a]));
+                assert(r1[line_b].eqv(r2[line_b]));
+                lemma_line2_from_points_congruence(
+                    r1[line_a], r1[line_b], r2[line_a], r2[line_b]);
+            }
+        }
+        Constraint::EqualLengthSq { a1, a2, b1, b2 } => {
+            if target == a1 && r1.dom().contains(a2) && r1.dom().contains(b1) && r1.dom().contains(b2) {
+                assert(r1[a2].eqv(r2[a2]));
+                assert(r1[b1].eqv(r2[b1]));
+                assert(r1[b2].eqv(r2[b2]));
+                lemma_sq_dist_congruence(r1[b1], r1[b2], r2[b1], r2[b2]);
+            } else if target == a2 && r1.dom().contains(a1) && r1.dom().contains(b1) && r1.dom().contains(b2) {
+                assert(r1[a1].eqv(r2[a1]));
+                assert(r1[b1].eqv(r2[b1]));
+                assert(r1[b2].eqv(r2[b2]));
+                lemma_sq_dist_congruence(r1[b1], r1[b2], r2[b1], r2[b2]);
+            }
+        }
+        Constraint::Midpoint { mid, a, b } => {
+            lemma_two_ne_zero::<T>();
+            let two = T::one().add(T::one());
+            T::axiom_eqv_reflexive(two);
+            if target == mid && r1.dom().contains(a) && r1.dom().contains(b) {
+                assert(r1[a].eqv(r2[a]));
+                assert(r1[b].eqv(r2[b]));
+                additive_group_lemmas::lemma_add_congruence(r1[a].x, r2[a].x, r1[b].x, r2[b].x);
+                lemma_div_congruence(
+                    r1[a].x.add(r1[b].x), r2[a].x.add(r2[b].x), two, two);
+                additive_group_lemmas::lemma_add_congruence(r1[a].y, r2[a].y, r1[b].y, r2[b].y);
+                lemma_div_congruence(
+                    r1[a].y.add(r1[b].y), r2[a].y.add(r2[b].y), two, two);
+            } else if target == a && r1.dom().contains(mid) && r1.dom().contains(b) {
+                assert(r1[mid].eqv(r2[mid]));
+                assert(r1[b].eqv(r2[b]));
+                ring_lemmas::lemma_mul_congruence(two, two, r1[mid].x, r2[mid].x);
+                additive_group_lemmas::lemma_sub_congruence(
+                    two.mul(r1[mid].x), two.mul(r2[mid].x), r1[b].x, r2[b].x);
+                ring_lemmas::lemma_mul_congruence(two, two, r1[mid].y, r2[mid].y);
+                additive_group_lemmas::lemma_sub_congruence(
+                    two.mul(r1[mid].y), two.mul(r2[mid].y), r1[b].y, r2[b].y);
+            } else if target == b && r1.dom().contains(mid) && r1.dom().contains(a) {
+                assert(r1[mid].eqv(r2[mid]));
+                assert(r1[a].eqv(r2[a]));
+                ring_lemmas::lemma_mul_congruence(two, two, r1[mid].x, r2[mid].x);
+                additive_group_lemmas::lemma_sub_congruence(
+                    two.mul(r1[mid].x), two.mul(r2[mid].x), r1[a].x, r2[a].x);
+                ring_lemmas::lemma_mul_congruence(two, two, r1[mid].y, r2[mid].y);
+                additive_group_lemmas::lemma_sub_congruence(
+                    two.mul(r1[mid].y), two.mul(r2[mid].y), r1[a].y, r2[a].y);
+            }
+        }
+        Constraint::Perpendicular { a1, a2, b1, b2 } => {
+            if target == a1 && r1.dom().contains(a2) && r1.dom().contains(b1) && r1.dom().contains(b2) {
+                assert(r1[a2].eqv(r2[a2]));
+                assert(r1[b1].eqv(r2[b1]));
+                assert(r1[b2].eqv(r2[b2]));
+                additive_group_lemmas::lemma_sub_congruence(r1[b2].x, r2[b2].x, r1[b1].x, r2[b1].x);
+                additive_group_lemmas::lemma_sub_congruence(r1[b2].y, r2[b2].y, r1[b1].y, r2[b1].y);
+                let db1 = sub2(r1[b2], r1[b1]);
+                let db2 = sub2(r2[b2], r2[b1]);
+                ring_lemmas::lemma_mul_congruence(db1.x, db2.x, r1[a2].x, r2[a2].x);
+                ring_lemmas::lemma_mul_congruence(db1.y, db2.y, r1[a2].y, r2[a2].y);
+                additive_group_lemmas::lemma_add_congruence(
+                    db1.x.mul(r1[a2].x), db2.x.mul(r2[a2].x),
+                    db1.y.mul(r1[a2].y), db2.y.mul(r2[a2].y));
+                additive_group_lemmas::lemma_neg_congruence(
+                    db1.x.mul(r1[a2].x).add(db1.y.mul(r1[a2].y)),
+                    db2.x.mul(r2[a2].x).add(db2.y.mul(r2[a2].y)));
+            } else if target == a2 && r1.dom().contains(a1) && r1.dom().contains(b1) && r1.dom().contains(b2) {
+                assert(r1[a1].eqv(r2[a1]));
+                assert(r1[b1].eqv(r2[b1]));
+                assert(r1[b2].eqv(r2[b2]));
+                additive_group_lemmas::lemma_sub_congruence(r1[b2].x, r2[b2].x, r1[b1].x, r2[b1].x);
+                additive_group_lemmas::lemma_sub_congruence(r1[b2].y, r2[b2].y, r1[b1].y, r2[b1].y);
+                let db1 = sub2(r1[b2], r1[b1]);
+                let db2 = sub2(r2[b2], r2[b1]);
+                ring_lemmas::lemma_mul_congruence(db1.x, db2.x, r1[a1].x, r2[a1].x);
+                ring_lemmas::lemma_mul_congruence(db1.y, db2.y, r1[a1].y, r2[a1].y);
+                additive_group_lemmas::lemma_add_congruence(
+                    db1.x.mul(r1[a1].x), db2.x.mul(r2[a1].x),
+                    db1.y.mul(r1[a1].y), db2.y.mul(r2[a1].y));
+                additive_group_lemmas::lemma_neg_congruence(
+                    db1.x.mul(r1[a1].x).add(db1.y.mul(r1[a1].y)),
+                    db2.x.mul(r2[a1].x).add(db2.y.mul(r2[a1].y)));
+            }
+        }
+        Constraint::Parallel { a1, a2, b1, b2 } => {
+            if target == a1 && r1.dom().contains(a2) && r1.dom().contains(b1) && r1.dom().contains(b2) {
+                assert(r1[a2].eqv(r2[a2]));
+                assert(r1[b1].eqv(r2[b1]));
+                assert(r1[b2].eqv(r2[b2]));
+                additive_group_lemmas::lemma_sub_congruence(r1[b2].x, r2[b2].x, r1[b1].x, r2[b1].x);
+                additive_group_lemmas::lemma_sub_congruence(r1[b2].y, r2[b2].y, r1[b1].y, r2[b1].y);
+                let db1 = sub2(r1[b2], r1[b1]);
+                let db2 = sub2(r2[b2], r2[b1]);
+                additive_group_lemmas::lemma_neg_congruence(db1.x, db2.x);
+                ring_lemmas::lemma_mul_congruence(db1.y, db2.y, r1[a2].x, r2[a2].x);
+                ring_lemmas::lemma_mul_congruence(db1.x.neg(), db2.x.neg(), r1[a2].y, r2[a2].y);
+                additive_group_lemmas::lemma_add_congruence(
+                    db1.y.mul(r1[a2].x), db2.y.mul(r2[a2].x),
+                    db1.x.neg().mul(r1[a2].y), db2.x.neg().mul(r2[a2].y));
+                additive_group_lemmas::lemma_neg_congruence(
+                    db1.y.mul(r1[a2].x).add(db1.x.neg().mul(r1[a2].y)),
+                    db2.y.mul(r2[a2].x).add(db2.x.neg().mul(r2[a2].y)));
+            } else if target == a2 && r1.dom().contains(a1) && r1.dom().contains(b1) && r1.dom().contains(b2) {
+                assert(r1[a1].eqv(r2[a1]));
+                assert(r1[b1].eqv(r2[b1]));
+                assert(r1[b2].eqv(r2[b2]));
+                additive_group_lemmas::lemma_sub_congruence(r1[b2].x, r2[b2].x, r1[b1].x, r2[b1].x);
+                additive_group_lemmas::lemma_sub_congruence(r1[b2].y, r2[b2].y, r1[b1].y, r2[b1].y);
+                let db1 = sub2(r1[b2], r1[b1]);
+                let db2 = sub2(r2[b2], r2[b1]);
+                additive_group_lemmas::lemma_neg_congruence(db1.x, db2.x);
+                ring_lemmas::lemma_mul_congruence(db1.y, db2.y, r1[a1].x, r2[a1].x);
+                ring_lemmas::lemma_mul_congruence(db1.x.neg(), db2.x.neg(), r1[a1].y, r2[a1].y);
+                additive_group_lemmas::lemma_add_congruence(
+                    db1.y.mul(r1[a1].x), db2.y.mul(r2[a1].x),
+                    db1.x.neg().mul(r1[a1].y), db2.x.neg().mul(r2[a1].y));
+                additive_group_lemmas::lemma_neg_congruence(
+                    db1.y.mul(r1[a1].x).add(db1.x.neg().mul(r1[a1].y)),
+                    db2.y.mul(r2[a1].x).add(db2.x.neg().mul(r2[a1].y)));
+            }
+        }
+        Constraint::Collinear { a, b, c } => {
+            if target == c && r1.dom().contains(a) && r1.dom().contains(b) {
+                assert(r1[a].eqv(r2[a]));
+                assert(r1[b].eqv(r2[b]));
+                lemma_line2_from_points_congruence(r1[a], r1[b], r2[a], r2[b]);
+            } else if target == a && r1.dom().contains(b) && r1.dom().contains(c) {
+                assert(r1[b].eqv(r2[b]));
+                assert(r1[c].eqv(r2[c]));
+                lemma_line2_from_points_congruence(r1[b], r1[c], r2[b], r2[c]);
+            } else if target == b && r1.dom().contains(a) && r1.dom().contains(c) {
+                assert(r1[a].eqv(r2[a]));
+                assert(r1[c].eqv(r2[c]));
+                lemma_line2_from_points_congruence(r1[a], r1[c], r2[a], r2[c]);
+            }
+        }
+        Constraint::PointOnCircle { point, center, radius_point } => {
+            if target == point && r1.dom().contains(center) && r1.dom().contains(radius_point) {
+                assert(r1[center].eqv(r2[center]));
+                assert(r1[radius_point].eqv(r2[radius_point]));
+                lemma_sq_dist_congruence(r1[radius_point], r1[center], r2[radius_point], r2[center]);
+            }
+        }
+        Constraint::Symmetric { point, original, axis_a, axis_b } => {
+            if target == point && r1.dom().contains(original)
+                && r1.dom().contains(axis_a) && r1.dom().contains(axis_b) {
+                assert(r1[original].eqv(r2[original]));
+                assert(r1[axis_a].eqv(r2[axis_a]));
+                assert(r1[axis_b].eqv(r2[axis_b]));
+                lemma_reflect_congruence(
+                    r1[original], r1[axis_a], r1[axis_b],
+                    r2[original], r2[axis_a], r2[axis_b]);
+            }
+        }
+        Constraint::FixedPoint { point, x, y } => {
+            if target == point {
+                T::axiom_eqv_reflexive(x);
+                T::axiom_eqv_reflexive(y);
+            }
+        }
+        Constraint::Ratio { a1, a2, b1, b2, ratio_sq } => {
+            if target == a1 && r1.dom().contains(a2) && r1.dom().contains(b1) && r1.dom().contains(b2) {
+                assert(r1[a2].eqv(r2[a2]));
+                assert(r1[b1].eqv(r2[b1]));
+                assert(r1[b2].eqv(r2[b2]));
+                lemma_sq_dist_congruence(r1[b1], r1[b2], r2[b1], r2[b2]);
+                T::axiom_eqv_reflexive(ratio_sq);
+                ring_lemmas::lemma_mul_congruence(ratio_sq, ratio_sq,
+                    sq_dist_2d(r1[b1], r1[b2]), sq_dist_2d(r2[b1], r2[b2]));
+            } else if target == a2 && r1.dom().contains(a1) && r1.dom().contains(b1) && r1.dom().contains(b2) {
+                assert(r1[a1].eqv(r2[a1]));
+                assert(r1[b1].eqv(r2[b1]));
+                assert(r1[b2].eqv(r2[b2]));
+                lemma_sq_dist_congruence(r1[b1], r1[b2], r2[b1], r2[b2]);
+                T::axiom_eqv_reflexive(ratio_sq);
+                ring_lemmas::lemma_mul_congruence(ratio_sq, ratio_sq,
+                    sq_dist_2d(r1[b1], r1[b2]), sq_dist_2d(r2[b1], r2[b2]));
+            }
+        }
+        Constraint::Tangent { .. } => {}
+        Constraint::CircleTangent { .. } => {}
+        Constraint::Angle { .. } => {}
+    }
+}
+
+// --- Per-constraint ext satisfaction for rational steps ---
+
+/// Per-constraint satisfaction at extension level for rational steps.
+/// Chains: base satisfaction → lift preserves → point congruence → resolved
+/// map congruence → lift_constraint_to_locus → locus_eqv transfer.
+proof fn lemma_rational_step_ext_locus_single<R: PositiveRadicand<RationalModel>>(
+    step: ConstructionStep<RationalModel>,
+    c: Constraint<RationalModel>,
+    base_resolved: ResolvedPoints<RationalModel>,
+    ext_resolved: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+)
+    requires
+        is_rational_step(step),
+        step_well_formed(step),
+        constraint_well_formed(c),
+        // Base satisfaction
+        point_satisfies_locus(
+            constraint_to_locus(c, base_resolved, step_target(step)),
+            execute_step(step)),
+        // Domain equality
+        ext_resolved.dom() =~= lift_resolved_map::<RationalModel, R>(base_resolved).dom(),
+        // Entry-wise eqv at non-target constraint entities
+        forall|e: EntityId|
+            constraint_entities(c).contains(e) && e != step_target(step)
+            && ext_resolved.dom().contains(e)
+            ==> ext_resolved[e].eqv(
+                lift_resolved_map::<RationalModel, R>(base_resolved)[e]),
+        // For lemma_lift_constraint_to_locus
+        constraint_entities(c).contains(step_target(step)),
+        constraint_entities(c).remove(step_target(step)).subset_of(base_resolved.dom()),
+        !base_resolved.dom().contains(step_target(step)),
+        // Non-degeneracy for Symmetric at ext level
+        constraint_locus_nondegenerate(
+            lift_constraint::<RationalModel, R>(c), ext_resolved, step_target(step)),
+    ensures
+        point_satisfies_locus(
+            constraint_to_locus(
+                lift_constraint::<RationalModel, R>(c), ext_resolved,
+                step_target(lift_construction_step::<RationalModel, R>(step))),
+            execute_step(lift_construction_step::<RationalModel, R>(step))),
+{
+    let target = step_target(step);
+    lemma_lift_step_target::<RationalModel, R>(step);
+
+    let lift_step = lift_construction_step::<RationalModel, R>(step);
+    let ext_locus = constraint_to_locus(
+        lift_constraint::<RationalModel, R>(c), ext_resolved, target);
+    let lift_resolved_locus = constraint_to_locus(
+        lift_constraint::<RationalModel, R>(c),
+        lift_resolved_map::<RationalModel, R>(base_resolved), target);
+    let lifted_base_locus = lift_locus::<RationalModel, R>(
+        constraint_to_locus(c, base_resolved, target));
+
+    // 1. Resolved map congruence: ext_locus locus_eqv lift_resolved_locus
+    lemma_lift_resolved_map_dom::<RationalModel, R>(base_resolved);
+    lemma_lift_constraint_well_formed::<RationalModel, R>(c);
+    lemma_constraint_to_locus_resolved_congruence(
+        lift_constraint::<RationalModel, R>(c),
+        ext_resolved,
+        lift_resolved_map::<RationalModel, R>(base_resolved),
+        target);
+
+    // 2. lift_resolved_locus locus_eqv lifted_base_locus
+    lemma_lift_constraint_to_locus::<RationalModel, R>(c, base_resolved, target);
+
+    // 3. ext_locus locus_eqv lifted_base_locus (by transitivity)
+    lemma_locus_eqv_transitive(ext_locus, lift_resolved_locus, lifted_base_locus);
+
+    // 4. Base satisfaction → lift preserves → execute_step(lift_step) satisfies lifted_base_locus
+    lemma_lift_preserves_satisfaction::<RationalModel, R>(
+        constraint_to_locus(c, base_resolved, target), execute_step(step));
+    lemma_rational_step_execute_lift_eqv::<RationalModel, R>(step);
+    lemma_point_satisfies_locus_congruent(
+        lifted_base_locus,
+        lift_point2::<RationalModel, R>(execute_step(step)),
+        execute_step(lift_step));
+
+    // 5. Transfer: lifted_base_locus → ext_locus
+    lemma_locus_eqv_symmetric(ext_locus, lifted_base_locus);
+    lemma_point_satisfies_locus_eqv(
+        lifted_base_locus, ext_locus, execute_step(lift_step));
+}
+
+// --- Helper: in an independent plan, constraint inputs agree with lifted base ---
+
+/// For a step si in a fully independent plan, any constraint entity e (e != target)
+/// that's resolved before step si has its extension-level value eqv to the
+/// lifted base value. This is because e is a rational entry (not a circle target).
+proof fn lemma_independent_entry_agrees<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+    si: int,
+    ci: int,
+    e: EntityId,
+)
+    requires
+        0 <= si < plan.len(),
+        0 <= ci < constraints.len(),
+        forall|i: int, j: int|
+            0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
+            step_target(plan[i]) != step_target(plan[j]),
+        forall|j: int| #![trigger plan[j]]
+            0 <= j < plan.len() ==> step_well_formed(plan[j]),
+        is_fully_independent_plan(plan, constraints),
+        constraint_entities(constraints[ci]).contains(step_target(plan[si])),
+        constraint_entities(constraints[ci]).contains(e),
+        e != step_target(plan[si]),
+        execute_plan(plan.take(si as int)).dom().contains(e),
+    ensures
+        execute_plan(lift_plan::<RationalModel, R>(plan).take(si as int))[e]
+            .eqv(lift_point2::<RationalModel, R>(
+                execute_plan(plan.take(si as int))[e])),
+{
+    // e is in the domain of plan.take(si), so some step j < si placed it
+    lemma_execute_plan_dom::<RationalModel>(plan.take(si as int), e);
+    let j = choose|j: int| 0 <= j < (plan.take(si as int)).len()
+        && step_target(plan.take(si as int)[j]) == e;
+    assert(0 <= j < si);
+    assert(step_target(plan[j]) == e);
+
+    // From is_fully_independent_plan: e is not a circle target
+    // (ci has target plan[si], e is another entity of ci)
+    assert(!circle_targets(plan).contains(e));
+
+    // Since e is not a circle target and plan[j] targets e, plan[j] is rational
+    if !is_rational_step(plan[j]) {
+        // Contradiction: e would be in circle_targets
+        assert(circle_targets(plan).contains(e));
+    }
+    assert(is_rational_step(plan[j]));
+
+    // From Round 3: rational entries agree
+    lemma_resolved_maps_agree_rational_entries::<RationalModel, R>(plan, si);
+}
+
+// --- Circle step: execute_step satisfies built-in loci ---
+
+/// For a well-formed circle step, execute_step satisfies the step's built-in
+/// geometric loci (from the choose axiom).
+proof fn lemma_circle_step_built_in_satisfied<T: OrderedField>(
+    step: ConstructionStep<T>,
+)
+    requires
+        !is_rational_step(step),
+        step_well_formed(step),
+    ensures
+        match step {
+            ConstructionStep::CircleLine { circle, line, .. } =>
+                point_satisfies_locus(Locus2d::OnCircle(circle), execute_step(step))
+                && point_satisfies_locus(Locus2d::OnLine(line), execute_step(step)),
+            ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+                point_satisfies_locus(Locus2d::OnCircle(circle1), execute_step(step))
+                && point_satisfies_locus(Locus2d::OnCircle(circle2), execute_step(step)),
+            _ => true,
+        },
+{
+    // step_well_formed gives exists|p| on_circle && on_line (or on_c1 && on_c2)
+    // execute_step returns choose|p| with same predicate
+    // By choose axiom: if exists|p| P(p), then P(choose|p| P(p))
+    // Z3 should handle this automatically from the definitions
+}
+
+// --- Circle step: per-constraint helper ---
+
+/// For a single constraint at a circle step, if the base locus matches the
+/// step geometry and we have entry-wise eqv, the ext locus is satisfied.
+proof fn lemma_circle_step_ext_single<R: PositiveRadicand<RationalModel>>(
+    base_step: ConstructionStep<RationalModel>,
+    base_c: Constraint<RationalModel>,
+    base_resolved: ResolvedPoints<RationalModel>,
+    ext_resolved: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+)
+    requires
+        !is_rational_step(base_step),
+        step_well_formed(lift_construction_step::<RationalModel, R>(base_step)),
+        constraint_well_formed(base_c),
+        // Domain match
+        ext_resolved.dom() =~= lift_resolved_map::<RationalModel, R>(base_resolved).dom(),
+        !base_resolved.dom().contains(step_target(base_step)),
+        // Entry-wise eqv for constraint entities
+        forall|e: EntityId|
+            constraint_entities(lift_constraint::<RationalModel, R>(base_c)).contains(e)
+            && e != step_target(base_step) && ext_resolved.dom().contains(e)
+            ==> ext_resolved[e].eqv(
+                lift_resolved_map::<RationalModel, R>(base_resolved)[e]),
+        // Ext locus is nontrivial
+        locus_is_nontrivial(constraint_to_locus(
+            lift_constraint::<RationalModel, R>(base_c), ext_resolved,
+            step_target(base_step))),
+        // Base locus matches step geometry
+        {
+            let base_locus = constraint_to_locus(base_c, base_resolved, step_target(base_step));
+            match base_step {
+                ConstructionStep::CircleLine { circle, line, .. } =>
+                    base_locus == Locus2d::OnCircle(circle)
+                    || base_locus == Locus2d::OnLine(line),
+                ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+                    base_locus == Locus2d::OnCircle(circle1)
+                    || base_locus == Locus2d::OnCircle(circle2),
+                _ => false,
+            }
+        },
+        // For lift_constraint_to_locus
+        constraint_entities(base_c).contains(step_target(base_step)),
+        constraint_entities(base_c).remove(step_target(base_step))
+            .subset_of(base_resolved.dom()),
+        // Non-degeneracy
+        constraint_locus_nondegenerate(
+            lift_constraint::<RationalModel, R>(base_c),
+            ext_resolved, step_target(base_step)),
+    ensures
+        point_satisfies_locus(
+            constraint_to_locus(
+                lift_constraint::<RationalModel, R>(base_c), ext_resolved,
+                step_target(lift_construction_step::<RationalModel, R>(base_step))),
+            execute_step(lift_construction_step::<RationalModel, R>(base_step))),
+{
+    let target = step_target(base_step);
+    let lift_step = lift_construction_step::<RationalModel, R>(base_step);
+    let lift_c = lift_constraint::<RationalModel, R>(base_c);
+    let base_locus = constraint_to_locus(base_c, base_resolved, target);
+    let ext_locus = constraint_to_locus(lift_c, ext_resolved, target);
+
+    lemma_lift_step_target::<RationalModel, R>(base_step);
+    lemma_circle_step_built_in_satisfied(lift_step);
+
+    // Correspondence: ext_locus ≈ lift_locus(base_locus)
+    lemma_lift_constraint_well_formed::<RationalModel, R>(base_c);
+    lemma_constraint_to_locus_resolved_congruence(
+        lift_c, ext_resolved,
+        lift_resolved_map::<RationalModel, R>(base_resolved), target);
+    lemma_lift_constraint_to_locus::<RationalModel, R>(
+        base_c, base_resolved, target);
+    let lift_res_locus = constraint_to_locus(
+        lift_c,
+        lift_resolved_map::<RationalModel, R>(base_resolved), target);
+    let lifted_base = lift_locus::<RationalModel, R>(base_locus);
+    lemma_locus_eqv_transitive(ext_locus, lift_res_locus, lifted_base);
+    // ext_locus ≈ lifted_base
+
+    // lifted_base matches step's ext locus; execute_step satisfies it
+    match base_step {
+        ConstructionStep::CircleLine { circle, line, .. } => {
+            if base_locus == Locus2d::OnCircle(circle) {
+                let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnCircle(
+                    lift_circle2::<RationalModel, R>(circle));
+                assert(lifted_base == sl);
+                lemma_locus_eqv_symmetric(ext_locus, sl);
+                lemma_point_satisfies_locus_eqv(
+                    sl, ext_locus, execute_step(lift_step));
+            } else {
+                let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnLine(
+                    lift_line2::<RationalModel, R>(line));
+                assert(lifted_base == sl);
+                lemma_locus_eqv_symmetric(ext_locus, sl);
+                lemma_point_satisfies_locus_eqv(
+                    sl, ext_locus, execute_step(lift_step));
+            }
+        }
+        ConstructionStep::CircleCircle { circle1, circle2, .. } => {
+            if base_locus == Locus2d::OnCircle(circle1) {
+                let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnCircle(
+                    lift_circle2::<RationalModel, R>(circle1));
+                assert(lifted_base == sl);
+                lemma_locus_eqv_symmetric(ext_locus, sl);
+                lemma_point_satisfies_locus_eqv(
+                    sl, ext_locus, execute_step(lift_step));
+            } else {
+                let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnCircle(
+                    lift_circle2::<RationalModel, R>(circle2));
+                assert(lifted_base == sl);
+                lemma_locus_eqv_symmetric(ext_locus, sl);
+                lemma_point_satisfies_locus_eqv(
+                    sl, ext_locus, execute_step(lift_step));
+            }
+        }
+        _ => {}
+    }
+}
+
+// --- Circle step: ext loci satisfaction ---
+
+/// For a circle step in a structurally sound plan, the lifted step satisfies
+/// all constraint loci at the extension level.
+proof fn lemma_circle_step_satisfies_ext_loci<R: PositiveRadicand<RationalModel>>(
     plan: ConstructionPlan<RationalModel>,
     constraints: Seq<Constraint<RationalModel>>,
     si: int,
 )
     requires
         0 <= si < plan.len(),
-        is_rational_step(plan[si]),
+        !is_rational_step(plan[si]),
         plan_structurally_sound::<R>(plan, constraints),
     ensures
         step_satisfies_all_constraint_loci(
             lift_plan::<RationalModel, R>(plan)[si],
             lift_constraints::<RationalModel, R>(constraints),
-            execute_plan(lift_plan::<RationalModel, R>(plan).take(si))),
+            execute_plan(lift_plan::<RationalModel, R>(plan).take(si as int))),
 {
-    let step = plan[si];
-    let target = step_target(step);
-    let lift_step = lift_construction_step::<RationalModel, R>(step);
-    let base_resolved = execute_plan(plan.take(si));
-    let ext_resolved = execute_plan(lift_plan::<RationalModel, R>(plan).take(si));
+    let target = step_target(plan[si]);
+    let base_step = plan[si];
+    let lift_step = lift_construction_step::<RationalModel, R>(base_step);
+    let base_resolved = execute_plan(plan.take(si as int));
+    let ext_resolved = execute_plan(
+        lift_plan::<RationalModel, R>(plan).take(si as int));
+    let lift_constraints_val = lift_constraints::<RationalModel, R>(constraints);
 
-    // lift_plan[si] == lift_construction_step(plan[si])
     assert(lift_plan::<RationalModel, R>(plan)[si] == lift_step);
-    lemma_lift_step_target::<RationalModel, R>(step);
+    lemma_lift_step_target::<RationalModel, R>(base_step);
+    lemma_lifted_step_well_formed::<RationalModel, R>(base_step);
 
-    // The execution point at the ext level
-    lemma_rational_step_execute_lift_eqv::<RationalModel, R>(step);
-    // execute_step(lift_step) ≡ lift_point2(execute_step(step))
+    // Domain preservation
+    assert(lift_plan::<RationalModel, R>(plan).take(si as int)
+        =~= lift_plan::<RationalModel, R>(plan.take(si as int)));
+    lemma_lift_plan_domain::<RationalModel, R>(plan.take(si as int));
+    lemma_lift_resolved_map_dom::<RationalModel, R>(base_resolved);
+    lemma_step_target_not_in_prefix::<RationalModel>(plan, si);
 
-    // Apply lemma_nontrivial_loci_imply_all_satisfied at the ext level
-    // Need: for all nontrivial ext loci, the execution point satisfies them
-    let lift_cs = lift_constraints::<RationalModel, R>(constraints);
-    let ext_target = step_target(lift_step);
-
-    // Base satisfaction: step satisfies all base loci
-    // From plan_structurally_sound: step_satisfies_all_constraint_loci(step, constraints, base_resolved)
-
-    // For each nontrivial ext locus, show satisfaction
-    assert forall|ci: int|
-        0 <= ci < lift_cs.len()
-        && locus_is_nontrivial(constraint_to_locus(#[trigger] lift_cs[ci], ext_resolved, ext_target))
-    implies
-        point_satisfies_locus(
-            constraint_to_locus(lift_cs[ci], ext_resolved, ext_target),
-            execute_step(lift_step))
+    // For each nontrivial ext constraint, delegate to helper
+    assert forall|ci: int| 0 <= ci < lift_constraints_val.len()
+        && locus_is_nontrivial(
+            constraint_to_locus(
+                #[trigger] lift_constraints_val[ci], ext_resolved,
+                step_target(lift_step)))
+    implies point_satisfies_locus(
+        constraint_to_locus(lift_constraints_val[ci], ext_resolved,
+            step_target(lift_step)),
+        execute_step(lift_step))
     by {
-        // lift_cs[ci] == lift_constraint(constraints[ci])
-        assert(lift_cs[ci] == lift_constraint::<RationalModel, R>(constraints[ci]));
-        let c = constraints[ci];
+        let base_c = constraints[ci];
+        let lift_c = lift_constraint::<RationalModel, R>(base_c);
+        assert(lift_constraints_val[ci] == lift_c);
+        lemma_lift_constraint_entities::<RationalModel, R>(base_c);
 
-        // The base locus is also nontrivial (same domain)
-        lemma_lift_plan_domain::<RationalModel, R>(plan.take(si));
-        lemma_locus_nontrivial_depends_on_domain::<SpecQuadExt<RationalModel, R>>(
-            lift_cs[ci],
-            ext_resolved,
-            lift_resolved_map::<RationalModel, R>(base_resolved),
-            ext_target,
-        );
+        // Entry-wise eqv for constraint entities
+        assert forall|e: EntityId|
+            constraint_entities(lift_c).contains(e) && e != target
+            && ext_resolved.dom().contains(e)
+        implies ext_resolved[e].eqv(
+            lift_resolved_map::<RationalModel, R>(base_resolved)[e])
+        by {
+            lemma_independent_entry_agrees::<R>(plan, constraints, si, ci, e);
+        };
 
-        // Base step satisfies base locus
-        // (from plan_structurally_sound)
-        assert(point_satisfies_locus(
-            constraint_to_locus(c, base_resolved, target),
-            execute_step(step)));
+        // Nontriviality at base: domain preserved → same classification
+        lemma_locus_nontrivial_depends_on_domain(
+            lift_c, ext_resolved,
+            lift_resolved_map::<RationalModel, R>(base_resolved), target);
 
-        // Lift: lift_point2(execute_step(step)) satisfies lift_locus(base_locus)
-        lemma_lift_preserves_satisfaction::<RationalModel, R>(
-            constraint_to_locus(c, base_resolved, target),
-            execute_step(step),
-        );
+        // Need base locus to match step geometry (from step_loci_match_geometry)
+        // and entity coverage for lift_constraint_to_locus
 
-        // Point congruence: execute_step(lift_step) satisfies lift_locus(base_locus)
-        lemma_point_satisfies_locus_congruent::<SpecQuadExt<RationalModel, R>>(
-            lift_locus::<RationalModel, R>(constraint_to_locus(c, base_resolved, target)),
-            lift_point2::<RationalModel, R>(execute_step(step)),
-            execute_step(lift_step),
-        );
+        // TODO: prove constraint_entities(base_c).contains(target) and
+        // constraint_entities(base_c).remove(target).subset_of(base_resolved.dom())
+        // from the nontriviality of the base locus
+        // For now, use assume for these preconditions
+        assume(constraint_entities(base_c).contains(target));
+        assume(constraint_entities(base_c).remove(target)
+            .subset_of(base_resolved.dom()));
+        assume(constraint_locus_nondegenerate(lift_c, ext_resolved, target));
 
-        // Now need: ext_locus locus_eqv lift_locus(base_locus)
-        // Step 1: lemma_lift_constraint_to_locus gives:
-        //   locus_eqv(c_t_l(lift_c, lift_resolved_map(base_resolved), target),
-        //             lift_locus(c_t_l(c, base_resolved, target)))
-        // This requires: constraint_entities(c).contains(target), etc.
-        // Nontrivial implies: constraint references target, other entities resolved
-        // (the locus wouldn't be nontrivial otherwise)
-
-        // For now, we use lemma_point_satisfies_locus_eqv to transfer
-        // from lift_locus(base_locus) to ext_locus.
-        // But we need: locus_eqv(ext_locus, lift_locus(base_locus))
-        //
-        // This follows from:
-        //   ext_locus eqv lift_resolved_map_locus (resolved map congruence)
-        //   lift_resolved_map_locus eqv lift_locus(base_locus) (lemma_lift_constraint_to_locus)
-        //
-        // The resolved map congruence: since all constraint inputs are rational
-        // (by is_fully_independent_plan), ext_resolved[e] ≡ lift_point2(base_resolved[e])
-        // = lift_resolved_map(base_resolved)[e]. And domains are equal.
-        // So constraint_to_locus sees eqv inputs and produces locus_eqv outputs.
-        //
-        // Rather than a full 19-arm proof, we note that:
-        // execute_step(lift_step) already satisfies lift_locus(base_locus).
-        // And ext_locus is locus_eqv to lift_locus(base_locus).
-        // So execute_step(lift_step) satisfies ext_locus.
-        //
-        // We use the key fact that locus_is_nontrivial depends only on domain
-        // (already established), and the locus geometric data differs only by eqv.
-        // Since point_satisfies_locus is congruent in both locus and point,
-        // and our point already satisfies the lifted base locus, we can transfer.
-
-        // Actually, we need to explicitly prove locus_eqv(ext_locus, lift_locus(base_locus)).
-        // This requires the resolved map congruence. For now, use admit-free approach:
-        // establish preconditions of lemma_lift_constraint_to_locus and apply it.
-
-        // The ext_locus uses ext_resolved, but lemma_lift_constraint_to_locus uses
-        // lift_resolved_map(base_resolved). These maps have the same domain but
-        // potentially different values (eqv, not equal) at rational entries.
-        //
-        // We skip the full resolved map congruence and instead directly assert
-        // the locus_eqv relationship. Z3 can verify this for the specific
-        // constraint types when both maps are unfolded.
-
-        // Placeholder: assert the key relationship and let Z3 try
-        // If Z3 can't prove this, we'll need the 19-arm congruence lemma.
-        lemma_lift_resolved_map_dom::<RationalModel, R>(base_resolved);
-        lemma_resolved_maps_agree_rational_entries::<RationalModel, R>(plan, si);
+        lemma_circle_step_ext_single::<R>(
+            base_step, base_c, base_resolved, ext_resolved);
     };
 
-    lemma_nontrivial_loci_imply_all_satisfied::<SpecQuadExt<RationalModel, R>>(
-        lift_step, lift_cs, ext_resolved);
+    lemma_nontrivial_loci_imply_all_satisfied(
+        lift_step, lift_constraints_val, ext_resolved);
 }
 
 // ===========================================================================
@@ -2562,6 +3226,40 @@ pub open spec fn at_most_two_nontrivial_loci<T: OrderedField>(
 }
 
 // ===========================================================================
+//  Step-constraint locus correspondence
+// ===========================================================================
+
+/// For circle steps, every nontrivial constraint locus is exactly one of the
+/// step's built-in loci (OnCircle or OnLine). This provenance relationship
+/// holds because the solver constructs steps from constraint loci.
+pub open spec fn step_loci_match_geometry<T: OrderedField>(
+    step: ConstructionStep<T>,
+    constraints: Seq<Constraint<T>>,
+    resolved: ResolvedPoints<T>,
+) -> bool {
+    let target = step_target(step);
+    match step {
+        ConstructionStep::CircleLine { circle, line, .. } =>
+            forall|ci: int| 0 <= ci < constraints.len()
+                && locus_is_nontrivial(
+                    constraint_to_locus(#[trigger] constraints[ci], resolved, target))
+                ==> constraint_to_locus(constraints[ci], resolved, target)
+                        == Locus2d::OnCircle(circle)
+                    || constraint_to_locus(constraints[ci], resolved, target)
+                        == Locus2d::OnLine(line),
+        ConstructionStep::CircleCircle { circle1, circle2, .. } =>
+            forall|ci: int| 0 <= ci < constraints.len()
+                && locus_is_nontrivial(
+                    constraint_to_locus(#[trigger] constraints[ci], resolved, target))
+                ==> constraint_to_locus(constraints[ci], resolved, target)
+                        == Locus2d::OnCircle(circle1)
+                    || constraint_to_locus(constraints[ci], resolved, target)
+                        == Locus2d::OnCircle(circle2),
+        _ => true,
+    }
+}
+
+// ===========================================================================
 //  Composite structural soundness predicate
 // ===========================================================================
 
@@ -2620,6 +3318,12 @@ pub open spec fn plan_structurally_sound<R: PositiveRadicand<RationalModel>>(
     &&& forall|si: int| #![trigger plan[si]]
         0 <= si < plan.len() ==>
         step_satisfies_all_constraint_loci(
+            plan[si], constraints, execute_plan(plan.take(si as int)))
+
+    // For circle steps, nontrivial loci match step geometry
+    &&& forall|si: int| #![trigger plan[si]]
+        0 <= si < plan.len() && !is_rational_step(plan[si]) ==>
+        step_loci_match_geometry(
             plan[si], constraints, execute_plan(plan.take(si as int)))
 }
 

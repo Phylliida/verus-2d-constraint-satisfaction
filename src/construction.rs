@@ -213,7 +213,7 @@ pub open spec fn plan_locus_ordered<T: OrderedField>(
 // ===========================================================================
 
 /// The domain of execute_plan contains exactly the step targets.
-proof fn lemma_execute_plan_dom<T: OrderedField>(
+pub proof fn lemma_execute_plan_dom<T: OrderedField>(
     plan: ConstructionPlan<T>,
     k: EntityId,
 )
@@ -253,7 +253,7 @@ proof fn lemma_execute_plan_dom<T: OrderedField>(
 }
 
 /// With distinct targets, step_target(plan[n]) is NOT in execute_plan(plan.take(n)).dom().
-proof fn lemma_step_target_not_in_prefix<T: OrderedField>(
+pub proof fn lemma_step_target_not_in_prefix<T: OrderedField>(
     plan: ConstructionPlan<T>,
     n: int,
 )
