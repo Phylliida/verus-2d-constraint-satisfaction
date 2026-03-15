@@ -2083,7 +2083,7 @@ fn is_entity_of_constraint_exec(rc: &RuntimeConstraint, target: usize, n_points:
 /// For every (ci, si) where step target is in constraint_entities but NOT in
 /// constraint_locus_entities: either it's a verification constraint, or there
 /// exists a later step whose target IS in constraint_locus_entities.
-fn check_plan_locus_ordered_exec(
+pub fn check_plan_locus_ordered_exec(
     plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
     n_points: usize,
