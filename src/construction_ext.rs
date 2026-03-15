@@ -2203,26 +2203,19 @@ pub proof fn lemma_rational_step_execute_lift_eqv<F: OrderedField, R: PositiveRa
 )
     requires
         is_rational_step(step),
-        step_well_formed(step),
+        step_geometrically_valid(step),
     ensures
         execute_step(lift_construction_step::<F, R>(step))
             .eqv(lift_point2::<F, R>(execute_step(step))),
 {
     match step {
         ConstructionStep::PointStep { id, position } => {
-            // execute_step(PointStep{..position}) = position
-            // lift_construction_step(PointStep{..position}) = PointStep{..lift_point2(position)}
-            // execute_step of that = lift_point2(position)
-            // lift_point2(execute_step(step)) = lift_point2(position)
-            // Reflexivity
             Point2::<SpecQuadExt<F, R>>::axiom_eqv_reflexive(
                 lift_point2::<F, R>(position),
             );
         }
         ConstructionStep::LineLine { id, line1, line2 } => {
-            // execute_step = line_line_intersection_2d(line1, line2)
-            // lift gives line_line_intersection_2d(lift(line1), lift(line2))
-            // step_well_formed guarantees !line_det(line1, line2).eqv(F::zero())
+            // step_geometrically_valid guarantees !line_det(line1, line2).eqv(F::zero())
             lemma_ll_intersection_lift_eqv::<F, R>(line1, line2);
         }
         _ => {
@@ -2254,9 +2247,9 @@ pub proof fn lemma_resolved_maps_agree_rational_entries<F: OrderedField, R: Posi
         forall|i: int, j: int|
             0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
             step_target(plan[i]) != step_target(plan[j]),
-        // All steps are well-formed
+        // All steps are geometrically valid
         forall|j: int| #![trigger plan[j]]
-            0 <= j < plan.len() ==> step_well_formed(plan[j]),
+            0 <= j < plan.len() ==> step_geometrically_valid(plan[j]),
     ensures
         forall|e: EntityId|
             execute_plan(plan.take(si)).dom().contains(e)
@@ -2787,7 +2780,7 @@ proof fn lemma_rational_step_ext_locus_single<R: PositiveRadicand<RationalModel>
 )
     requires
         is_rational_step(step),
-        step_well_formed(step),
+        step_geometrically_valid(step),
         constraint_well_formed(c),
         // Base satisfaction
         point_satisfies_locus(
@@ -2876,7 +2869,7 @@ proof fn lemma_independent_entry_agrees<R: PositiveRadicand<RationalModel>>(
             0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
             step_target(plan[i]) != step_target(plan[j]),
         forall|j: int| #![trigger plan[j]]
-            0 <= j < plan.len() ==> step_well_formed(plan[j]),
+            0 <= j < plan.len() ==> step_geometrically_valid(plan[j]),
         is_fully_independent_plan(plan, constraints),
         constraint_entities(constraints[ci]).contains(step_target(plan[si])),
         constraint_entities(constraints[ci]).contains(e),
@@ -3115,7 +3108,7 @@ proof fn lemma_constraint_entry_eqv<R: PositiveRadicand<RationalModel>>(
             0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
             step_target(plan[i]) != step_target(plan[j]),
         forall|j: int| #![trigger plan[j]]
-            0 <= j < plan.len() ==> step_well_formed(plan[j]),
+            0 <= j < plan.len() ==> step_geometrically_valid(plan[j]),
         is_fully_independent_plan(plan, constraints),
         constraint_entities(constraints[ci]).contains(step_target(plan[si])),
         // Domain equality between ext and base
@@ -3171,7 +3164,7 @@ proof fn lemma_rational_step_ext_ci<R: PositiveRadicand<RationalModel>>(
             step_target(plan[i]) != step_target(plan[j]),
         constraint_well_formed(constraints[ci]),
         forall|j: int| #![trigger plan[j]]
-            0 <= j < plan.len() ==> step_well_formed(plan[j]),
+            0 <= j < plan.len() ==> step_geometrically_valid(plan[j]),
         is_fully_independent_plan(plan, constraints),
         // Base satisfaction for this specific constraint
         point_satisfies_locus(
@@ -3444,7 +3437,7 @@ proof fn lemma_circle_step_ext_ci<R: PositiveRadicand<RationalModel>>(
             step_target(plan[i]) != step_target(plan[j]),
         constraint_well_formed(constraints[ci]),
         forall|j: int| #![trigger plan[j]]
-            0 <= j < plan.len() ==> step_well_formed(plan[j]),
+            0 <= j < plan.len() ==> step_geometrically_valid(plan[j]),
         is_fully_independent_plan(plan, constraints),
         step_loci_match_geometry(
             plan[si], constraints, execute_plan(plan.take(si as int))),
@@ -3744,13 +3737,10 @@ pub open spec fn plan_structurally_sound<R: PositiveRadicand<RationalModel>>(
             execute_plan(plan.take(si as int)).dom(),
         )
 
-    // Each step well-formed
-    &&& forall|j: int| #![trigger plan[j]]
-        0 <= j < plan.len() ==> step_well_formed(plan[j])
-
-    // Base-level step satisfaction: each step satisfies all constraint loci
+    // Base-level step satisfaction: each RATIONAL step satisfies all constraint loci.
+    // Circle steps satisfy loci at the extension level, not the base level.
     &&& forall|si: int| #![trigger plan[si]]
-        0 <= si < plan.len() ==>
+        0 <= si < plan.len() && is_rational_step(plan[si]) ==>
         step_satisfies_all_constraint_loci(
             plan[si], constraints, execute_plan(plan.take(si as int)))
 
