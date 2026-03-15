@@ -5,6 +5,8 @@ use verus_geometry::runtime::point2::*;
 use verus_rational::runtime_rational::RuntimeRational;
 use verus_linalg::runtime::copy_rational;
 use verus_quadratic_extension::radicand::PositiveRadicand;
+use verus_quadratic_extension::spec::SpecQuadExt;
+use verus_geometry::constructed_scalar::lift_point2;
 use verus_quadratic_extension::runtime::RuntimeRadicand;
 use verus_quadratic_extension::instances::{Sqrt2, Sqrt3, Sqrt5};
 use verus_quadratic_extension::runtime::{RuntimeSqrt2, RuntimeSqrt3, RuntimeSqrt5};
@@ -205,6 +207,55 @@ proof fn lemma_initial_steps_are_rational(
                 }
             }
         }
+    }
+}
+
+/// For each initial step, execute_step_in_ext gives lift_point2(points[target]).
+/// This holds because every initial step is a PointStep with position = points[id].
+proof fn lemma_initial_steps_execute_in_ext<R: PositiveRadicand<RationalModel>>(
+    points: Seq<Point2<RationalModel>>,
+    flags: Seq<bool>,
+)
+    requires points.len() == flags.len(),
+    ensures
+        forall|i: int|
+            0 <= i < initial_point_steps(points, flags).len() ==> {
+                let step = #[trigger] initial_point_steps(points, flags)[i];
+                execute_step_in_ext::<RationalModel, R>(step)
+                    == lift_point2::<RationalModel, R>(points[step_target(step) as int])
+            },
+    decreases points.len(),
+{
+    if points.len() > 0 {
+        let n = (points.len() - 1) as int;
+        let prefix = initial_point_steps(points.take(n), flags.take(n));
+        let full = initial_point_steps(points, flags);
+        lemma_initial_steps_execute_in_ext::<R>(points.take(n), flags.take(n));
+        lemma_initial_steps_targets_bounded(points.take(n), flags.take(n));
+
+        if flags[n] {
+            assert forall|i: int|
+                0 <= i < full.len()
+            implies {
+                let step = #[trigger] full[i];
+                execute_step_in_ext::<RationalModel, R>(step)
+                    == lift_point2::<RationalModel, R>(points[step_target(step) as int])
+            }
+            by {
+                if i < prefix.len() as int {
+                    assert(full[i] == prefix[i]);
+                    // From IH: execute_step_in_ext(prefix[i])
+                    //   == lift_point2(points.take(n)[step_target(prefix[i])])
+                    // step_target(prefix[i]) < n from targets_bounded
+                    // points.take(n)[j] == points[j] for j < n
+                } else {
+                    // full[i] == PointStep { id: n, position: points[n] }
+                    // execute_step_in_ext = lift_point2(points[n])
+                    // step_target = n
+                }
+            }
+        }
+        // !flags[n]: full == prefix, IH applies (with take/full equiv)
     }
 }
 
@@ -554,6 +605,175 @@ fn to_solved_points<R: PositiveRadicand<RationalModel>>(
     SolvedPoints { plan, points_re }
 }
 
+// ===========================================================================
+//  Proof: execute_plan_in_ext map lookup for distinct-target plans
+// ===========================================================================
+
+/// For a plan with distinct targets, execute_plan_in_ext(plan)[target_k] == execute_step_in_ext(plan[k]).
+proof fn lemma_execute_plan_in_ext_at_target<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+)
+    requires
+        forall|i: int, j: int| 0 <= i < plan.len() && 0 <= j < plan.len() && i != j
+            ==> step_target(plan[i]) != step_target(plan[j]),
+    ensures
+        forall|k: int| 0 <= k < plan.len()
+            ==> execute_plan_in_ext::<RationalModel, R>(plan).dom().contains(
+                step_target(#[trigger] plan[k])),
+        forall|k: int| 0 <= k < plan.len()
+            ==> (#[trigger] execute_plan_in_ext::<RationalModel, R>(plan)[step_target(plan[k])])
+                == execute_step_in_ext::<RationalModel, R>(plan[k]),
+    decreases plan.len(),
+{
+    if plan.len() > 0 {
+        let prefix = plan.drop_last();
+        let step = plan.last();
+        let target = step_target(step);
+
+        // Prefix has distinct targets
+        assert forall|i: int, j: int|
+            0 <= i < prefix.len() && 0 <= j < prefix.len() && i != j
+        implies step_target(prefix[i]) != step_target(prefix[j])
+        by {
+            assert(prefix[i] == plan[i]);
+            assert(prefix[j] == plan[j]);
+        }
+
+        lemma_execute_plan_in_ext_at_target::<R>(prefix);
+
+        // result_map == prefix_map.insert(target, execute_step_in_ext(step))
+        assert forall|k: int| 0 <= k < plan.len()
+        implies execute_plan_in_ext::<RationalModel, R>(plan).dom().contains(
+            step_target(#[trigger] plan[k]))
+        by {
+            if k < prefix.len() as int {
+                assert(plan[k] == prefix[k]);
+            }
+        }
+
+        assert forall|k: int| 0 <= k < plan.len()
+        implies (#[trigger] execute_plan_in_ext::<RationalModel, R>(plan)[step_target(plan[k])])
+            == execute_step_in_ext::<RationalModel, R>(plan[k])
+        by {
+            if k < prefix.len() as int {
+                assert(plan[k] == prefix[k]);
+                // step_target(plan[k]) != target (distinct targets)
+                assert(step_target(plan[k]) != step_target(plan[(plan.len() - 1) as int]));
+            }
+        }
+    }
+}
+
+/// For a plan with distinct targets, ext_vec_to_resolved_map agrees with
+/// execute_plan_in_ext on all plan targets.
+proof fn lemma_ext_vec_agrees_with_plan<R: PositiveRadicand<RationalModel>>(
+    ext_points: Seq<RuntimeQExtPoint2<R>>,
+    plan: ConstructionPlan<RationalModel>,
+)
+    requires
+        // Distinct targets
+        forall|i: int, j: int| 0 <= i < plan.len() && 0 <= j < plan.len() && i != j
+            ==> step_target(plan[i]) != step_target(plan[j]),
+        // All targets < ext_points.len()
+        forall|k: int| 0 <= k < plan.len() ==>
+            (step_target(#[trigger] plan[k]) as int) < ext_points.len(),
+        // ext_points matches execute_step_in_ext at each target
+        forall|k: int| 0 <= k < plan.len() ==>
+            ext_points[step_target(#[trigger] plan[k]) as int]@
+                == execute_step_in_ext::<RationalModel, R>(plan[k]),
+    ensures
+        forall|id: EntityId|
+            execute_plan_in_ext::<RationalModel, R>(plan).dom().contains(id) ==>
+            ext_vec_to_resolved_map::<R>(ext_points)[id]
+                == execute_plan_in_ext::<RationalModel, R>(plan)[id],
+    decreases plan.len(),
+{
+    if plan.len() > 0 {
+        let prefix = plan.drop_last();
+        let step = plan.last();
+        let target = step_target(step);
+        let last_idx = (plan.len() - 1) as int;
+
+        // Prefix has distinct targets
+        assert forall|i: int, j: int|
+            0 <= i < prefix.len() && 0 <= j < prefix.len() && i != j
+        implies step_target(prefix[i]) != step_target(prefix[j])
+        by { assert(prefix[i] == plan[i]); assert(prefix[j] == plan[j]); }
+
+        // Prefix satisfies ext_points match precondition
+        assert forall|k: int| 0 <= k < prefix.len()
+        implies ext_points[step_target(#[trigger] prefix[k]) as int]@
+            == execute_step_in_ext::<RationalModel, R>(prefix[k])
+        by { assert(prefix[k] == plan[k]); }
+
+        assert forall|k: int| 0 <= k < prefix.len()
+        implies (step_target(#[trigger] prefix[k]) as int) < ext_points.len()
+        by { assert(prefix[k] == plan[k]); }
+
+        // Inductive hypothesis
+        lemma_ext_vec_agrees_with_plan::<R>(ext_points, prefix);
+
+        let result_map = execute_plan_in_ext::<RationalModel, R>(plan);
+        let prefix_map = execute_plan_in_ext::<RationalModel, R>(prefix);
+
+        assert forall|id: EntityId|
+            result_map.dom().contains(id)
+        implies
+            ext_vec_to_resolved_map::<R>(ext_points)[id] == result_map[id]
+        by {
+            if id == target {
+                // result_map[target] == execute_step_in_ext(step)
+                // plan.last() == plan[last_idx]
+                assert(plan[last_idx] == step);
+                assert(ext_points[target as int]@
+                    == execute_step_in_ext::<RationalModel, R>(step));
+                assert((target as int) < ext_points.len());
+            } else {
+                // id in prefix_map domain, use IH
+            }
+        }
+    }
+}
+
+/// Transfer constraint_satisfied for verification constraints between
+/// two resolved maps that agree on all constraint entity IDs.
+proof fn lemma_verification_constraint_transfer<R: PositiveRadicand<RationalModel>>(
+    c: Constraint<RationalModel>,
+    resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+    resolved2: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+)
+    requires
+        is_verification_constraint(c),
+        constraint_satisfied(lift_constraint::<RationalModel, R>(c), resolved1),
+        forall|e: EntityId| constraint_entities(c).contains(e) ==>
+            resolved2.dom().contains(e) && resolved1[e] == resolved2[e],
+    ensures
+        constraint_satisfied(lift_constraint::<RationalModel, R>(c), resolved2),
+{
+    // Explicitly match to guide Z3 through only 3 arms.
+    match c {
+        Constraint::Tangent { line_a, line_b, center, radius_point } => {
+            assert(resolved1[line_a] == resolved2[line_a]);
+            assert(resolved1[line_b] == resolved2[line_b]);
+            assert(resolved1[center] == resolved2[center]);
+            assert(resolved1[radius_point] == resolved2[radius_point]);
+        }
+        Constraint::CircleTangent { c1, rp1, c2, rp2 } => {
+            assert(resolved1[c1] == resolved2[c1]);
+            assert(resolved1[rp1] == resolved2[rp1]);
+            assert(resolved1[c2] == resolved2[c2]);
+            assert(resolved1[rp2] == resolved2[rp2]);
+        }
+        Constraint::Angle { a1, a2, b1, b2, cos_sq } => {
+            assert(resolved1[a1] == resolved2[a1]);
+            assert(resolved1[a2] == resolved2[a2]);
+            assert(resolved1[b1] == resolved2[b1]);
+            assert(resolved1[b2] == resolved2[b2]);
+        }
+        _ => {} // impossible by is_verification_constraint
+    }
+}
+
 /// Verify pre-computed plan variants against constraints.
 /// For each variant: check plan soundness, execute, check ext constraints.
 /// Returns all verified solutions.
@@ -674,41 +894,119 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
         }
 
         // Step 3b: Formal bridge — all constraints satisfied at extension level.
-        // The det_plan trick (lemma_solver_to_soundness_det) proves that if
-        // plan_structurally_sound holds and verification constraints pass,
-        // then ALL constraints are satisfied against execute_plan_in_ext.
         proof {
             let plan_spec = plan_to_spec(variants@[vi as int]@);
             let cstr_spec = constraints_to_spec(constraints@);
             let pts_spec = points_view(initial_points@);
             let full_plan = build_full_plan(pts_spec, initial_flags@, plan_spec);
+            let init_steps = initial_point_steps(pts_spec, initial_flags@);
+            let init_len = init_steps.len() as int;
 
-            // PROOF DEBT: These assumes bridge the gap between runtime validation
-            // and the spec-level predicates. The runtime checks in
-            // verify_plan_soundness_exec + check_step_satisfaction_replay_exec
-            // verify all 12 conjuncts of plan_structurally_sound, and
-            // check_all_verification_constraints_ext verifies constraint satisfaction,
-            // but their ensures don't yet propagate these facts to spec level.
-            //
-            // Eliminating these assumes requires:
-            //   (a) Connecting partial_resolved_map to execute_plan(full_plan.take(si))
-            //   (b) Propagating check_step_satisfaction_replay_exec results to spec
-            //   (c) Connecting build_ext_resolved_vec output to execute_plan_in_ext
+            // PROOF DEBT: assume #1 remains (Phase B will reduce to conjuncts 9-12)
             assume(plan_structurally_sound::<R>(full_plan, cstr_spec));
-            assume(forall|ci: int| 0 <= ci < cstr_spec.len()
+
+            // === Phase A: Prove verification constraint satisfaction ===
+
+            // Helper facts about initial steps
+            lemma_initial_steps_execute_in_ext::<R>(pts_spec, initial_flags@);
+            lemma_initial_steps_targets_bounded(pts_spec, initial_flags@);
+
+            // Key precondition: ext_points matches execute_step_in_ext at every
+            // full_plan target. Split into initial steps vs solver steps.
+            assert forall|k: int| 0 <= k < full_plan.len()
+            implies
+                ext_points@[step_target(#[trigger] full_plan[k]) as int]@
+                    == execute_step_in_ext::<RationalModel, R>(full_plan[k])
+            by {
+                if k < init_len {
+                    // Initial step: full_plan[k] == init_steps[k]
+                    assert(full_plan[k] == init_steps[k]);
+                    let target = step_target(init_steps[k]);
+                    let target_int: int = target as int;
+
+                    // Show target is NOT overwritten by any solver result
+                    assert forall|j: int| 0 <= j < results@.len()
+                    implies (#[trigger] results@[j]).entity_id() != target as nat
+                    by {
+                        let si = init_len + j;
+                        assert(full_plan[si] == plan_spec[j]);
+                        // results[j].entity_id() == step_target(plan_spec[j])
+                        //   == step_target(full_plan[si])
+                        // distinct_targets: step_target(full_plan[k]) != step_target(full_plan[si])
+                    }
+
+                    // A3 non-overwritten: ext_points[target]@ == lift_point2(initial_points[target]@)
+                    assert(ext_points@[target_int]@
+                        == lift_point2::<RationalModel, R>(initial_points@[target_int]@));
+
+                    // execute_step_in_ext(init_steps[k]) == lift_point2(pts_spec[target])
+                    // pts_spec[target] == initial_points@[target]@ (by Seq::new in points_view)
+                    assert(pts_spec[target_int] == initial_points@[target_int]@);
+                } else {
+                    // Solver step: full_plan[k] == plan_spec[k - init_len]
+                    let j = k - init_len;
+                    assert(full_plan[k] == plan_spec[j]);
+
+                    // plan_spec[j] == variants@[vi]@[j].spec_step()
+                    assert(plan_spec[j] == variants@[vi as int]@[j].spec_step());
+
+                    // A2: results[j].entity_id() == step_target(plan_spec[j])
+                    assert(results@[j].entity_id()
+                        == step_target(variants@[vi as int]@[j].spec_step()));
+                    assert(results@[j].entity_id() == step_target(plan_spec[j]));
+
+                    // A2: results[j].ext_point_value() == execute_step_in_ext(plan_spec[j])
+                    assert(results@[j].ext_point_value()
+                        == execute_step_in_ext::<RationalModel, R>(plan_spec[j]));
+
+                    // A3 overwritten: ext_points[entity_id]@ == results[j].ext_point_value()
+                    assert(ext_points@[results@[j].entity_id() as int]@
+                        == results@[j].ext_point_value());
+                }
+            }
+
+            // All targets < ext_points.len()
+            assert forall|k: int| 0 <= k < full_plan.len()
+            implies (step_target(#[trigger] full_plan[k]) as int) < ext_points@.len()
+            by {
+                if k < init_len {
+                    assert(full_plan[k] == init_steps[k]);
+                } else {
+                    let j = k - init_len;
+                    assert(full_plan[k] == plan_spec[j]);
+                    // step_target(variants@[vi]@[j].spec_step()) < n_points (from invariant)
+                }
+            }
+
+            // Agreement: ext_vec_to_resolved_map agrees with execute_plan_in_ext
+            lemma_ext_vec_agrees_with_plan::<R>(ext_points@, full_plan);
+
+            // Domain equivalence for entity coverage
+            lemma_execute_plan_in_ext_domain::<RationalModel, R>(full_plan);
+
+            // Transfer: A5 gives satisfaction against ext_vec_to_resolved_map.
+            // Map agreement + entity coverage lets us transfer to execute_plan_in_ext.
+            assert forall|ci: int| 0 <= ci < cstr_spec.len()
                 && is_verification_constraint(#[trigger] cstr_spec[ci])
-                ==> constraint_satisfied(
-                    lift_constraint::<RationalModel, R>(cstr_spec[ci]),
-                    execute_plan_in_ext::<RationalModel, R>(full_plan)));
+            implies constraint_satisfied(
+                lift_constraint::<RationalModel, R>(cstr_spec[ci]),
+                execute_plan_in_ext::<RationalModel, R>(full_plan))
+            by {
+                // cstr_spec[ci] == runtime_constraint_model(constraints@[ci])
+                assert(cstr_spec[ci] == runtime_constraint_model(constraints@[ci]));
+                // A5: constraint_satisfied(..., ext_vec_to_resolved_map(ext_points@))
+                // plan_structurally_sound: entity coverage => all entities in execute_plan.dom()
+                // domain lemma: execute_plan_in_ext.dom() == execute_plan.dom()
+                // agreement: on execute_plan_in_ext domain, maps agree
+                lemma_verification_constraint_transfer::<R>(
+                    cstr_spec[ci],
+                    ext_vec_to_resolved_map::<R>(ext_points@),
+                    execute_plan_in_ext::<RationalModel, R>(full_plan),
+                );
+            }
 
-            // Formal bridge: derives ALL constraints satisfied from the two assumes above
+            // Formal bridge: derives ALL constraints satisfied
             lemma_solver_to_soundness_det::<R>(full_plan, cstr_spec);
-
-            // Conclusion (available here, not yet propagated to ensures):
-            // forall|ci| 0 <= ci < cstr_spec.len() ==>
-            //     constraint_satisfied(
-            //         lift_constraints::<RationalModel, R>(cstr_spec)[ci],
-            //         execute_plan_in_ext::<RationalModel, R>(full_plan))
         }
 
         // Step 4: Package into VerifiedSolution

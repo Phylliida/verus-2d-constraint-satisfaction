@@ -350,7 +350,110 @@ fn check_angle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
 }
 
 // ===========================================================================
-//  2e: Check all verification constraints at QExt level
+//  2e: Lightweight predicate for verification check results
+// ===========================================================================
+
+/// Lightweight predicate: the algebraic identity for verification constraints
+/// holds on the ext_points. Only matches the 3 verification types (Tangent,
+/// CircleTangent, Angle), returns true for all others.
+/// This avoids unfolding constraint_satisfied (19 arms) in tight loops.
+pub open spec fn ext_verification_identity<R: PositiveRadicand<RationalModel>>(
+    rc: RuntimeConstraint,
+    ext_points: Seq<RuntimeQExtPoint2<R>>,
+) -> bool {
+    match rc {
+        RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, .. } => {
+            let line = line2_from_points::<SpecQuadExt<RationalModel, R>>(
+                ext_points[line_a as int]@, ext_points[line_b as int]@);
+            let eval = line2_eval(line, ext_points[center as int]@);
+            let norm_sq = line.a.mul(line.a).add(line.b.mul(line.b));
+            let r_sq = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(
+                ext_points[center as int]@, ext_points[radius_point as int]@);
+            eval.mul(eval).eqv(norm_sq.mul(r_sq))
+        }
+        RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } => {
+            let d = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(
+                ext_points[c1 as int]@, ext_points[c2 as int]@);
+            let r1 = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(
+                ext_points[c1 as int]@, ext_points[rp1 as int]@);
+            let r2 = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(
+                ext_points[c2 as int]@, ext_points[rp2 as int]@);
+            let t_one = SpecQuadExt::<RationalModel, R>::one();
+            let four = t_one.add(t_one).mul(t_one.add(t_one));
+            let diff = d.sub(r1).sub(r2);
+            diff.mul(diff).eqv(four.mul(r1).mul(r2))
+        }
+        RuntimeConstraint::Angle { a1, a2, b1, b2, cos_sq, .. } => {
+            let d1 = sub2::<SpecQuadExt<RationalModel, R>>(
+                ext_points[a2 as int]@, ext_points[a1 as int]@);
+            let d2 = sub2::<SpecQuadExt<RationalModel, R>>(
+                ext_points[b2 as int]@, ext_points[b1 as int]@);
+            let dp = d1.x.mul(d2.x).add(d1.y.mul(d2.y));
+            let n1 = d1.x.mul(d1.x).add(d1.y.mul(d1.y));
+            let n2 = d2.x.mul(d2.x).add(d2.y.mul(d2.y));
+            let cos_sq_ext = qext_from_rational::<RationalModel, R>(cos_sq@);
+            dp.mul(dp).eqv(cos_sq_ext.mul(n1).mul(n2))
+        }
+        _ => true,
+    }
+}
+
+/// Bridge: ext_verification_identity → constraint_satisfied.
+/// Only needs to run once per constraint (not in a tight loop).
+proof fn lemma_ext_identity_to_constraint_satisfied<R: PositiveRadicand<RationalModel>>(
+    rc: RuntimeConstraint,
+    ext_points: Seq<RuntimeQExtPoint2<R>>,
+    n_points: nat,
+)
+    requires
+        runtime_constraint_wf(rc, n_points),
+        n_points == ext_points.len(),
+        forall|i: int| 0 <= i < ext_points.len() ==> (#[trigger] ext_points[i]).wf_spec(),
+        is_verification_constraint(runtime_constraint_model(rc)),
+        ext_verification_identity::<R>(rc, ext_points),
+    ensures
+        constraint_satisfied(
+            lift_constraint::<RationalModel, R>(runtime_constraint_model(rc)),
+            ext_vec_to_resolved_map::<R>(ext_points)),
+{
+    let ext_map = ext_vec_to_resolved_map::<R>(ext_points);
+    match rc {
+        RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, model } => {
+            assert(ext_map.dom().contains(line_a as nat));
+            assert(ext_map.dom().contains(line_b as nat));
+            assert(ext_map.dom().contains(center as nat));
+            assert(ext_map.dom().contains(radius_point as nat));
+            assert(ext_map[line_a as nat] == ext_points[line_a as int]@);
+            assert(ext_map[line_b as nat] == ext_points[line_b as int]@);
+            assert(ext_map[center as nat] == ext_points[center as int]@);
+            assert(ext_map[radius_point as nat] == ext_points[radius_point as int]@);
+        }
+        RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, model } => {
+            assert(ext_map.dom().contains(c1 as nat));
+            assert(ext_map.dom().contains(rp1 as nat));
+            assert(ext_map.dom().contains(c2 as nat));
+            assert(ext_map.dom().contains(rp2 as nat));
+            assert(ext_map[c1 as nat] == ext_points[c1 as int]@);
+            assert(ext_map[rp1 as nat] == ext_points[rp1 as int]@);
+            assert(ext_map[c2 as nat] == ext_points[c2 as int]@);
+            assert(ext_map[rp2 as nat] == ext_points[rp2 as int]@);
+        }
+        RuntimeConstraint::Angle { a1, a2, b1, b2, cos_sq, model } => {
+            assert(ext_map.dom().contains(a1 as nat));
+            assert(ext_map.dom().contains(a2 as nat));
+            assert(ext_map.dom().contains(b1 as nat));
+            assert(ext_map.dom().contains(b2 as nat));
+            assert(ext_map[a1 as nat] == ext_points[a1 as int]@);
+            assert(ext_map[a2 as nat] == ext_points[a2 as int]@);
+            assert(ext_map[b1 as nat] == ext_points[b1 as int]@);
+            assert(ext_map[b2 as nat] == ext_points[b2 as int]@);
+        }
+        _ => {} // impossible by is_verification_constraint
+    }
+}
+
+// ===========================================================================
+//  2f: Check all verification constraints at QExt level
 // ===========================================================================
 
 /// Check all verification constraints are satisfied by the ext-level resolved points.
@@ -367,7 +470,14 @@ pub fn check_all_verification_constraints_ext<
         forall|i: int| 0 <= i < ext_points@.len() ==> (#[trigger] ext_points@[i]).wf_spec(),
         forall|i: int| 0 <= i < constraints@.len() ==>
             runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+    ensures
+        out ==> forall|ci: int| 0 <= ci < constraints@.len()
+            && is_verification_constraint(runtime_constraint_model(#[trigger] constraints@[ci]))
+            ==> constraint_satisfied(
+                lift_constraint::<RationalModel, R>(runtime_constraint_model(constraints@[ci])),
+                ext_vec_to_resolved_map::<R>(ext_points@)),
 {
+    // Phase 1: Loop accumulates the lightweight ext_verification_identity predicate.
     let mut ci: usize = 0;
     while ci < constraints.len()
         invariant
@@ -376,6 +486,9 @@ pub fn check_all_verification_constraints_ext<
             forall|i: int| 0 <= i < ext_points@.len() ==> (#[trigger] ext_points@[i]).wf_spec(),
             forall|i: int| 0 <= i < constraints@.len() ==>
                 runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+            forall|j: int| 0 <= j < ci
+                && is_verification_constraint(runtime_constraint_model(#[trigger] constraints@[j]))
+                ==> ext_verification_identity::<R>(constraints@[j], ext_points@),
         decreases constraints@.len() - ci,
     {
         let ok = match &constraints[ci] {
@@ -404,6 +517,19 @@ pub fn check_all_verification_constraints_ext<
             return false;
         }
         ci = ci + 1;
+    }
+
+    // Phase 2: Bridge from lightweight identity to constraint_satisfied.
+    proof {
+        assert forall|ci: int| 0 <= ci < constraints@.len()
+            && is_verification_constraint(runtime_constraint_model(#[trigger] constraints@[ci]))
+        implies constraint_satisfied(
+            lift_constraint::<RationalModel, R>(runtime_constraint_model(constraints@[ci])),
+            ext_vec_to_resolved_map::<R>(ext_points@))
+        by {
+            lemma_ext_identity_to_constraint_satisfied::<R>(
+                constraints@[ci], ext_points@, n_points as nat);
+        }
     }
     true
 }
