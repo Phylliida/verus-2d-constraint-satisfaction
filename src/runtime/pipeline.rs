@@ -1452,10 +1452,16 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
                 }
             }
 
-            // PROOF DEBT: remaining conjuncts (4, 9-12)
-            // 4: locus ordered,
-            // 9: at_most_two_nontrivial_loci, 10: step satisfaction,
-            // 11: step loci match geometry, 12: nondegeneracy
+            // PROOF DEBT: 5 remaining conjuncts of plan_structurally_sound
+            // Proved: 1 (distinct targets), 2 (constraint wf), 3 (entity coverage),
+            //         5 (independence), 6 (geom valid), 7 (pos disc), 8 (radicand)
+            // Remaining:
+            //   4: plan_locus_ordered — init steps ordered by entity ID, not constraint
+            //      dependency. Fails when non-locus resolved entity has higher ID than
+            //      all locus entities of same constraint (all resolved).
+            //   9-12: per-step dynamic properties — runtime-checked by
+            //      check_step_satisfaction_replay_exec but ensures don't propagate
+            //      intermediate states. Needs spec-level state correspondence invariant.
             assume(plan_locus_ordered(full_plan, cstr_spec));
             assume(forall|si: int| #![trigger full_plan[si]]
                 0 <= si < full_plan.len() ==>
@@ -1666,6 +1672,189 @@ fn copy_plan(plan: &Vec<RuntimeStepData>) -> (out: Vec<RuntimeStepData>)
         }
     }
     result
+}
+
+/// Helper: plan_to_spec distributes over concatenation.
+proof fn lemma_plan_to_spec_concat(a: Seq<RuntimeStepData>, b: Seq<RuntimeStepData>)
+    ensures plan_to_spec(a + b) =~= plan_to_spec(a) + plan_to_spec(b),
+{
+    let ab = a + b;
+    let lhs = plan_to_spec(ab);
+    let rhs = plan_to_spec(a) + plan_to_spec(b);
+    assert forall|i: int| 0 <= i < lhs.len() implies lhs[i] == rhs[i]
+    by {
+        if i < a.len() as int {
+            assert(ab[i] == a[i]);
+            assert(lhs[i] == a[i].spec_step());
+            assert(rhs[i] == plan_to_spec(a)[i]);
+        } else {
+            let j = i - a.len() as int;
+            assert(ab[i] == b[j]);
+            assert(lhs[i] == b[j].spec_step());
+            assert(rhs[i] == plan_to_spec(b)[j]);
+        }
+    }
+}
+
+/// Build the full plan at runtime: init PointSteps for resolved entities,
+/// followed by copies of the solver plan steps. Ensures spec correspondence
+/// with build_full_plan.
+fn build_full_plan_runtime(
+    initial_points: &Vec<RuntimePoint2>,
+    initial_flags: &Vec<bool>,
+    solver_plan: &Vec<RuntimeStepData>,
+) -> (out: Vec<RuntimeStepData>)
+    requires
+        initial_points@.len() == initial_flags@.len(),
+        all_points_wf(initial_points@),
+        forall|i: int| 0 <= i < solver_plan@.len() ==> (#[trigger] solver_plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < solver_plan@.len() ==>
+            (step_target((#[trigger] solver_plan@[i]).spec_step()) as int)
+                < initial_points@.len(),
+    ensures
+        plan_to_spec(out@) =~= build_full_plan(
+            points_view(initial_points@), initial_flags@,
+            plan_to_spec(solver_plan@)),
+        forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
+        forall|i: int| 0 <= i < out@.len() ==>
+            (step_target((#[trigger] out@[i]).spec_step()) as int)
+                < initial_points@.len(),
+{
+    let n = initial_points.len();
+    let ghost pts_spec = points_view(initial_points@);
+
+    // Phase 1: Build init steps for resolved entities
+    let mut init_steps: Vec<RuntimeStepData> = Vec::new();
+    let mut i: usize = 0;
+    while i < n
+        invariant
+            i <= n,
+            n == initial_points@.len(),
+            n == initial_flags@.len(),
+            all_points_wf(initial_points@),
+            plan_to_spec(init_steps@) =~=
+                initial_point_steps(pts_spec.take(i as int), initial_flags@.take(i as int)),
+            forall|j: int| 0 <= j < init_steps@.len() ==>
+                (#[trigger] init_steps@[j]).wf_spec(),
+            forall|j: int| 0 <= j < init_steps@.len() ==>
+                (step_target((#[trigger] init_steps@[j]).spec_step()) as int) < n,
+        decreases n - i,
+    {
+        if initial_flags[i] {
+            let x = copy_rational(&initial_points[i].x);
+            let y = copy_rational(&initial_points[i].y);
+            let step = RuntimeStepData::PointStep {
+                target: i,
+                x, y,
+                model: Ghost(ConstructionStep::PointStep {
+                    id: i as nat,
+                    position: pts_spec[i as int],
+                }),
+            };
+            proof {
+                // Show plan_to_spec(init_steps@.push(step))
+                //   == plan_to_spec(init_steps@).push(step.spec_step())
+                let old_spec = plan_to_spec(init_steps@);
+                let new_seq = init_steps@.push(step);
+                assert forall|j: int| 0 <= j < plan_to_spec(new_seq).len()
+                implies plan_to_spec(new_seq)[j] == (old_spec.push(step.spec_step()))[j]
+                by {
+                    if j < init_steps@.len() as int {
+                        assert(new_seq[j] == init_steps@[j]);
+                    }
+                }
+                assert(plan_to_spec(new_seq) =~= old_spec.push(step.spec_step()));
+
+                // Help Z3 with take nesting: take(i+1).take(i) =~= take(i)
+                let pts_next = pts_spec.take(i as int + 1);
+                let flg_next = initial_flags@.take(i as int + 1);
+                assert forall|k: int| 0 <= k < i implies
+                    pts_next.take(i as int)[k] == pts_spec.take(i as int)[k] by {}
+                assert(pts_next.take(i as int) =~= pts_spec.take(i as int));
+                assert forall|k: int| 0 <= k < i implies
+                    flg_next.take(i as int)[k] == initial_flags@.take(i as int)[k] by {}
+                assert(flg_next.take(i as int) =~= initial_flags@.take(i as int));
+                assert(flg_next[i as int] == initial_flags@[i as int]);
+                assert(pts_next[i as int] == pts_spec[i as int]);
+            }
+            init_steps.push(step);
+        } else {
+            proof {
+                // flags[i] == false: initial_point_steps unchanged
+                let pts_next = pts_spec.take(i as int + 1);
+                let flg_next = initial_flags@.take(i as int + 1);
+                assert forall|k: int| 0 <= k < i implies
+                    pts_next.take(i as int)[k] == pts_spec.take(i as int)[k] by {}
+                assert(pts_next.take(i as int) =~= pts_spec.take(i as int));
+                assert forall|k: int| 0 <= k < i implies
+                    flg_next.take(i as int)[k] == initial_flags@.take(i as int)[k] by {}
+                assert(flg_next.take(i as int) =~= initial_flags@.take(i as int));
+                assert(flg_next[i as int] == initial_flags@[i as int]);
+                // flags[i] == false → initial_point_steps unchanged
+            }
+        }
+        i = i + 1;
+    }
+
+    proof {
+        // At end of loop: i == n, so take(n) == full sequence
+        assert(pts_spec.take(n as int) =~= pts_spec);
+        assert(initial_flags@.take(n as int) =~= initial_flags@);
+    }
+
+    // Phase 2: Append solver plan copies
+    let mut j: usize = 0;
+    while j < solver_plan.len()
+        invariant
+            j <= solver_plan@.len(),
+            n == initial_points@.len(),
+            forall|k: int| 0 <= k < solver_plan@.len() ==>
+                (#[trigger] solver_plan@[k]).wf_spec(),
+            forall|k: int| 0 <= k < solver_plan@.len() ==>
+                (step_target((#[trigger] solver_plan@[k]).spec_step()) as int) < n,
+            // init_steps portion unchanged
+            forall|k: int| 0 <= k < init_steps@.len() ==>
+                (#[trigger] init_steps@[k]).wf_spec(),
+            forall|k: int| 0 <= k < init_steps@.len() ==>
+                (step_target((#[trigger] init_steps@[k]).spec_step()) as int) < n,
+            plan_to_spec(init_steps@.take(
+                (init_steps@.len() - j) as int)) =~=
+                initial_point_steps(pts_spec, initial_flags@),
+            // appended solver steps match
+            init_steps@.len() >= j,
+            forall|k: int|
+                (init_steps@.len() - j) as int <= k < init_steps@.len() ==>
+                (#[trigger] init_steps@[k]).spec_step()
+                    == solver_plan@[k - (init_steps@.len() - j) as int].spec_step(),
+        decreases solver_plan@.len() - j,
+    {
+        let step = copy_step(&solver_plan[j]);
+        init_steps.push(step);
+        j = j + 1;
+    }
+
+    proof {
+        // Show plan_to_spec(init_steps@) =~= build_full_plan(...)
+        let init_len = (init_steps@.len() - solver_plan@.len()) as int;
+        let init_part = init_steps@.take(init_len);
+        let solver_part = init_steps@.skip(init_len);
+
+        // plan_to_spec distributes: plan_to_spec(init ++ solver) == plan_to_spec(init) ++ plan_to_spec(solver)
+        assert(init_steps@ =~= init_part + solver_part);
+        lemma_plan_to_spec_concat(init_part, solver_part);
+
+        // plan_to_spec(init_part) =~= initial_point_steps(pts_spec, flags)
+        // plan_to_spec(solver_part) =~= plan_to_spec(solver_plan@)
+        assert forall|k: int| 0 <= k < solver_part.len()
+        implies plan_to_spec(solver_part)[k] == plan_to_spec(solver_plan@)[k]
+        by {
+            assert(solver_part[k] == init_steps@[init_len + k]);
+            assert(solver_part[k].spec_step() == solver_plan@[k].spec_step());
+        }
+        assert(plan_to_spec(solver_part) =~= plan_to_spec(solver_plan@));
+    }
+
+    init_steps
 }
 
 // ===========================================================================
