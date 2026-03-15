@@ -332,6 +332,52 @@ proof fn lemma_initial_steps_flags_true(
     }
 }
 
+/// Converse of lemma_initial_steps_flags_true: if flags[id] == true, then id
+/// is a target of some initial step. Together with the forward direction, this
+/// gives: flags[id] <==> id is an init step target.
+proof fn lemma_initial_steps_cover_flags(
+    points: Seq<Point2<RationalModel>>,
+    flags: Seq<bool>,
+    id: nat,
+)
+    requires
+        points.len() == flags.len(),
+        (id as int) < points.len(),
+        flags[id as int],
+    ensures
+        exists|i: int| 0 <= i < initial_point_steps(points, flags).len()
+            && step_target(initial_point_steps(points, flags)[i]) == id,
+    decreases points.len(),
+{
+    let n = (points.len() - 1) as int;
+    let full = initial_point_steps(points, flags);
+    let prefix = initial_point_steps(points.take(n), flags.take(n));
+
+    if id as int == n {
+        // flags[n] == true, so full = prefix.push(PointStep { id: n, ... })
+        // The last step has target n == id
+        assert(full == prefix.push(ConstructionStep::PointStep {
+            id: n as nat, position: points[n],
+        }));
+        let last = full.len() - 1;
+        assert(step_target(full[last]) == id);
+    } else {
+        // id < n, recurse on prefix
+        assert(flags.take(n)[id as int] == flags[id as int]);
+        lemma_initial_steps_cover_flags(points.take(n), flags.take(n), id);
+        let i = choose|i: int| 0 <= i < prefix.len()
+            && step_target(prefix[i]) == id;
+        if flags[n] {
+            // full = prefix.push(...)  → full[i] == prefix[i]
+            assert(full[i] == prefix[i]);
+        } else {
+            // full == prefix (no new step added)
+            assert(full =~= prefix);
+        }
+        assert(step_target(full[i]) == id);
+    }
+}
+
 /// Runtime check: all solver step targets have initial_flags[target] == false.
 /// Needed to prove distinct_targets(full_plan) (no overlap between init and solver targets).
 fn check_solver_targets_unresolved(
@@ -362,6 +408,152 @@ fn check_solver_targets_unresolved(
             return false;
         }
         j = j + 1;
+    }
+    true
+}
+
+/// Runtime check: every constraint entity is either resolved (initial_flags)
+/// or a solver step target. Ensures entity coverage for the full plan.
+fn check_entity_coverage_exec(
+    plan: &Vec<RuntimeStepData>,
+    constraints: &Vec<RuntimeConstraint>,
+    initial_flags: &Vec<bool>,
+) -> (out: bool)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (step_target((#[trigger] plan@[i]).spec_step()) as int) < initial_flags@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], initial_flags@.len() as nat),
+    ensures
+        out ==> forall|ci: int| 0 <= ci < constraints@.len() ==>
+            forall|id: EntityId|
+                constraint_entities(
+                    runtime_constraint_model(#[trigger] constraints@[ci])).contains(id) ==>
+                ((id as int) < initial_flags@.len() && (
+                    initial_flags@[id as int]
+                    || exists|j: int| 0 <= j < plan@.len()
+                        && step_target(plan@[j].spec_step()) == id
+                )),
+{
+    let n = initial_flags.len();
+
+    // Build coverage vector: starts as copy of initial_flags
+    let mut covered: Vec<bool> = Vec::new();
+    let mut i: usize = 0;
+    while i < n
+        invariant
+            i <= n,
+            n == initial_flags@.len(),
+            covered@.len() == i as int,
+            forall|k: int| 0 <= k < i ==> #[trigger] covered@[k] == initial_flags@[k],
+        decreases n - i,
+    {
+        covered.push(initial_flags[i]);
+        i = i + 1;
+    }
+
+    // Mark all solver step targets as covered
+    let mut j: usize = 0;
+    while j < plan.len()
+        invariant
+            j <= plan@.len(),
+            covered@.len() == n as int,
+            forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+            forall|i: int| 0 <= i < plan@.len() ==>
+                (step_target((#[trigger] plan@[i]).spec_step()) as int) < n,
+            // Every covered entry is justified
+            forall|k: int| 0 <= k < n ==>
+                #[trigger] covered@[k] ==> (
+                    initial_flags@[k]
+                    || exists|jj: int| 0 <= jj < j
+                        && step_target(plan@[jj].spec_step()) == k as nat),
+            // All step targets so far are covered
+            forall|jj: int| 0 <= jj < j ==>
+                covered@[step_target(plan@[jj].spec_step()) as int],
+        decreases plan@.len() - j,
+    {
+        let target = plan[j].target_id();
+        let mut old_val = true;
+        covered.set_and_swap(target, &mut old_val);
+        proof {
+            // The new covered[target] is justified by step j
+            assert(step_target(plan@[j as int].spec_step()) == target as nat);
+        }
+        j = j + 1;
+    }
+
+    // Check all constraint entities are covered
+    let mut ci: usize = 0;
+    while ci < constraints.len()
+        invariant
+            ci <= constraints@.len(),
+            covered@.len() == n as int,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n as nat),
+            forall|k: int| 0 <= k < n ==>
+                #[trigger] covered@[k] ==> (
+                    initial_flags@[k]
+                    || exists|jj: int| 0 <= jj < plan@.len()
+                        && step_target(plan@[jj].spec_step()) == k as nat),
+            // All constraints checked so far have coverage
+            forall|ci2: int| 0 <= ci2 < ci ==>
+                forall|id: EntityId|
+                    constraint_entities(
+                        runtime_constraint_model(#[trigger] constraints@[ci2])).contains(id) ==>
+                    ((id as int) < n && (
+                        initial_flags@[id as int]
+                        || exists|j: int| 0 <= j < plan@.len()
+                            && step_target(plan@[j].spec_step()) == id
+                    )),
+        decreases constraints@.len() - ci,
+    {
+        let ids = constraint_entity_ids(&constraints[ci], n);
+        let mut k: usize = 0;
+        while k < ids.len()
+            invariant
+                k <= ids@.len(),
+                covered@.len() == n as int,
+                forall|j: int| 0 <= j < ids@.len() ==>
+                    constraint_entities(runtime_constraint_model(constraints@[ci as int]))
+                        .contains(#[trigger] ids@[j] as nat),
+                forall|j: int| 0 <= j < ids@.len() ==>
+                    (#[trigger] ids@[j] as int) < n,
+                forall|kk: int| 0 <= kk < n ==>
+                    #[trigger] covered@[kk] ==> (
+                        initial_flags@[kk]
+                        || exists|jj: int| 0 <= jj < plan@.len()
+                            && step_target(plan@[jj].spec_step()) == kk as nat),
+                // All checked entity IDs so far are covered
+                forall|j: int| 0 <= j < k ==>
+                    covered@[ids@[j] as int],
+            decreases ids@.len() - k,
+        {
+            if !covered[ids[k]] {
+                return false;
+            }
+            k = k + 1;
+        }
+        // Now we know all entity IDs in the Vec are covered.
+        // Transfer from Vec coverage to constraint_entities coverage.
+        proof {
+            assert forall|id: EntityId|
+                constraint_entities(
+                    runtime_constraint_model(constraints@[ci as int])).contains(id)
+            implies
+                ((id as int) < n && (
+                    initial_flags@[id as int]
+                    || exists|j: int| 0 <= j < plan@.len()
+                        && step_target(plan@[j].spec_step()) == id
+                ))
+            by {
+                // constraint_entity_ids backward: e ∈ constraint_entities → exists j, ids[j] == e
+                let j = choose|j: int| 0 <= j < ids@.len() && ids@[j] as nat == id;
+                // covered[ids[j]] == true → covered[id] == true
+                assert(covered@[ids@[j] as int]);
+            }
+        }
+        ci = ci + 1;
     }
     true
 }
@@ -1118,6 +1310,15 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
             continue;
         }
 
+        // Step 1c: Check entity coverage
+        let coverage_ok = check_entity_coverage_exec(
+            &variants[vi], constraints, initial_flags,
+        );
+        if !coverage_ok {
+            vi = vi + 1;
+            continue;
+        }
+
         // Step 2: Execute the solver plan to get results
         let results = execute_plan_runtime::<R>(&variants[vi]);
 
@@ -1215,13 +1416,46 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
             lemma_full_plan_independent(
                 pts_spec, initial_flags@, plan_spec, cstr_spec);
 
-            // PROOF DEBT: remaining conjuncts (3, 4, 9-12)
-            // 3: entity coverage, 4: locus ordered,
+            // === Prove conjunct 3: entity coverage ===
+            // From check_entity_coverage_exec: each entity is either flagged or a solver target.
+            // Show both cases imply membership in execute_plan(full_plan).dom().
+            assert forall|ci: int| 0 <= ci < cstr_spec.len()
+            implies constraint_entities(#[trigger] cstr_spec[ci])
+                .subset_of(execute_plan(full_plan).dom())
+            by {
+                assert forall|id: EntityId|
+                    constraint_entities(cstr_spec[ci]).contains(id)
+                implies execute_plan(full_plan).dom().contains(id)
+                by {
+                    // cstr_spec[ci] == runtime_constraint_model(constraints@[ci])
+                    assert(cstr_spec[ci] == runtime_constraint_model(constraints@[ci as int]));
+                    // From check_entity_coverage_exec: flags[id] || exists j, target(plan[j]) == id
+                    if initial_flags@[id as int] {
+                        // id is a target of some init step
+                        lemma_initial_steps_cover_flags(pts_spec, initial_flags@, id);
+                        let i = choose|i: int| 0 <= i < init_steps.len()
+                            && step_target(init_steps[i]) == id;
+                        // init_steps[i] == full_plan[i]
+                        assert(full_plan[i] == init_steps[i]);
+                        lemma_execute_plan_dom::<RationalModel>(full_plan, id);
+                    } else {
+                        // id is a solver step target (from check_entity_coverage_exec)
+                        let j = choose|j: int| 0 <= j < variants@[vi as int]@.len()
+                            && step_target(variants@[vi as int]@[j].spec_step()) == id;
+                        // Connect to plan_spec via Seq::new
+                        assert(plan_spec[j] == variants@[vi as int]@[j].spec_step());
+                        assert(step_target(plan_spec[j]) == id);
+                        // full_plan[init_len + j] == plan_spec[j]
+                        assert(full_plan[init_len + j] == plan_spec[j]);
+                        lemma_execute_plan_dom::<RationalModel>(full_plan, id);
+                    }
+                }
+            }
+
+            // PROOF DEBT: remaining conjuncts (4, 9-12)
+            // 4: locus ordered,
             // 9: at_most_two_nontrivial_loci, 10: step satisfaction,
             // 11: step loci match geometry, 12: nondegeneracy
-            assume(forall|ci: int| 0 <= ci < cstr_spec.len() ==>
-                constraint_entities(#[trigger] cstr_spec[ci])
-                    .subset_of(execute_plan(full_plan).dom()));
             assume(plan_locus_ordered(full_plan, cstr_spec));
             assume(forall|si: int| #![trigger full_plan[si]]
                 0 <= si < full_plan.len() ==>

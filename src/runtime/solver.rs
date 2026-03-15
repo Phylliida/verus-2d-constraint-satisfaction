@@ -1445,7 +1445,7 @@ fn check_at_most_two_nontrivial_exec(
 // ===========================================================================
 
 /// Helper: get all entity IDs of a runtime constraint as a small Vec.
-fn constraint_entity_ids(rc: &RuntimeConstraint, n_points: usize) -> (out: Vec<usize>)
+pub fn constraint_entity_ids(rc: &RuntimeConstraint, n_points: usize) -> (out: Vec<usize>)
     requires runtime_constraint_wf(*rc, n_points as nat),
     ensures
         // Forward: all Vec elements are in constraint_entities
