@@ -659,6 +659,35 @@ pub proof fn lemma_locus_eqv_symmetric<T: OrderedField>(
     }
 }
 
+/// lift_locus preserves locus_eqv: if l1 ≈ l2 then lift(l1) ≈ lift(l2).
+pub proof fn lemma_lift_locus_preserves_eqv<F: OrderedField, R: PositiveRadicand<F>>(
+    l1: Locus2d<F>, l2: Locus2d<F>,
+)
+    requires locus_eqv(l1, l2),
+    ensures locus_eqv(
+        lift_locus::<F, R>(l1),
+        lift_locus::<F, R>(l2)),
+{
+    match (l1, l2) {
+        (Locus2d::FullPlane, Locus2d::FullPlane) => {}
+        (Locus2d::OnLine(a), Locus2d::OnLine(b)) => {
+            lemma_rational_congruence::<F, R>(a.a, b.a);
+            lemma_rational_congruence::<F, R>(a.b, b.b);
+            lemma_rational_congruence::<F, R>(a.c, b.c);
+        }
+        (Locus2d::OnCircle(a), Locus2d::OnCircle(b)) => {
+            lemma_rational_congruence::<F, R>(a.center.x, b.center.x);
+            lemma_rational_congruence::<F, R>(a.center.y, b.center.y);
+            lemma_rational_congruence::<F, R>(a.radius_sq, b.radius_sq);
+        }
+        (Locus2d::AtPoint(a), Locus2d::AtPoint(b)) => {
+            lemma_rational_congruence::<F, R>(a.x, b.x);
+            lemma_rational_congruence::<F, R>(a.y, b.y);
+        }
+        _ => {}
+    }
+}
+
 /// Point congruence for locus satisfaction: if p ≡ q and p satisfies locus,
 /// then q satisfies locus.
 pub proof fn lemma_point_satisfies_locus_congruent<T: OrderedField>(
@@ -3335,16 +3364,16 @@ proof fn lemma_circle_step_ext_single<R: PositiveRadicand<RationalModel>>(
         locus_is_nontrivial(constraint_to_locus(
             lift_constraint::<RationalModel, R>(base_c), ext_resolved,
             step_target(base_step))),
-        // Base locus matches step geometry
+        // Base locus matches step geometry (up to eqv)
         {
             let base_locus = constraint_to_locus(base_c, base_resolved, step_target(base_step));
             match base_step {
                 ConstructionStep::CircleLine { circle, line, .. } =>
-                    base_locus == Locus2d::OnCircle(circle)
-                    || base_locus == Locus2d::OnLine(line),
+                    locus_eqv(base_locus, Locus2d::OnCircle(circle))
+                    || locus_eqv(base_locus, Locus2d::OnLine(line)),
                 ConstructionStep::CircleCircle { circle1, circle2, .. } =>
-                    base_locus == Locus2d::OnCircle(circle1)
-                    || base_locus == Locus2d::OnCircle(circle2),
+                    locus_eqv(base_locus, Locus2d::OnCircle(circle1))
+                    || locus_eqv(base_locus, Locus2d::OnCircle(circle2)),
                 _ => false,
             }
         },
@@ -3387,36 +3416,47 @@ proof fn lemma_circle_step_ext_single<R: PositiveRadicand<RationalModel>>(
     // ext_locus ≈ lifted_base
 
     // lifted_base matches step's ext locus; execute_step satisfies it
+    // Now step_loci_match_geometry gives locus_eqv, so we chain:
+    //   ext_locus ≈ lifted_base ≈ lift(step_geom) → step satisfies ext_locus
     match base_step {
         ConstructionStep::CircleLine { circle, line, .. } => {
-            if base_locus == Locus2d::OnCircle(circle) {
+            if locus_eqv(base_locus, Locus2d::OnCircle(circle)) {
+                let step_locus = Locus2d::<RationalModel>::OnCircle(circle);
                 let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnCircle(
                     lift_circle2::<RationalModel, R>(circle));
-                assert(lifted_base == sl);
+                lemma_lift_locus_preserves_eqv::<RationalModel, R>(base_locus, step_locus);
+                // lift(base_locus) ≈ lift(OnCircle(circle)) == sl
+                lemma_locus_eqv_transitive(ext_locus, lifted_base, sl);
                 lemma_locus_eqv_symmetric(ext_locus, sl);
                 lemma_point_satisfies_locus_eqv(
                     sl, ext_locus, execute_step(lift_step));
             } else {
+                let step_locus = Locus2d::<RationalModel>::OnLine(line);
                 let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnLine(
                     lift_line2::<RationalModel, R>(line));
-                assert(lifted_base == sl);
+                lemma_lift_locus_preserves_eqv::<RationalModel, R>(base_locus, step_locus);
+                lemma_locus_eqv_transitive(ext_locus, lifted_base, sl);
                 lemma_locus_eqv_symmetric(ext_locus, sl);
                 lemma_point_satisfies_locus_eqv(
                     sl, ext_locus, execute_step(lift_step));
             }
         }
         ConstructionStep::CircleCircle { circle1, circle2, .. } => {
-            if base_locus == Locus2d::OnCircle(circle1) {
+            if locus_eqv(base_locus, Locus2d::OnCircle(circle1)) {
+                let step_locus = Locus2d::<RationalModel>::OnCircle(circle1);
                 let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnCircle(
                     lift_circle2::<RationalModel, R>(circle1));
-                assert(lifted_base == sl);
+                lemma_lift_locus_preserves_eqv::<RationalModel, R>(base_locus, step_locus);
+                lemma_locus_eqv_transitive(ext_locus, lifted_base, sl);
                 lemma_locus_eqv_symmetric(ext_locus, sl);
                 lemma_point_satisfies_locus_eqv(
                     sl, ext_locus, execute_step(lift_step));
             } else {
+                let step_locus = Locus2d::<RationalModel>::OnCircle(circle2);
                 let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnCircle(
                     lift_circle2::<RationalModel, R>(circle2));
-                assert(lifted_base == sl);
+                lemma_lift_locus_preserves_eqv::<RationalModel, R>(base_locus, step_locus);
+                lemma_locus_eqv_transitive(ext_locus, lifted_base, sl);
                 lemma_locus_eqv_symmetric(ext_locus, sl);
                 lemma_point_satisfies_locus_eqv(
                     sl, ext_locus, execute_step(lift_step));
@@ -3680,18 +3720,22 @@ pub open spec fn step_loci_match_geometry<T: OrderedField>(
             forall|ci: int| 0 <= ci < constraints.len()
                 && locus_is_nontrivial(
                     constraint_to_locus(#[trigger] constraints[ci], resolved, target))
-                ==> constraint_to_locus(constraints[ci], resolved, target)
-                        == Locus2d::OnCircle(circle)
-                    || constraint_to_locus(constraints[ci], resolved, target)
-                        == Locus2d::OnLine(line),
+                ==> locus_eqv(
+                        constraint_to_locus(constraints[ci], resolved, target),
+                        Locus2d::OnCircle(circle))
+                    || locus_eqv(
+                        constraint_to_locus(constraints[ci], resolved, target),
+                        Locus2d::OnLine(line)),
         ConstructionStep::CircleCircle { circle1, circle2, .. } =>
             forall|ci: int| 0 <= ci < constraints.len()
                 && locus_is_nontrivial(
                     constraint_to_locus(#[trigger] constraints[ci], resolved, target))
-                ==> constraint_to_locus(constraints[ci], resolved, target)
-                        == Locus2d::OnCircle(circle1)
-                    || constraint_to_locus(constraints[ci], resolved, target)
-                        == Locus2d::OnCircle(circle2),
+                ==> locus_eqv(
+                        constraint_to_locus(constraints[ci], resolved, target),
+                        Locus2d::OnCircle(circle1))
+                    || locus_eqv(
+                        constraint_to_locus(constraints[ci], resolved, target),
+                        Locus2d::OnCircle(circle2)),
         _ => true,
     }
 }
@@ -4270,28 +4314,49 @@ proof fn lemma_det_step_circle_ci<R: PositiveRadicand<RationalModel>>(
     // Geometric loci satisfaction
     lemma_execute_step_in_ext_satisfies_loci::<RationalModel, R>(plan[si]);
 
-    // base_locus is OnCircle or OnLine matching the step (by step_loci_match_geometry)
+    // base_locus ≈ OnCircle/OnLine matching the step (by step_loci_match_geometry)
+    // Chain: det_locus ≈ lifted_base ≈ lift(step_geom) = sl, then transfer from sl
     match plan[si] {
         ConstructionStep::CircleLine { circle, line, .. } => {
-            if base_locus == Locus2d::OnCircle(circle) {
-                // lifted = OnCircle(lift_circle2(circle)), p on circle ✓
+            if locus_eqv(base_locus, Locus2d::OnCircle(circle)) {
+                let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnCircle(
+                    lift_circle2::<RationalModel, R>(circle));
+                lemma_lift_locus_preserves_eqv::<RationalModel, R>(
+                    base_locus, Locus2d::OnCircle(circle));
+                lemma_locus_eqv_transitive(det_locus, lifted_base_locus, sl);
+                lemma_locus_eqv_symmetric(det_locus, sl);
+                lemma_point_satisfies_locus_eqv(sl, det_locus, p);
             } else {
-                assert(base_locus == Locus2d::OnLine(line));
-                // lifted = OnLine(lift_line2(line)), p on line ✓
+                let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnLine(
+                    lift_line2::<RationalModel, R>(line));
+                lemma_lift_locus_preserves_eqv::<RationalModel, R>(
+                    base_locus, Locus2d::OnLine(line));
+                lemma_locus_eqv_transitive(det_locus, lifted_base_locus, sl);
+                lemma_locus_eqv_symmetric(det_locus, sl);
+                lemma_point_satisfies_locus_eqv(sl, det_locus, p);
             }
         }
         ConstructionStep::CircleCircle { circle1, circle2, .. } => {
-            if base_locus == Locus2d::OnCircle(circle1) {
+            if locus_eqv(base_locus, Locus2d::OnCircle(circle1)) {
+                let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnCircle(
+                    lift_circle2::<RationalModel, R>(circle1));
+                lemma_lift_locus_preserves_eqv::<RationalModel, R>(
+                    base_locus, Locus2d::OnCircle(circle1));
+                lemma_locus_eqv_transitive(det_locus, lifted_base_locus, sl);
+                lemma_locus_eqv_symmetric(det_locus, sl);
+                lemma_point_satisfies_locus_eqv(sl, det_locus, p);
             } else {
-                assert(base_locus == Locus2d::OnCircle(circle2));
+                let sl = Locus2d::<SpecQuadExt<RationalModel, R>>::OnCircle(
+                    lift_circle2::<RationalModel, R>(circle2));
+                lemma_lift_locus_preserves_eqv::<RationalModel, R>(
+                    base_locus, Locus2d::OnCircle(circle2));
+                lemma_locus_eqv_transitive(det_locus, lifted_base_locus, sl);
+                lemma_locus_eqv_symmetric(det_locus, sl);
+                lemma_point_satisfies_locus_eqv(sl, det_locus, p);
             }
         }
         _ => {} // Not reached
     }
-
-    // Transfer via locus_eqv
-    lemma_locus_eqv_symmetric(det_locus, lifted_base_locus);
-    lemma_point_satisfies_locus_eqv(lifted_base_locus, det_locus, p);
 }
 
 /// Each step of det_plan satisfies all constraint loci.
