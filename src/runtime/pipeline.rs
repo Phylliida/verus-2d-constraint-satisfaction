@@ -1741,7 +1741,6 @@ fn build_full_plan_runtime(
             i <= n,
             n == initial_points@.len(),
             n == initial_flags@.len(),
-            pts_spec == points_view(initial_points@),
             pts_spec.len() == n as int,
             all_points_wf(initial_points@),
             plan_to_spec(init_steps@) =~=
@@ -1755,18 +1754,22 @@ fn build_full_plan_runtime(
         if initial_flags[i] {
             let x = copy_rational(&initial_points[i].x);
             let y = copy_rational(&initial_points[i].y);
+            let ghost pos_i = initial_points@[i as int]@;
             let step = RuntimeStepData::PointStep {
                 target: i,
                 x, y,
                 model: Ghost(ConstructionStep::PointStep {
                     id: i as nat,
-                    position: pts_spec[i as int],
+                    position: pos_i,
                 }),
             };
             proof {
-                // wf_spec: chain x@/y@ → pts_spec[i].x/y via point wf + points_view
+                // wf_spec: x@/y@ match position via point wf_spec
                 assert(initial_points@[i as int].wf_spec());
                 assert(step.wf_spec());
+
+                // Connect pos_i to pts_spec[i] for the invariant
+                assert(pos_i == points_view(initial_points@)[i as int]);
 
                 // Show plan_to_spec(init_steps@.push(step))
                 //   == plan_to_spec(init_steps@).push(step.spec_step())
