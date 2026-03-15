@@ -210,6 +210,44 @@ proof fn lemma_initial_steps_are_rational(
     }
 }
 
+/// Initial steps are all PointSteps, hence trivially geometrically valid,
+/// have positive discriminant, and match any radicand.
+proof fn lemma_initial_steps_trivial_properties<R: PositiveRadicand<RationalModel>>(
+    points: Seq<Point2<RationalModel>>,
+    flags: Seq<bool>,
+)
+    requires points.len() == flags.len(),
+    ensures
+        forall|i: int|
+            0 <= i < initial_point_steps(points, flags).len() ==> {
+                let step = #[trigger] initial_point_steps(points, flags)[i];
+                step_geometrically_valid(step)
+                && step_has_positive_discriminant(step)
+                && step_radicand_matches::<R>(step)
+            },
+    decreases points.len(),
+{
+    if points.len() > 0 {
+        let n = (points.len() - 1) as int;
+        let prefix = initial_point_steps(points.take(n), flags.take(n));
+        let full = initial_point_steps(points, flags);
+        lemma_initial_steps_trivial_properties::<R>(points.take(n), flags.take(n));
+        if flags[n] {
+            assert forall|i: int| 0 <= i < full.len()
+            implies {
+                let step = #[trigger] full[i];
+                step_geometrically_valid(step)
+                && step_has_positive_discriminant(step)
+                && step_radicand_matches::<R>(step)
+            } by {
+                if i < prefix.len() as int {
+                    assert(full[i] == prefix[i]);
+                }
+            }
+        }
+    }
+}
+
 /// For each initial step, execute_step_in_ext gives lift_point2(points[target]).
 /// This holds because every initial step is a PointStep with position = points[id].
 proof fn lemma_initial_steps_execute_in_ext<R: PositiveRadicand<RationalModel>>(
@@ -257,6 +295,75 @@ proof fn lemma_initial_steps_execute_in_ext<R: PositiveRadicand<RationalModel>>(
         }
         // !flags[n]: full == prefix, IH applies (with take/full equiv)
     }
+}
+
+/// Initial step targets always have flags[target] == true.
+proof fn lemma_initial_steps_flags_true(
+    points: Seq<Point2<RationalModel>>,
+    flags: Seq<bool>,
+)
+    requires points.len() == flags.len(),
+    ensures
+        forall|i: int|
+            0 <= i < initial_point_steps(points, flags).len() ==>
+            flags[step_target(#[trigger] initial_point_steps(points, flags)[i]) as int],
+    decreases points.len(),
+{
+    if points.len() > 0 {
+        let n = (points.len() - 1) as int;
+        let prefix = initial_point_steps(points.take(n), flags.take(n));
+        let full = initial_point_steps(points, flags);
+        lemma_initial_steps_flags_true(points.take(n), flags.take(n));
+        lemma_initial_steps_targets_bounded(points.take(n), flags.take(n));
+
+        if flags[n] {
+            assert forall|i: int| 0 <= i < full.len()
+            implies flags[step_target(#[trigger] full[i]) as int]
+            by {
+                if i < prefix.len() as int {
+                    assert(full[i] == prefix[i]);
+                    // IH: flags.take(n)[step_target(prefix[i])] == true
+                    // step_target(prefix[i]) < n, so flags.take(n)[target] == flags[target]
+                }
+                // else: full[i] = PointStep { id: n, .. }, flags[n] == true
+            }
+        }
+        // !flags[n]: full == prefix, IH applies
+    }
+}
+
+/// Runtime check: all solver step targets have initial_flags[target] == false.
+/// Needed to prove distinct_targets(full_plan) (no overlap between init and solver targets).
+fn check_solver_targets_unresolved(
+    plan: &Vec<RuntimeStepData>,
+    flags: &Vec<bool>,
+) -> (out: bool)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (step_target((#[trigger] plan@[i]).spec_step()) as int) < flags@.len(),
+    ensures
+        out ==> forall|j: int| 0 <= j < plan@.len() ==>
+            !(#[trigger] flags@[step_target(plan@[j].spec_step()) as int]),
+{
+    let mut j: usize = 0;
+    while j < plan.len()
+        invariant
+            j <= plan@.len(),
+            forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+            forall|i: int| 0 <= i < plan@.len() ==>
+                (step_target((#[trigger] plan@[i]).spec_step()) as int) < flags@.len(),
+            forall|k: int| 0 <= k < j ==>
+                !(#[trigger] flags@[step_target(plan@[k].spec_step()) as int]),
+        decreases plan@.len() - j,
+    {
+        let tid = plan[j].target_id();
+        if flags[tid] {
+            return false;
+        }
+        j = j + 1;
+    }
+    true
 }
 
 /// circle_targets of the full plan equals circle_targets of the solver plan
@@ -735,6 +842,131 @@ proof fn lemma_ext_vec_agrees_with_plan<R: PositiveRadicand<RationalModel>>(
     }
 }
 
+/// Extend is_fully_independent_plan from solver plan to full plan.
+/// Key idea: circle_targets(full_plan) == circle_targets(solver_plan),
+/// and entities in the domain at any step are either init targets (not circle targets,
+/// since they're PointSteps) or solver targets (covered by solver independence).
+proof fn lemma_full_plan_independent(
+    pts: Seq<Point2<RationalModel>>,
+    flags: Seq<bool>,
+    solver_plan: ConstructionPlan<RationalModel>,
+    cstr_spec: Seq<Constraint<RationalModel>>,
+)
+    requires
+        pts.len() == flags.len(),
+        is_fully_independent_plan(solver_plan, cstr_spec),
+        // Full plan has distinct targets
+        forall|i: int, j: int|
+            0 <= i < build_full_plan(pts, flags, solver_plan).len()
+            && 0 <= j < build_full_plan(pts, flags, solver_plan).len()
+            && i != j ==>
+            step_target(build_full_plan(pts, flags, solver_plan)[i])
+                != step_target(build_full_plan(pts, flags, solver_plan)[j]),
+        // Solver targets have flags == false
+        forall|j: int| 0 <= j < solver_plan.len() ==>
+            !(#[trigger] flags[step_target(solver_plan[j]) as int]),
+        // Init targets have flags == true
+        forall|i: int|
+            0 <= i < initial_point_steps(pts, flags).len() ==>
+            flags[step_target(#[trigger] initial_point_steps(pts, flags)[i]) as int],
+        // All init steps are rational
+        forall|i: int|
+            0 <= i < initial_point_steps(pts, flags).len() ==>
+            is_rational_step(#[trigger] initial_point_steps(pts, flags)[i]),
+        // Solver targets bounded
+        forall|j: int| 0 <= j < solver_plan.len() ==>
+            (step_target(#[trigger] solver_plan[j]) as int) < flags.len(),
+        // Init targets bounded
+        forall|i: int|
+            0 <= i < initial_point_steps(pts, flags).len() ==>
+            (step_target(#[trigger] initial_point_steps(pts, flags)[i]) as int) < flags.len(),
+    ensures
+        is_fully_independent_plan(build_full_plan(pts, flags, solver_plan), cstr_spec),
+{
+    let full_plan = build_full_plan(pts, flags, solver_plan);
+    let init_steps = initial_point_steps(pts, flags);
+    let init_len: int = init_steps.len() as int;
+
+    lemma_full_plan_circle_targets(pts, flags, solver_plan);
+    // Now: circle_targets(full_plan) =~= circle_targets(solver_plan)
+
+    assert forall|i: int| #![trigger full_plan[i]]
+        0 <= i < full_plan.len()
+    implies {
+        let target = step_target(full_plan[i]);
+        forall|ci: int| #![trigger cstr_spec[ci]]
+            0 <= ci < cstr_spec.len()
+            && constraint_entities(cstr_spec[ci]).contains(target)
+            ==> forall|e: EntityId|
+                constraint_entities(cstr_spec[ci]).contains(e) && e != target
+                && execute_plan(full_plan.take(i)).dom().contains(e)
+                ==> !circle_targets(full_plan).contains(e)
+    } by {
+        let target = step_target(full_plan[i]);
+        assert forall|ci: int| #![trigger cstr_spec[ci]]
+            0 <= ci < cstr_spec.len()
+            && constraint_entities(cstr_spec[ci]).contains(target)
+        implies forall|e: EntityId|
+            constraint_entities(cstr_spec[ci]).contains(e) && e != target
+            && execute_plan(full_plan.take(i)).dom().contains(e)
+            ==> !circle_targets(full_plan).contains(e)
+        by {
+            assert forall|e: EntityId|
+                constraint_entities(cstr_spec[ci]).contains(e) && e != target
+                && execute_plan(full_plan.take(i)).dom().contains(e)
+            implies !circle_targets(full_plan).contains(e)
+            by {
+                // e is in the domain: there exists j < i with step_target(full_plan[j]) == e
+                lemma_execute_plan_dom::<RationalModel>(full_plan.take(i), e);
+                let j = choose|j: int| 0 <= j < full_plan.take(i).len()
+                    && step_target(#[trigger] full_plan.take(i)[j]) == e;
+                assert(full_plan.take(i)[j] == full_plan[j]);
+                assert(step_target(full_plan[j]) == e);
+
+                if j < init_len {
+                    // e is an init target → flags[e] == true
+                    assert(full_plan[j] == init_steps[j]);
+                    assert(flags[e as int]);
+                    // circle targets are solver targets → flags == false
+                    // So e ∉ circle_targets
+                    if circle_targets(full_plan).contains(e) {
+                        // exists k with !is_rational(full_plan[k]) && target(full_plan[k]) == e
+                        let k = choose|k: int| 0 <= k < full_plan.len()
+                            && !is_rational_step(#[trigger] full_plan[k])
+                            && step_target(full_plan[k]) == e;
+                        // k must be >= init_len (all init steps are rational)
+                        if k < init_len {
+                            assert(full_plan[k] == init_steps[k]);
+                        }
+                        // So k >= init_len → solver step → flags[e] == false
+                        assert(full_plan[k] == solver_plan[k - init_len]);
+                        assert(!flags[e as int]); // contradiction with flags[e] == true
+                    }
+                } else {
+                    // e is a solver target. j >= init_len, j' = j - init_len.
+                    let j_solver = j - init_len;
+                    assert(full_plan[j] == solver_plan[j_solver]);
+
+                    if i < init_len {
+                        // impossible: j < i < init_len, but we're in j >= init_len case
+                        assert(false);
+                    }
+
+                    // i >= init_len, solver step at i' = i - init_len
+                    let i_solver = i - init_len;
+                    // e in execute_plan(solver_plan.take(i_solver)).dom()
+                    assert(j_solver < i_solver);
+                    assert(solver_plan.take(i_solver)[j_solver] == solver_plan[j_solver]);
+                    lemma_execute_plan_dom::<RationalModel>(solver_plan.take(i_solver), e);
+
+                    // From solver independence: e ∉ circle_targets(solver_plan)
+                    // circle_targets(full_plan) =~= circle_targets(solver_plan)
+                }
+            }
+        }
+    }
+}
+
 /// Transfer constraint_satisfied for verification constraints between
 /// two resolved maps that agree on all constraint entity IDs.
 proof fn lemma_verification_constraint_transfer<R: PositiveRadicand<RationalModel>>(
@@ -877,6 +1109,15 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
             continue;
         }
 
+        // Step 1b: Check solver targets are unresolved (for distinct_targets proof)
+        let targets_unresolved = check_solver_targets_unresolved(
+            &variants[vi], initial_flags,
+        );
+        if !targets_unresolved {
+            vi = vi + 1;
+            continue;
+        }
+
         // Step 2: Execute the solver plan to get results
         let results = execute_plan_runtime::<R>(&variants[vi]);
 
@@ -902,8 +1143,108 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
             let init_steps = initial_point_steps(pts_spec, initial_flags@);
             let init_len = init_steps.len() as int;
 
-            // PROOF DEBT: assume #1 remains (Phase B will reduce to conjuncts 9-12)
-            assume(plan_structurally_sound::<R>(full_plan, cstr_spec));
+            // === Prove structural conjuncts 1, 2, 6, 7, 8 ===
+
+            // Conjunct 1: distinct_targets(full_plan)
+            lemma_initial_steps_distinct_targets(pts_spec, initial_flags@);
+            lemma_initial_steps_flags_true(pts_spec, initial_flags@);
+            lemma_initial_steps_targets_bounded(pts_spec, initial_flags@);
+            assert forall|i: int, j: int|
+                0 <= i < full_plan.len() && 0 <= j < full_plan.len() && i != j
+            implies step_target(full_plan[i]) != step_target(full_plan[j])
+            by {
+                if i < init_len && j < init_len {
+                    // Both init: from lemma_initial_steps_distinct_targets
+                    assert(full_plan[i] == init_steps[i]);
+                    assert(full_plan[j] == init_steps[j]);
+                } else if i >= init_len && j >= init_len {
+                    // Both solver: from precondition (solver distinct targets)
+                    assert(full_plan[i] == plan_spec[i - init_len]);
+                    assert(full_plan[j] == plan_spec[j - init_len]);
+                    assert(plan_spec[i - init_len]
+                        == variants@[vi as int]@[i - init_len].spec_step());
+                    assert(plan_spec[j - init_len]
+                        == variants@[vi as int]@[j - init_len].spec_step());
+                } else {
+                    // Cross: init target has flags == true, solver target has flags == false
+                    let (init_idx, solver_idx) = if i < init_len {
+                        (i, j - init_len)
+                    } else {
+                        (j, i - init_len)
+                    };
+                    let init_target = step_target(init_steps[init_idx]);
+                    let solver_step = plan_spec[solver_idx];
+                    assert(solver_step == variants@[vi as int]@[solver_idx].spec_step());
+                    // init target: flags[init_target] == true
+                    // solver target: flags[step_target(solver_step)] == false
+                    // (from check_solver_targets_unresolved)
+                    // So they can't be equal.
+                }
+            }
+
+            // Conjunct 2: constraint_well_formed
+            // (from verify_plan_soundness_exec ensures)
+
+            // Conjuncts 6, 7, 8: geometrically valid, positive discriminant, radicand matches
+            lemma_initial_steps_trivial_properties::<R>(pts_spec, initial_flags@);
+
+            // Prove each step property for the full plan
+            assert forall|j: int| #![trigger full_plan[j]]
+                0 <= j < full_plan.len()
+            implies step_geometrically_valid(full_plan[j])
+                && step_has_positive_discriminant(full_plan[j])
+                && step_radicand_matches::<R>(full_plan[j])
+            by {
+                if j < init_len {
+                    assert(full_plan[j] == init_steps[j]);
+                } else {
+                    assert(full_plan[j] == plan_spec[j - init_len]);
+                    assert(plan_spec[j - init_len]
+                        == variants@[vi as int]@[j - init_len].spec_step());
+                }
+            }
+
+            // Conjunct 5: is_fully_independent_plan(full_plan, cstr_spec)
+            lemma_initial_steps_are_rational(pts_spec, initial_flags@);
+            // Solver targets have flags == false: connect plan_spec to solver_plan
+            assert forall|j: int| 0 <= j < plan_spec.len()
+            implies !(#[trigger] initial_flags@[step_target(plan_spec[j]) as int])
+            by {
+                assert(plan_spec[j] == variants@[vi as int]@[j].spec_step());
+            }
+            lemma_full_plan_independent(
+                pts_spec, initial_flags@, plan_spec, cstr_spec);
+
+            // PROOF DEBT: remaining conjuncts (3, 4, 9-12)
+            // 3: entity coverage, 4: locus ordered,
+            // 9: at_most_two_nontrivial_loci, 10: step satisfaction,
+            // 11: step loci match geometry, 12: nondegeneracy
+            assume(forall|ci: int| 0 <= ci < cstr_spec.len() ==>
+                constraint_entities(#[trigger] cstr_spec[ci])
+                    .subset_of(execute_plan(full_plan).dom()));
+            assume(plan_locus_ordered(full_plan, cstr_spec));
+            assume(forall|si: int| #![trigger full_plan[si]]
+                0 <= si < full_plan.len() ==>
+                at_most_two_nontrivial_loci(
+                    step_target(full_plan[si]), cstr_spec,
+                    execute_plan(full_plan.take(si as int)).dom()));
+            assume(forall|si: int| #![trigger full_plan[si]]
+                0 <= si < full_plan.len() && is_rational_step(full_plan[si]) ==>
+                step_satisfies_all_constraint_loci(
+                    full_plan[si], cstr_spec, execute_plan(full_plan.take(si as int))));
+            assume(forall|si: int| #![trigger full_plan[si]]
+                0 <= si < full_plan.len() && !is_rational_step(full_plan[si]) ==>
+                step_loci_match_geometry(
+                    full_plan[si], cstr_spec, execute_plan(full_plan.take(si as int))));
+            assume(forall|si: int, ci: int|
+                #![trigger full_plan[si], cstr_spec[ci]]
+                0 <= si < full_plan.len() && 0 <= ci < cstr_spec.len() ==>
+                constraint_locus_nondegenerate(
+                    cstr_spec[ci], execute_plan(full_plan.take(si as int)),
+                    step_target(full_plan[si])));
+
+            // Combine proved + assumed conjuncts into plan_structurally_sound
+            assert(plan_structurally_sound::<R>(full_plan, cstr_spec));
 
             // === Phase A: Prove verification constraint satisfaction ===
 
