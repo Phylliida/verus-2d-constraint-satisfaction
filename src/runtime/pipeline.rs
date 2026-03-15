@@ -673,6 +673,44 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
             continue;
         }
 
+        // Step 3b: Formal bridge — all constraints satisfied at extension level.
+        // The det_plan trick (lemma_solver_to_soundness_det) proves that if
+        // plan_structurally_sound holds and verification constraints pass,
+        // then ALL constraints are satisfied against execute_plan_in_ext.
+        proof {
+            let plan_spec = plan_to_spec(variants@[vi as int]@);
+            let cstr_spec = constraints_to_spec(constraints@);
+            let pts_spec = points_view(initial_points@);
+            let full_plan = build_full_plan(pts_spec, initial_flags@, plan_spec);
+
+            // PROOF DEBT: These assumes bridge the gap between runtime validation
+            // and the spec-level predicates. The runtime checks in
+            // verify_plan_soundness_exec + check_step_satisfaction_replay_exec
+            // verify all 12 conjuncts of plan_structurally_sound, and
+            // check_all_verification_constraints_ext verifies constraint satisfaction,
+            // but their ensures don't yet propagate these facts to spec level.
+            //
+            // Eliminating these assumes requires:
+            //   (a) Connecting partial_resolved_map to execute_plan(full_plan.take(si))
+            //   (b) Propagating check_step_satisfaction_replay_exec results to spec
+            //   (c) Connecting build_ext_resolved_vec output to execute_plan_in_ext
+            assume(plan_structurally_sound::<R>(full_plan, cstr_spec));
+            assume(forall|ci: int| 0 <= ci < cstr_spec.len()
+                && is_verification_constraint(#[trigger] cstr_spec[ci])
+                ==> constraint_satisfied(
+                    lift_constraint::<RationalModel, R>(cstr_spec[ci]),
+                    execute_plan_in_ext::<RationalModel, R>(full_plan)));
+
+            // Formal bridge: derives ALL constraints satisfied from the two assumes above
+            lemma_solver_to_soundness_det::<R>(full_plan, cstr_spec);
+
+            // Conclusion (available here, not yet propagated to ensures):
+            // forall|ci| 0 <= ci < cstr_spec.len() ==>
+            //     constraint_satisfied(
+            //         lift_constraints::<RationalModel, R>(cstr_spec)[ci],
+            //         execute_plan_in_ext::<RationalModel, R>(full_plan))
+        }
+
         // Step 4: Package into VerifiedSolution
         let ghost cstr_spec = constraints_to_spec(constraints@);
         let solution = VerifiedSolution {

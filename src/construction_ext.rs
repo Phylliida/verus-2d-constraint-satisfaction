@@ -3861,4 +3861,593 @@ pub proof fn lemma_solver_to_soundness<R: PositiveRadicand<RationalModel>>(
     lemma_end_to_end(lift_plan_val, lift_constraints_val);
 }
 
+// ===========================================================================
+//  Deterministic plan bridge (det_plan trick)
+// ===========================================================================
+
+/// Convert all plan steps to PointStep with deterministic positions from execute_step_in_ext.
+/// `execute_plan(det_plan(plan))` equals `execute_plan_in_ext(plan)`.
+pub open spec fn det_plan<F: OrderedField, R: PositiveRadicand<F>>(
+    plan: ConstructionPlan<F>,
+) -> ConstructionPlan<SpecQuadExt<F, R>> {
+    Seq::new(plan.len() as nat, |i: int| ConstructionStep::PointStep {
+        id: step_target(plan[i]),
+        position: execute_step_in_ext::<F, R>(plan[i]),
+    })
+}
+
+/// execute_plan(det_plan(plan)) == execute_plan_in_ext(plan).
+pub proof fn lemma_det_plan_agrees<F: OrderedField, R: PositiveRadicand<F>>(
+    plan: ConstructionPlan<F>,
+)
+    ensures execute_plan(det_plan::<F, R>(plan)) =~= execute_plan_in_ext::<F, R>(plan),
+    decreases plan.len(),
+{
+    if plan.len() == 0 {
+        // Both empty maps
+    } else {
+        let prefix = plan.drop_last();
+        let step = plan.last();
+        let dp = det_plan::<F, R>(plan);
+
+        // Recurse on prefix
+        lemma_det_plan_agrees::<F, R>(prefix);
+
+        // Structural facts about det_plan
+        assert(dp.len() == plan.len());
+        assert(dp.drop_last() =~= det_plan::<F, R>(prefix));
+        assert(dp.last() == ConstructionStep::<SpecQuadExt<F, R>>::PointStep {
+            id: step_target(step),
+            position: execute_step_in_ext::<F, R>(step),
+        });
+
+        // execute_step(PointStep) = position = execute_step_in_ext(step)
+        // step_target(PointStep) = id = step_target(step)
+        // Both sides insert (step_target(step), execute_step_in_ext(step)) into equal maps
+    }
+}
+
+/// det_plan preserves plan_valid: all steps are well-formed PointSteps with distinct targets.
+proof fn lemma_det_plan_valid<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+)
+    requires plan_structurally_sound::<R>(plan, constraints),
+    ensures plan_valid(
+        det_plan::<RationalModel, R>(plan),
+        lift_constraints::<RationalModel, R>(constraints)),
+{
+    let dp = det_plan::<RationalModel, R>(plan);
+    let lc = lift_constraints::<RationalModel, R>(constraints);
+
+    // 1. Distinct targets: step_target(dp[i]) = step_target(plan[i])
+    assert forall|i: int, j: int|
+        0 <= i < dp.len() && 0 <= j < dp.len() && i != j
+    implies step_target(dp[i]) != step_target(dp[j])
+    by {
+        // dp[i].id = step_target(plan[i]), dp[j].id = step_target(plan[j])
+        // Distinct by plan_structurally_sound
+    };
+
+    // 2. Each step well-formed: step_well_formed(PointStep{..}) = true
+    assert forall|i: int| 0 <= i < dp.len()
+    implies step_well_formed(#[trigger] dp[i])
+    by {};
+}
+
+/// det_plan preserves plan_locus_ordered: targets match, so ordering transfers.
+proof fn lemma_det_plan_locus_ordered<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+)
+    requires
+        plan_locus_ordered(plan, constraints),
+    ensures
+        plan_locus_ordered(
+            det_plan::<RationalModel, R>(plan),
+            lift_constraints::<RationalModel, R>(constraints)),
+{
+    let dp = det_plan::<RationalModel, R>(plan);
+    let lc = lift_constraints::<RationalModel, R>(constraints);
+
+    assert forall|ci: int, si: int|
+        #![trigger dp[si], lc[ci]]
+        0 <= ci < lc.len() && 0 <= si < dp.len() &&
+        constraint_entities(lc[ci]).contains(step_target(dp[si])) &&
+        !constraint_locus_entities(lc[ci]).contains(step_target(dp[si]))
+    implies (
+        is_verification_constraint(lc[ci])
+        || exists|si_loc: int|
+            si < si_loc < dp.len() &&
+            constraint_locus_entities(lc[ci]).contains(step_target(dp[si_loc]))
+    )
+    by {
+        // step_target(dp[k]) = step_target(plan[k]) for all k
+        lemma_lift_constraint_entities::<RationalModel, R>(constraints[ci]);
+        lemma_lift_constraint_locus_entities::<RationalModel, R>(constraints[ci]);
+        lemma_lift_is_verification_constraint::<RationalModel, R>(constraints[ci]);
+
+        // Preconditions match original plan_locus_ordered
+        if is_verification_constraint(constraints[ci]) {
+        } else {
+            let si_loc = choose|si_loc: int|
+                si < si_loc < plan.len() &&
+                constraint_locus_entities(constraints[ci]).contains(
+                    step_target(plan[si_loc]));
+            // step_target(dp[si_loc]) = step_target(plan[si_loc])
+            assert(si_loc < dp.len());
+            assert(constraint_locus_entities(lc[ci]).contains(
+                step_target(dp[si_loc])));
+        }
+    };
+}
+
+/// For entries placed by rational steps, execute_plan_in_ext gives exactly lift_point2 of the
+/// base entry. This is structural equality (==), not just eqv.
+proof fn lemma_det_entries_eq_lift<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    si: int,
+)
+    requires
+        0 <= si <= plan.len(),
+        forall|i: int, j: int|
+            0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
+            step_target(plan[i]) != step_target(plan[j]),
+    ensures
+        forall|e: EntityId|
+            execute_plan_in_ext::<RationalModel, R>(plan.take(si)).dom().contains(e)
+            && (exists|j: int| 0 <= j < si && step_target(plan[j]) == e
+                && is_rational_step(plan[j]))
+            ==> execute_plan_in_ext::<RationalModel, R>(plan.take(si))[e]
+                == lift_point2::<RationalModel, R>(execute_plan(plan.take(si))[e]),
+    decreases si,
+{
+    if si == 0 {
+        // Empty prefix, vacuously true
+    } else {
+        lemma_det_entries_eq_lift::<R>(plan, si - 1);
+
+        let step = plan[si - 1];
+        let target = step_target(step);
+
+        assert(plan.take(si) == plan.take(si - 1).push(plan[si - 1]));
+        assert(plan.take(si).drop_last() =~= plan.take(si - 1));
+        assert(plan.take(si).last() == step);
+
+        lemma_execute_plan_in_ext_domain::<RationalModel, R>(plan.take(si - 1));
+
+        assert forall|e: EntityId|
+            execute_plan_in_ext::<RationalModel, R>(plan.take(si)).dom().contains(e)
+            && (exists|j: int| 0 <= j < si && step_target(plan[j]) == e
+                && is_rational_step(plan[j]))
+        implies execute_plan_in_ext::<RationalModel, R>(plan.take(si))[e]
+            == lift_point2::<RationalModel, R>(execute_plan(plan.take(si))[e])
+        by {
+            let j = choose|j: int| 0 <= j < si && step_target(plan[j]) == e
+                && is_rational_step(plan[j]);
+
+            if j == si - 1 {
+                // e == target: newly inserted entry
+                assert(e == target);
+                // execute_step_in_ext(step) == lift_point2(execute_step(step))
+                // for PointStep and LineLine (structural equality by definition)
+            } else {
+                // j < si - 1: entry from previous prefix
+                assert(step_target(plan[j]) != step_target(plan[si - 1]));
+                assert(e != target);
+                // Map::insert at target doesn't change entry at e
+                assert(execute_plan_in_ext::<RationalModel, R>(plan.take(si - 1))
+                    .dom().contains(e));
+                // By IH
+            }
+        };
+    }
+}
+
+/// For constraint-relevant entries, det_ext_resolved agrees with lift_resolved_map(base_resolved).
+proof fn lemma_det_entry_eqv<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+    si: int,
+    ci: int,
+)
+    requires
+        0 <= si < plan.len(),
+        0 <= ci < constraints.len(),
+        forall|i: int, j: int|
+            0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
+            step_target(plan[i]) != step_target(plan[j]),
+        forall|j: int| #![trigger plan[j]]
+            0 <= j < plan.len() ==> step_geometrically_valid(plan[j]),
+        is_fully_independent_plan(plan, constraints),
+        constraint_entities(constraints[ci]).contains(step_target(plan[si])),
+        execute_plan_in_ext::<RationalModel, R>(plan.take(si as int)).dom()
+            =~= execute_plan(plan.take(si as int)).dom(),
+    ensures
+        forall|e: EntityId|
+            constraint_entities(
+                lift_constraint::<RationalModel, R>(constraints[ci])).contains(e)
+            && e != step_target(plan[si])
+            && execute_plan_in_ext::<RationalModel, R>(plan.take(si as int)).dom().contains(e)
+            ==> execute_plan_in_ext::<RationalModel, R>(plan.take(si as int))[e].eqv(
+                lift_resolved_map::<RationalModel, R>(
+                    execute_plan(plan.take(si as int)))[e]),
+{
+    let target = step_target(plan[si]);
+    let base_resolved = execute_plan(plan.take(si as int));
+    let det_ext_resolved = execute_plan_in_ext::<RationalModel, R>(plan.take(si as int));
+
+    lemma_lift_resolved_map_dom::<RationalModel, R>(base_resolved);
+    lemma_lift_constraint_entities::<RationalModel, R>(constraints[ci]);
+    lemma_det_entries_eq_lift::<R>(plan, si);
+
+    assert forall|e: EntityId|
+        constraint_entities(
+            lift_constraint::<RationalModel, R>(constraints[ci])).contains(e)
+        && e != target
+        && det_ext_resolved.dom().contains(e)
+    implies det_ext_resolved[e].eqv(
+        lift_resolved_map::<RationalModel, R>(base_resolved)[e])
+    by {
+        assert(constraint_entities(constraints[ci]).contains(e));
+        assert(base_resolved.dom().contains(e));
+
+        // e is not a circle target (by is_fully_independent_plan)
+        lemma_execute_plan_dom::<RationalModel>(plan.take(si as int), e);
+        let j_witness = choose|j: int| 0 <= j < plan.take(si as int).len()
+            && step_target(plan.take(si as int)[j]) == e;
+        assert(0 <= j_witness < si);
+        assert(step_target(plan[j_witness]) == e);
+        assert(!circle_targets(plan).contains(e));
+        if !is_rational_step(plan[j_witness]) {
+            assert(circle_targets(plan).contains(e));
+        }
+        assert(is_rational_step(plan[j_witness]));
+
+        // Structural equality from lemma_det_entries_eq_lift
+        assert(det_ext_resolved[e]
+            == lift_point2::<RationalModel, R>(base_resolved[e]));
+        assert(lift_resolved_map::<RationalModel, R>(base_resolved)[e]
+            == lift_point2::<RationalModel, R>(base_resolved[e]));
+        Point2::<SpecQuadExt<RationalModel, R>>::axiom_eqv_reflexive(det_ext_resolved[e]);
+    };
+}
+
+/// Per-ci helper for rational steps: proves locus satisfaction via base-level lift.
+proof fn lemma_det_step_rational_ci<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+    si: int,
+    ci: int,
+)
+    requires
+        0 <= si < plan.len(),
+        0 <= ci < constraints.len(),
+        is_rational_step(plan[si]),
+        forall|i: int, j: int|
+            0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
+            step_target(plan[i]) != step_target(plan[j]),
+        constraint_well_formed(constraints[ci]),
+        forall|j: int| #![trigger plan[j]]
+            0 <= j < plan.len() ==> step_geometrically_valid(plan[j]),
+        is_fully_independent_plan(plan, constraints),
+        // Base satisfaction for this ci
+        point_satisfies_locus(
+            constraint_to_locus(constraints[ci],
+                execute_plan(plan.take(si as int)), step_target(plan[si])),
+            execute_step(plan[si])),
+        // Non-degeneracy
+        constraint_locus_nondegenerate(
+            constraints[ci], execute_plan(plan.take(si as int)), step_target(plan[si])),
+        // Domain + target
+        execute_plan_in_ext::<RationalModel, R>(plan.take(si as int)).dom()
+            =~= execute_plan(plan.take(si as int)).dom(),
+        !execute_plan(plan.take(si as int)).dom().contains(step_target(plan[si])),
+        // Entity coverage
+        constraint_entities(constraints[ci]).contains(step_target(plan[si])),
+        constraint_entities(constraints[ci]).remove(step_target(plan[si])).subset_of(
+            execute_plan(plan.take(si as int)).dom()),
+    ensures
+        point_satisfies_locus(
+            constraint_to_locus(
+                lift_constraint::<RationalModel, R>(constraints[ci]),
+                execute_plan_in_ext::<RationalModel, R>(plan.take(si as int)),
+                step_target(plan[si])),
+            execute_step_in_ext::<RationalModel, R>(plan[si])),
+{
+    let target = step_target(plan[si]);
+    let base_resolved = execute_plan(plan.take(si as int));
+    let det_ext_resolved = execute_plan_in_ext::<RationalModel, R>(plan.take(si as int));
+    let lift_c = lift_constraint::<RationalModel, R>(constraints[ci]);
+    let base_locus = constraint_to_locus(constraints[ci], base_resolved, target);
+    let lifted_base_locus = lift_locus::<RationalModel, R>(base_locus);
+    let det_locus = constraint_to_locus(lift_c, det_ext_resolved, target);
+    let p = execute_step_in_ext::<RationalModel, R>(plan[si]);
+
+    // Entry agreement
+    lemma_lift_constraint_entities::<RationalModel, R>(constraints[ci]);
+    lemma_lift_resolved_map_dom::<RationalModel, R>(base_resolved);
+    lemma_det_entry_eqv::<R>(plan, constraints, si, ci);
+
+    // Non-degeneracy at ext level
+    lemma_nondegen_transfers_to_ext::<R>(
+        constraints[ci], base_resolved, det_ext_resolved, target);
+
+    // Locus chain: det_locus ≈ lift_resolved_locus ≈ lifted_base_locus
+    lemma_constraint_to_locus_resolved_congruence(
+        lift_c, det_ext_resolved,
+        lift_resolved_map::<RationalModel, R>(base_resolved), target);
+    lemma_lift_constraint_to_locus::<RationalModel, R>(
+        constraints[ci], base_resolved, target);
+    let lift_res_locus = constraint_to_locus(
+        lift_c, lift_resolved_map::<RationalModel, R>(base_resolved), target);
+    lemma_locus_eqv_transitive(det_locus, lift_res_locus, lifted_base_locus);
+
+    // Base satisfaction → lifted satisfaction
+    lemma_lift_preserves_satisfaction::<RationalModel, R>(base_locus, execute_step(plan[si]));
+    // execute_step_in_ext == lift_point2(execute_step) for rational steps
+    assert(p == lift_point2::<RationalModel, R>(execute_step(plan[si])));
+
+    // Transfer via locus_eqv
+    lemma_locus_eqv_symmetric(det_locus, lifted_base_locus);
+    lemma_point_satisfies_locus_eqv(lifted_base_locus, det_locus, p);
+}
+
+/// Per-ci helper for circle steps: proves locus satisfaction via geometric loci.
+proof fn lemma_det_step_circle_ci<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+    si: int,
+    ci: int,
+)
+    requires
+        0 <= si < plan.len(),
+        0 <= ci < constraints.len(),
+        !is_rational_step(plan[si]),
+        forall|i: int, j: int|
+            0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
+            step_target(plan[i]) != step_target(plan[j]),
+        constraint_well_formed(constraints[ci]),
+        forall|j: int| #![trigger plan[j]]
+            0 <= j < plan.len() ==> step_geometrically_valid(plan[j]),
+        forall|j: int| #![trigger plan[j]]
+            0 <= j < plan.len() ==> step_has_positive_discriminant(plan[j]),
+        forall|j: int| #![trigger plan[j]]
+            0 <= j < plan.len() ==> step_radicand_matches::<R>(plan[j]),
+        is_fully_independent_plan(plan, constraints),
+        step_loci_match_geometry(
+            plan[si], constraints, execute_plan(plan.take(si as int))),
+        // Non-degeneracy
+        constraint_locus_nondegenerate(
+            constraints[ci], execute_plan(plan.take(si as int)), step_target(plan[si])),
+        // Base nontriviality (for step_loci_match_geometry to apply)
+        locus_is_nontrivial(constraint_to_locus(
+            constraints[ci], execute_plan(plan.take(si as int)), step_target(plan[si]))),
+        // Domain + target
+        execute_plan_in_ext::<RationalModel, R>(plan.take(si as int)).dom()
+            =~= execute_plan(plan.take(si as int)).dom(),
+        !execute_plan(plan.take(si as int)).dom().contains(step_target(plan[si])),
+        // Entity coverage
+        constraint_entities(constraints[ci]).contains(step_target(plan[si])),
+        constraint_entities(constraints[ci]).remove(step_target(plan[si])).subset_of(
+            execute_plan(plan.take(si as int)).dom()),
+    ensures
+        point_satisfies_locus(
+            constraint_to_locus(
+                lift_constraint::<RationalModel, R>(constraints[ci]),
+                execute_plan_in_ext::<RationalModel, R>(plan.take(si as int)),
+                step_target(plan[si])),
+            execute_step_in_ext::<RationalModel, R>(plan[si])),
+{
+    let target = step_target(plan[si]);
+    let base_resolved = execute_plan(plan.take(si as int));
+    let det_ext_resolved = execute_plan_in_ext::<RationalModel, R>(plan.take(si as int));
+    let lift_c = lift_constraint::<RationalModel, R>(constraints[ci]);
+    let base_locus = constraint_to_locus(constraints[ci], base_resolved, target);
+    let lifted_base_locus = lift_locus::<RationalModel, R>(base_locus);
+    let det_locus = constraint_to_locus(lift_c, det_ext_resolved, target);
+    let p = execute_step_in_ext::<RationalModel, R>(plan[si]);
+
+    // Entry agreement
+    lemma_lift_constraint_entities::<RationalModel, R>(constraints[ci]);
+    lemma_lift_resolved_map_dom::<RationalModel, R>(base_resolved);
+    lemma_det_entry_eqv::<R>(plan, constraints, si, ci);
+
+    // Non-degeneracy at ext level
+    lemma_nondegen_transfers_to_ext::<R>(
+        constraints[ci], base_resolved, det_ext_resolved, target);
+
+    // Locus chain: det_locus ≈ lift_resolved_locus ≈ lifted_base_locus
+    lemma_constraint_to_locus_resolved_congruence(
+        lift_c, det_ext_resolved,
+        lift_resolved_map::<RationalModel, R>(base_resolved), target);
+    lemma_lift_constraint_to_locus::<RationalModel, R>(
+        constraints[ci], base_resolved, target);
+    let lift_res_locus = constraint_to_locus(
+        lift_c, lift_resolved_map::<RationalModel, R>(base_resolved), target);
+    lemma_locus_eqv_transitive(det_locus, lift_res_locus, lifted_base_locus);
+
+    // Geometric loci satisfaction
+    lemma_execute_step_in_ext_satisfies_loci::<RationalModel, R>(plan[si]);
+
+    // base_locus is OnCircle or OnLine matching the step (by step_loci_match_geometry)
+    match plan[si] {
+        ConstructionStep::CircleLine { circle, line, .. } => {
+            if base_locus == Locus2d::OnCircle(circle) {
+                // lifted = OnCircle(lift_circle2(circle)), p on circle ✓
+            } else {
+                assert(base_locus == Locus2d::OnLine(line));
+                // lifted = OnLine(lift_line2(line)), p on line ✓
+            }
+        }
+        ConstructionStep::CircleCircle { circle1, circle2, .. } => {
+            if base_locus == Locus2d::OnCircle(circle1) {
+            } else {
+                assert(base_locus == Locus2d::OnCircle(circle2));
+            }
+        }
+        _ => {} // Not reached
+    }
+
+    // Transfer via locus_eqv
+    lemma_locus_eqv_symmetric(det_locus, lifted_base_locus);
+    lemma_point_satisfies_locus_eqv(lifted_base_locus, det_locus, p);
+}
+
+/// Each step of det_plan satisfies all constraint loci.
+proof fn lemma_det_step_satisfies_loci<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+    si: int,
+)
+    requires
+        0 <= si < plan.len(),
+        plan_structurally_sound::<R>(plan, constraints),
+    ensures
+        step_satisfies_all_constraint_loci(
+            det_plan::<RationalModel, R>(plan)[si],
+            lift_constraints::<RationalModel, R>(constraints),
+            execute_plan(det_plan::<RationalModel, R>(plan).take(si as int))),
+{
+    let target = step_target(plan[si]);
+    let dp = det_plan::<RationalModel, R>(plan);
+    let lc = lift_constraints::<RationalModel, R>(constraints);
+    let base_resolved = execute_plan(plan.take(si as int));
+    let det_ext_resolved = execute_plan_in_ext::<RationalModel, R>(plan.take(si as int));
+
+    // Key equalities
+    assert(dp.take(si as int) =~= det_plan::<RationalModel, R>(plan.take(si as int)));
+    lemma_det_plan_agrees::<RationalModel, R>(plan.take(si as int));
+    assert(execute_plan(dp.take(si as int)) =~= det_ext_resolved);
+
+    lemma_execute_plan_in_ext_domain::<RationalModel, R>(plan.take(si as int));
+    lemma_step_target_not_in_prefix::<RationalModel>(plan, si);
+
+    // Per-constraint nontrivial satisfaction
+    assert forall|ci: int| 0 <= ci < lc.len()
+        && locus_is_nontrivial(
+            constraint_to_locus(
+                #[trigger] lc[ci],
+                execute_plan(dp.take(si as int)),
+                step_target(dp[si])))
+    implies point_satisfies_locus(
+        constraint_to_locus(lc[ci],
+            execute_plan(dp.take(si as int)),
+            step_target(dp[si])),
+        execute_step(dp[si]))
+    by {
+        assert(lc[ci] == lift_constraint::<RationalModel, R>(constraints[ci]));
+        assert(step_target(dp[si]) == target);
+        assert(constraint_well_formed(constraints[ci]));
+
+        // Transfer nontriviality to base
+        lemma_lift_resolved_map_dom::<RationalModel, R>(base_resolved);
+        lemma_locus_nontrivial_depends_on_domain(
+            lift_constraint::<RationalModel, R>(constraints[ci]),
+            det_ext_resolved,
+            lift_resolved_map::<RationalModel, R>(base_resolved), target);
+        lemma_lift_preserves_nontriviality::<RationalModel, R>(
+            constraints[ci], base_resolved, target);
+
+        // Entity coverage
+        lemma_nontrivial_implies_entity_coverage(constraints[ci], base_resolved, target);
+
+        if is_rational_step(plan[si]) {
+            assert(step_satisfies_all_constraint_loci(
+                plan[si], constraints, base_resolved));
+            assert(constraint_locus_nondegenerate(
+                constraints[ci], base_resolved, target));
+            lemma_det_step_rational_ci::<R>(plan, constraints, si, ci);
+        } else {
+            assert(constraint_locus_nondegenerate(
+                constraints[ci], base_resolved, target));
+            assert(step_loci_match_geometry(plan[si], constraints, base_resolved));
+            lemma_det_step_circle_ci::<R>(plan, constraints, si, ci);
+        }
+    };
+
+    lemma_nontrivial_loci_imply_all_satisfied(dp[si], lc, execute_plan(dp.take(si as int)));
+}
+
+/// Master theorem: if plan is structurally sound and verification constraints are satisfied
+/// against execute_plan_in_ext, then ALL constraints are satisfied against execute_plan_in_ext.
+pub proof fn lemma_solver_to_soundness_det<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+)
+    requires
+        plan_structurally_sound::<R>(plan, constraints),
+        // Verification constraints satisfied at extension level against deterministic map
+        forall|ci: int| 0 <= ci < constraints.len()
+            && is_verification_constraint(#[trigger] constraints[ci])
+            ==> constraint_satisfied(
+                lift_constraint::<RationalModel, R>(constraints[ci]),
+                execute_plan_in_ext::<RationalModel, R>(plan)),
+    ensures
+        forall|ci: int| 0 <= ci < constraints.len() ==>
+            constraint_satisfied(
+                #[trigger] lift_constraints::<RationalModel, R>(constraints)[ci],
+                execute_plan_in_ext::<RationalModel, R>(plan)),
+{
+    let dp = det_plan::<RationalModel, R>(plan);
+    let lc = lift_constraints::<RationalModel, R>(constraints);
+
+    // Key identity: execute_plan(det_plan(plan)) == execute_plan_in_ext(plan)
+    lemma_det_plan_agrees::<RationalModel, R>(plan);
+
+    // 1. Plan validity
+    lemma_det_plan_valid::<R>(plan, constraints);
+
+    // 2. Locus ordering
+    lemma_det_plan_locus_ordered::<R>(plan, constraints);
+
+    // 3. Constraint well-formedness at ext level
+    assert forall|ci: int| 0 <= ci < lc.len() implies
+        constraint_well_formed(#[trigger] lc[ci])
+    by {
+        assert(lc[ci] == lift_constraint::<RationalModel, R>(constraints[ci]));
+        lemma_lift_constraint_well_formed::<RationalModel, R>(constraints[ci]);
+    };
+
+    // 4. Entity coverage at ext level
+    lemma_execute_plan_in_ext_domain::<RationalModel, R>(plan);
+    assert forall|ci: int| 0 <= ci < lc.len() implies
+        constraint_entities(lc[ci]).subset_of(execute_plan(dp).dom())
+    by {
+        assert(lc[ci] == lift_constraint::<RationalModel, R>(constraints[ci]));
+        lemma_lift_constraint_entities::<RationalModel, R>(constraints[ci]);
+        // execute_plan(dp).dom() =~= execute_plan_in_ext(plan).dom()
+        //   == execute_plan(plan).dom() (by lemma_execute_plan_in_ext_domain)
+    };
+
+    // 5. Per-step loci satisfaction
+    assert forall|si: int| 0 <= si < dp.len() implies
+        step_satisfies_all_constraint_loci(
+            #[trigger] dp[si], lc,
+            execute_plan(dp.take(si as int)))
+    by {
+        lemma_det_step_satisfies_loci::<R>(plan, constraints, si);
+    };
+
+    // 6. Verification constraints
+    assert forall|ci: int| 0 <= ci < lc.len()
+        && is_verification_constraint(#[trigger] lc[ci])
+    implies constraint_satisfied(lc[ci], execute_plan(dp))
+    by {
+        assert(lc[ci] == lift_constraint::<RationalModel, R>(constraints[ci]));
+        lemma_lift_is_verification_constraint::<RationalModel, R>(constraints[ci]);
+        // execute_plan(dp) =~= execute_plan_in_ext(plan)
+    };
+
+    // 7. Apply lemma_end_to_end with det_plan
+    lemma_end_to_end(dp, lc);
+
+    // Rewrite: execute_plan(dp) =~= execute_plan_in_ext(plan)
+    assert forall|ci: int| 0 <= ci < constraints.len() implies
+        constraint_satisfied(#[trigger] lc[ci], execute_plan_in_ext::<RationalModel, R>(plan))
+    by {
+        assert(lc[ci] == lift_constraint::<RationalModel, R>(constraints[ci]));
+    };
+}
+
 } // verus!
