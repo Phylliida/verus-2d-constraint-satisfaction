@@ -19,6 +19,7 @@ use crate::construction::*;
 use crate::runtime::constraint::*;
 use crate::runtime::locus::*;
 use crate::runtime::construction::{RuntimeStepData, execute_line_line_step};
+use crate::construction_ext::{at_most_two_nontrivial_loci, is_nontrivial_for_target};
 
 type RationalModel = verus_rational::rational::Rational;
 
@@ -32,11 +33,11 @@ verus! {
 /// This is `step_well_formed` minus the existential witness requirement
 /// for circle steps (which needs a base-field intersection point that
 /// may not exist at T=Rational for circle intersections in Q(sqrt(D))).
-pub open spec fn step_geometrically_valid(step: ConstructionStep<RationalModel>) -> bool {
+pub open spec fn step_geometrically_valid<T: OrderedField>(step: ConstructionStep<T>) -> bool {
     match step {
         ConstructionStep::PointStep { .. } => true,
         ConstructionStep::LineLine { line1, line2, .. } =>
-            !line_det(line1, line2).eqv(RationalModel::from_int_spec(0)),
+            !line_det(line1, line2).eqv(T::zero()),
         ConstructionStep::CircleLine { line, .. } =>
             line2_nondegenerate(line),
         ConstructionStep::CircleCircle { circle1, circle2, .. } =>
@@ -46,12 +47,12 @@ pub open spec fn step_geometrically_valid(step: ConstructionStep<RationalModel>)
 
 /// Whether a construction step's circle discriminant is positive.
 /// Non-circle steps are trivially true.
-pub open spec fn step_has_positive_discriminant(step: ConstructionStep<RationalModel>) -> bool {
+pub open spec fn step_has_positive_discriminant<T: OrderedField>(step: ConstructionStep<T>) -> bool {
     match step {
         ConstructionStep::CircleLine { circle, line, .. } =>
-            RationalModel::from_int_spec(0).lt(cl_discriminant(circle, line)),
+            T::zero().lt(cl_discriminant(circle, line)),
         ConstructionStep::CircleCircle { circle1, circle2, .. } =>
-            RationalModel::from_int_spec(0).lt(cc_discriminant(circle1, circle2)),
+            T::zero().lt(cc_discriminant(circle1, circle2)),
         _ => true,
     }
 }
@@ -987,7 +988,10 @@ pub fn solve_all_variants(
 // ===========================================================================
 
 /// Check whether a runtime constraint is a verification constraint.
-fn is_verification_constraint_exec(rc: &RuntimeConstraint) -> (out: bool)
+/// Requires runtime_constraint_wf so that model@ is known to match the variant.
+fn is_verification_constraint_exec(rc: &RuntimeConstraint, n_points: usize) -> (out: bool)
+    requires
+        runtime_constraint_wf(*rc, n_points as nat),
     ensures
         out == is_verification_constraint(runtime_constraint_model(*rc)),
 {
@@ -1021,11 +1025,10 @@ pub fn check_verification_constraints_exec(
     let mut i: usize = 0;
     while i < constraints.len()
         invariant
-            0 <= i <= constraints@.len(),
+            i <= constraints@.len(),
             forall|j: int| 0 <= j < constraints@.len() ==>
                 runtime_constraint_wf(#[trigger] constraints@[j], points@.len() as nat),
             all_points_wf(points@),
-            // All verification constraints checked so far are satisfied
             forall|ci: int|
                 0 <= ci < i
                 && is_verification_constraint(runtime_constraint_model(#[trigger] constraints@[ci]))
@@ -1033,13 +1036,374 @@ pub fn check_verification_constraints_exec(
                     runtime_constraint_model(constraints@[ci]),
                     vec_to_resolved_map(points_view(points@)),
                 ),
+        decreases constraints@.len() - i,
     {
-        if is_verification_constraint_exec(&constraints[i]) {
+        if is_verification_constraint_exec(&constraints[i], points.len()) {
             if !check_constraint_satisfied_exec(&constraints[i], points) {
                 return false;
             }
         }
         i = i + 1;
+    }
+    true
+}
+
+// ===========================================================================
+//  Runtime nontrivial locus counting
+// ===========================================================================
+
+/// Check if a single runtime constraint imposes a nontrivial locus on `target`.
+/// A constraint is nontrivial for target when:
+/// 1. target is a locus entity of the constraint
+/// 2. all other entities of the constraint are resolved
+/// 3. target itself is not resolved
+fn is_nontrivial_for_target_exec(
+    rc: &RuntimeConstraint,
+    target: usize,
+    resolved_flags: &Vec<bool>,
+    n_points: usize,
+) -> (out: bool)
+    requires
+        runtime_constraint_wf(*rc, n_points as nat),
+        resolved_flags@.len() == n_points,
+        (target as int) < n_points,
+    ensures
+        out == is_nontrivial_for_target(
+            runtime_constraint_model(*rc),
+            target as nat,
+            Set::new(|id: nat| (id as int) < n_points && resolved_flags@[id as int]),
+        ),
+{
+    let ghost dom = Set::new(|id: nat| (id as int) < n_points && resolved_flags@[id as int]);
+    let ghost model = runtime_constraint_model(*rc);
+
+    // target must not be resolved
+    if resolved_flags[target] {
+        proof {
+            assert(dom.contains(target as nat));
+            assert(!is_nontrivial_for_target(model, target as nat, dom));
+        }
+        return false;
+    }
+
+    // The spec is now defined per-variant with explicit membership checks,
+    // matching the runtime branching directly. Z3 unfolds both in parallel.
+    match rc {
+        RuntimeConstraint::Coincident { a, b, .. } => {
+            if target == *a {
+                resolved_flags[*b]
+            } else if target == *b {
+                resolved_flags[*a]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::DistanceSq { a, b, .. } => {
+            if target == *a {
+                resolved_flags[*b]
+            } else if target == *b {
+                resolved_flags[*a]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::FixedX { point, .. } => {
+            target == *point
+        }
+        RuntimeConstraint::FixedY { point, .. } => {
+            target == *point
+        }
+        RuntimeConstraint::SameX { a, b, .. } => {
+            if target == *a {
+                resolved_flags[*b]
+            } else if target == *b {
+                resolved_flags[*a]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::SameY { a, b, .. } => {
+            if target == *a {
+                resolved_flags[*b]
+            } else if target == *b {
+                resolved_flags[*a]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::PointOnLine { point, line_a, line_b, .. } => {
+            if target == *point {
+                resolved_flags[*line_a] && resolved_flags[*line_b]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::EqualLengthSq { a1, a2, b1, b2, .. } => {
+            if target == *a1 {
+                resolved_flags[*a2] && resolved_flags[*b1] && resolved_flags[*b2]
+            } else if target == *a2 {
+                resolved_flags[*a1] && resolved_flags[*b1] && resolved_flags[*b2]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::Midpoint { mid, a, b, .. } => {
+            if target == *mid {
+                resolved_flags[*a] && resolved_flags[*b]
+            } else if target == *a {
+                resolved_flags[*mid] && resolved_flags[*b]
+            } else if target == *b {
+                resolved_flags[*mid] && resolved_flags[*a]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::Perpendicular { a1, a2, b1, b2, .. } => {
+            if target == *a1 {
+                resolved_flags[*a2] && resolved_flags[*b1] && resolved_flags[*b2]
+            } else if target == *a2 {
+                resolved_flags[*a1] && resolved_flags[*b1] && resolved_flags[*b2]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::Parallel { a1, a2, b1, b2, .. } => {
+            if target == *a1 {
+                resolved_flags[*a2] && resolved_flags[*b1] && resolved_flags[*b2]
+            } else if target == *a2 {
+                resolved_flags[*a1] && resolved_flags[*b1] && resolved_flags[*b2]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::Collinear { a, b, c, .. } => {
+            if target == *a {
+                resolved_flags[*b] && resolved_flags[*c]
+            } else if target == *b {
+                resolved_flags[*a] && resolved_flags[*c]
+            } else if target == *c {
+                resolved_flags[*a] && resolved_flags[*b]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::PointOnCircle { point, center, radius_point, .. } => {
+            if target == *point {
+                resolved_flags[*center] && resolved_flags[*radius_point]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::Symmetric { point, original, axis_a, axis_b, .. } => {
+            if target == *point {
+                resolved_flags[*original] && resolved_flags[*axis_a] && resolved_flags[*axis_b]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::FixedPoint { point, .. } => {
+            target == *point
+        }
+        RuntimeConstraint::Ratio { a1, a2, b1, b2, .. } => {
+            if target == *a1 {
+                resolved_flags[*a2] && resolved_flags[*b1] && resolved_flags[*b2]
+            } else if target == *a2 {
+                resolved_flags[*a1] && resolved_flags[*b1] && resolved_flags[*b2]
+            } else {
+                false
+            }
+        }
+        RuntimeConstraint::Tangent { .. } => {
+            false
+        }
+        RuntimeConstraint::CircleTangent { .. } => {
+            false
+        }
+        RuntimeConstraint::Angle { .. } => {
+            false
+        }
+    }
+}
+
+/// Spec: count nontrivial constraints for target in constraints[0..n).
+spec fn count_nontrivial<T: OrderedField>(
+    constraints: Seq<Constraint<T>>,
+    target: EntityId,
+    dom: Set<EntityId>,
+    n: int,
+) -> nat
+    decreases n,
+{
+    if n <= 0 { 0 }
+    else {
+        let prev = count_nontrivial(constraints, target, dom, n - 1);
+        if is_nontrivial_for_target(constraints[n - 1], target, dom) {
+            prev + 1
+        } else {
+            prev
+        }
+    }
+}
+
+/// If count_nontrivial <= 2, then at_most_two_nontrivial_loci holds.
+proof fn lemma_count_implies_at_most_two<T: OrderedField>(
+    constraints: Seq<Constraint<T>>,
+    target: EntityId,
+    dom: Set<EntityId>,
+)
+    requires
+        count_nontrivial(constraints, target, dom, constraints.len() as int) <= 2,
+    ensures
+        at_most_two_nontrivial_loci(target, constraints, dom),
+    decreases constraints.len(),
+{
+    // By contradiction: if there exist i < j < k all nontrivial,
+    // then count >= 3. We prove count_nontrivial >= 3 in presence of such triple.
+    if exists|ii: int, jj: int, kk: int|
+        0 <= ii < jj && jj < kk && kk < constraints.len()
+        && is_nontrivial_for_target(#[trigger] constraints[ii], target, dom)
+        && is_nontrivial_for_target(#[trigger] constraints[jj], target, dom)
+        && is_nontrivial_for_target(#[trigger] constraints[kk], target, dom)
+    {
+        let ii = choose|ii: int| exists|jj: int, kk: int|
+            0 <= ii < jj && jj < kk && kk < constraints.len()
+            && is_nontrivial_for_target(#[trigger] constraints[ii], target, dom)
+            && is_nontrivial_for_target(#[trigger] constraints[jj], target, dom)
+            && is_nontrivial_for_target(#[trigger] constraints[kk], target, dom);
+        let jj = choose|jj: int| exists|kk: int|
+            0 <= ii < jj && jj < kk && kk < constraints.len()
+            && is_nontrivial_for_target(constraints[ii], target, dom)
+            && is_nontrivial_for_target(#[trigger] constraints[jj], target, dom)
+            && is_nontrivial_for_target(#[trigger] constraints[kk], target, dom);
+        let kk = choose|kk: int|
+            0 <= ii < jj && jj < kk && kk < constraints.len()
+            && is_nontrivial_for_target(constraints[ii], target, dom)
+            && is_nontrivial_for_target(constraints[jj], target, dom)
+            && is_nontrivial_for_target(#[trigger] constraints[kk], target, dom);
+        // count >= 3 because each of ii, jj, kk adds 1
+        lemma_count_monotone::<T>(constraints, target, dom, kk + 1, constraints.len() as int);
+        lemma_count_at_least_one::<T>(constraints, target, dom, kk);
+        lemma_count_monotone::<T>(constraints, target, dom, jj + 1, kk);
+        lemma_count_at_least_one::<T>(constraints, target, dom, jj);
+        lemma_count_monotone::<T>(constraints, target, dom, ii + 1, jj);
+        lemma_count_at_least_one::<T>(constraints, target, dom, ii);
+        // Chain: count(n) >= count(kk+1) >= count(kk) + 1 >= count(jj+1) + 1 >= count(jj) + 2
+        //        >= count(ii+1) + 2 >= count(ii) + 3 >= 3
+        assert(count_nontrivial(constraints, target, dom, constraints.len() as int) >= 3);
+    }
+}
+
+/// Count is monotonically non-decreasing.
+proof fn lemma_count_monotone<T: OrderedField>(
+    constraints: Seq<Constraint<T>>,
+    target: EntityId,
+    dom: Set<EntityId>,
+    a: int, b: int,
+)
+    requires 0 <= a <= b, b <= constraints.len(),
+    ensures count_nontrivial(constraints, target, dom, a) <= count_nontrivial(constraints, target, dom, b),
+    decreases b - a,
+{
+    if a == b {
+    } else {
+        lemma_count_monotone::<T>(constraints, target, dom, a, b - 1);
+    }
+}
+
+/// If constraint[n] is nontrivial, count(n+1) >= count(n) + 1.
+proof fn lemma_count_at_least_one<T: OrderedField>(
+    constraints: Seq<Constraint<T>>,
+    target: EntityId,
+    dom: Set<EntityId>,
+    n: int,
+)
+    requires
+        0 <= n < constraints.len(),
+        is_nontrivial_for_target(constraints[n], target, dom),
+    ensures
+        count_nontrivial(constraints, target, dom, n + 1) >=
+        count_nontrivial(constraints, target, dom, n) + 1,
+{
+    // Direct from definition: count(n+1) = count(n) + (if nontrivial(n) then 1 else 0)
+}
+
+/// Runtime check: at most two constraints impose nontrivial loci on `target`.
+fn check_at_most_two_nontrivial_exec(
+    target: usize,
+    constraints: &Vec<RuntimeConstraint>,
+    resolved_flags: &Vec<bool>,
+    n_points: usize,
+) -> (out: bool)
+    requires
+        (target as int) < n_points,
+        resolved_flags@.len() == n_points,
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+    ensures
+        out ==> at_most_two_nontrivial_loci(
+            target as nat,
+            Seq::new(constraints@.len(), |i: int| runtime_constraint_model(constraints@[i])),
+            Set::new(|id: nat| (id as int) < n_points && resolved_flags@[id as int]),
+        ),
+{
+    let ghost dom = Set::new(|id: nat| (id as int) < n_points && resolved_flags@[id as int]);
+    let n = constraints.len();
+    let ghost spec_cs: Seq<Constraint<RationalModel>> = Seq::new(n as nat, |j: int| runtime_constraint_model(constraints@[j]));
+
+    let mut count: usize = 0;
+    let mut i: usize = 0;
+    while i < n
+        invariant
+            n == constraints@.len(),
+            i <= n,
+            count <= 2,
+            (target as int) < n_points,
+            resolved_flags@.len() == n_points,
+            dom == Set::new(|id: nat| (id as int) < n_points && resolved_flags@[id as int]),
+            forall|j: int| 0 <= j < n ==>
+                runtime_constraint_wf(#[trigger] constraints@[j], n_points as nat),
+            spec_cs.len() == n as int,
+            forall|j: int| 0 <= j < n ==>
+                spec_cs[j] == runtime_constraint_model(#[trigger] constraints@[j]),
+            // count == spec count of nontrivial in [0, i)
+            count as nat == count_nontrivial(spec_cs, target as nat, dom, i as int),
+        decreases n - i,
+    {
+        let is_nt = is_nontrivial_for_target_exec(&constraints[i], target, resolved_flags, n_points);
+        proof {
+            // is_nt == is_nontrivial_for_target(runtime_constraint_model(constraints@[i]), target, dom)
+            //       == is_nontrivial_for_target(spec_cs[i], target, dom)
+            // So we need: count_nontrivial(spec_cs, target, dom, i+1)
+            //           = count_nontrivial(spec_cs, target, dom, i) + (if is_nt then 1 else 0)
+            // This is the one-step unfolding of the recursive definition
+            let ii = (i + 1) as int;
+            // Unfold: count_nontrivial(spec_cs, target, dom, ii)
+            //       = let prev = count_nontrivial(spec_cs, target, dom, ii - 1) [= count]
+            //         if is_nontrivial_for_target(spec_cs[ii - 1], target, dom) { prev + 1 } else { prev }
+            // ii - 1 == i, spec_cs[i] == runtime_constraint_model(constraints@[i])
+            // is_nontrivial_for_target(spec_cs[i], target, dom) == is_nt
+            // From is_nontrivial_for_target_exec postcondition:
+            // is_nt == is_nontrivial_for_target(runtime_constraint_model(constraints@[i as int]), target as nat, dom)
+            // From invariant forall:
+            // spec_cs[i as int] == runtime_constraint_model(constraints@[i as int])
+            // The postcondition of is_nontrivial_for_target_exec gives us:
+            // is_nt == is_nontrivial_for_target(runtime_constraint_model(constraints@[i]),
+            //          target as nat, Set::new(...))
+            // The invariant carries dom == Set::new(...), so these match.
+            // spec_cs[i] == runtime_constraint_model(constraints@[i]) from invariant forall.
+            // Therefore: is_nt == is_nontrivial_for_target(spec_cs[i], target, dom).
+        }
+        if is_nt {
+            if count >= 2 {
+                return false;
+            }
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    proof {
+        // count == count_nontrivial(spec_cs, target, dom, len) <= 2
+        lemma_count_implies_at_most_two(spec_cs, target as nat, dom);
     }
     true
 }

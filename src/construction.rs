@@ -145,6 +145,22 @@ pub open spec fn step_satisfies_locus<T: OrderedField>(
     point_satisfies_locus(locus, execute_step(step))
 }
 
+/// A construction step satisfies ALL constraint-derived loci for all constraints.
+/// This is a per-step predicate that captures the N×M precondition
+/// of the soundness theorem in a modular form.
+pub open spec fn step_satisfies_all_constraint_loci<T: OrderedField>(
+    step: ConstructionStep<T>,
+    constraints: Seq<Constraint<T>>,
+    resolved: ResolvedPoints<T>,
+) -> bool {
+    let target = step_target(step);
+    forall|ci: int| 0 <= ci < constraints.len() ==>
+        point_satisfies_locus(
+            constraint_to_locus(#[trigger] constraints[ci], resolved, target),
+            execute_step(step),
+        )
+}
+
 /// Check that a plan is valid:
 /// - Each step targets a unique entity.
 /// - Each step's loci come from constraints that reference only
@@ -343,16 +359,13 @@ pub proof fn lemma_valid_plan_satisfies_constraints<T: OrderedField>(
             constraint_entities(constraints[ci]).subset_of(
                 execute_plan(plan).dom()
             ),
-        // Each step satisfies the loci derived from constructive constraints
-        forall|si: int, ci: int|
-            0 <= si < plan.len() && 0 <= ci < constraints.len() ==> {
-                let target = step_target(#[trigger] plan[si]);
-                let resolved = execute_plan(plan.take(si as int));
-                step_satisfies_locus(
-                    plan[si],
-                    constraint_to_locus(#[trigger] constraints[ci], resolved, target),
-                )
-            },
+        // Each step satisfies all constraint-derived loci
+        forall|si: int| 0 <= si < plan.len() ==>
+            step_satisfies_all_constraint_loci(
+                #[trigger] plan[si],
+                constraints,
+                execute_plan(plan.take(si as int)),
+            ),
         // Verification constraints are directly satisfied
         forall|ci: int| 0 <= ci < constraints.len()
             && is_verification_constraint(#[trigger] constraints[ci])
@@ -385,15 +398,12 @@ proof fn lemma_constraint_satisfied_by_plan<T: OrderedField>(
         plan_locus_ordered(plan, constraints),
         constraint_well_formed(constraints[ci]),
         constraint_entities(constraints[ci]).subset_of(execute_plan(plan).dom()),
-        forall|si: int, ci2: int|
-            0 <= si < plan.len() && 0 <= ci2 < constraints.len() ==> {
-                let target = step_target(#[trigger] plan[si]);
-                let resolved = execute_plan(plan.take(si as int));
-                step_satisfies_locus(
-                    plan[si],
-                    constraint_to_locus(#[trigger] constraints[ci2], resolved, target),
-                )
-            },
+        forall|si: int| 0 <= si < plan.len() ==>
+            step_satisfies_all_constraint_loci(
+                #[trigger] plan[si],
+                constraints,
+                execute_plan(plan.take(si as int)),
+            ),
     ensures
         constraint_satisfied(constraints[ci], execute_plan(plan)),
 {
@@ -412,7 +422,8 @@ proof fn lemma_constraint_satisfied_by_plan<T: OrderedField>(
     // The locus at this step
     let locus = constraint_to_locus(c, resolved, target);
 
-    // step satisfies the locus (from precondition)
+    // step satisfies the locus (from per-step predicate)
+    assert(step_satisfies_all_constraint_loci(plan[si_last], constraints, resolved));
     assert(step_satisfies_locus(plan[si_last], locus));
 
     // The locus is non-trivial because:
@@ -1020,6 +1031,43 @@ pub proof fn lemma_intersect_loci_satisfies_atpoint<T: OrderedField>(
 }
 
 // ===========================================================================
+//  Solver bridge lemma
+// ===========================================================================
+
+/// Bridge: if a step satisfies all nontrivial loci for its target,
+/// it satisfies ALL loci (because FullPlane is trivially satisfied).
+/// This allows the solver to only check nontrivial loci and conclude
+/// step_satisfies_all_constraint_loci.
+pub proof fn lemma_nontrivial_loci_imply_all_satisfied<T: OrderedField>(
+    step: ConstructionStep<T>,
+    constraints: Seq<Constraint<T>>,
+    resolved: ResolvedPoints<T>,
+)
+    requires
+        forall|ci: int| 0 <= ci < constraints.len()
+            && locus_is_nontrivial(
+                constraint_to_locus(#[trigger] constraints[ci], resolved, step_target(step)))
+            ==> point_satisfies_locus(
+                constraint_to_locus(constraints[ci], resolved, step_target(step)),
+                execute_step(step)),
+    ensures
+        step_satisfies_all_constraint_loci(step, constraints, resolved),
+{
+    assert forall|ci: int| 0 <= ci < constraints.len()
+    implies point_satisfies_locus(
+        constraint_to_locus(#[trigger] constraints[ci], resolved, step_target(step)),
+        execute_step(step))
+    by {
+        let locus = constraint_to_locus(constraints[ci], resolved, step_target(step));
+        if locus_is_nontrivial(locus) {
+            // Satisfied by precondition
+        } else {
+            // FullPlane: point_satisfies_locus(FullPlane, _) == true by definition
+        }
+    };
+}
+
+// ===========================================================================
 //  End-to-end theorem
 // ===========================================================================
 
@@ -1050,16 +1098,13 @@ pub proof fn lemma_end_to_end<T: OrderedField>(
             constraint_entities(constraints[ci]).subset_of(
                 execute_plan(plan).dom()
             ),
-        // Each step satisfies loci derived from all constraints
-        forall|si: int, ci: int|
-            0 <= si < plan.len() && 0 <= ci < constraints.len() ==> {
-                let target = step_target(#[trigger] plan[si]);
-                let resolved = execute_plan(plan.take(si as int));
-                step_satisfies_locus(
-                    plan[si],
-                    constraint_to_locus(#[trigger] constraints[ci], resolved, target),
-                )
-            },
+        // Each step satisfies all constraint-derived loci
+        forall|si: int| 0 <= si < plan.len() ==>
+            step_satisfies_all_constraint_loci(
+                #[trigger] plan[si],
+                constraints,
+                execute_plan(plan.take(si as int)),
+            ),
         // Verification constraints are directly satisfied
         forall|ci: int| 0 <= ci < constraints.len()
             && is_verification_constraint(#[trigger] constraints[ci])
