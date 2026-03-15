@@ -291,6 +291,17 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
         }
     }
 
+    /// The extension-level point value.
+    /// - Rational results: lift the rational point into QExt.
+    /// - QExt results: use the point directly.
+    pub open spec fn ext_point_value(&self) -> Point2<SpecQuadExt<RationalModel, R>> {
+        match self {
+            RuntimeConstructionResult::RationalPoint { point, .. } =>
+                lift_point2::<RationalModel, R>(point@),
+            RuntimeConstructionResult::QExtPoint { point, .. } => point@,
+        }
+    }
+
     /// Whether the computed point satisfies geometric correctness for this step.
     /// - Rational: output point == execute_step(step)
     /// - QExt CircleLine: point is on lifted line AND on lifted circle
@@ -330,6 +341,7 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
         out.wf_spec(),
         out.entity_id() == step_target(step.spec_step()),
         out.matches_spec_step(step.spec_step()),
+        out.ext_point_value() == execute_step_in_ext::<RationalModel, R>(step.spec_step()),
 {
     match step {
         RuntimeStepData::PointStep { target, x, y, model } => {
@@ -379,6 +391,9 @@ pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
             (#[trigger] out@[i]).entity_id() == step_target(steps@[i].spec_step()),
         forall|i: int| 0 <= i < out@.len() ==>
             (#[trigger] out@[i]).matches_spec_step(steps@[i].spec_step()),
+        forall|i: int| 0 <= i < out@.len() ==>
+            (#[trigger] out@[i]).ext_point_value()
+                == execute_step_in_ext::<RationalModel, R>(steps@[i].spec_step()),
         // Distinct targets in → distinct entity IDs out
         forall|i: int, j: int|
             0 <= i < out@.len() && 0 <= j < out@.len() && i != j
@@ -396,6 +411,9 @@ pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
                 (#[trigger] results@[j]).entity_id() == step_target(steps@[j].spec_step()),
             forall|j: int| 0 <= j < results@.len() ==>
                 (#[trigger] results@[j]).matches_spec_step(steps@[j].spec_step()),
+            forall|j: int| 0 <= j < results@.len() ==>
+                (#[trigger] results@[j]).ext_point_value()
+                    == execute_step_in_ext::<RationalModel, R>(steps@[j].spec_step()),
             forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
             forall|i: int| 0 <= i < steps@.len() ==> step_radicand_matches::<R>(#[trigger] steps@[i].spec_step()),
         decreases steps@.len() - idx,

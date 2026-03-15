@@ -145,9 +145,20 @@ pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
             (#[trigger] results@[i]).entity_id() == step_target(steps@[i].spec_step()),
         forall|i: int| 0 <= i < steps@.len() ==>
             (step_target(#[trigger] steps@[i].spec_step()) as int) < initial_points@.len(),
+        // Distinct entity IDs across results
+        forall|i: int, j: int| 0 <= i < results@.len() && 0 <= j < results@.len() && i != j
+            ==> (#[trigger] results@[i]).entity_id() != (#[trigger] results@[j]).entity_id(),
     ensures
         out@.len() == initial_points@.len(),
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
+        // Overwritten entries: result ext_point_value
+        forall|k: int| 0 <= k < results@.len()
+            ==> out@[results@[k].entity_id() as int]@ == (#[trigger] results@[k]).ext_point_value(),
+        // Non-overwritten entries: lifted initial points
+        forall|j: int| 0 <= j < out@.len()
+            && (forall|k: int| 0 <= k < results@.len()
+                ==> (#[trigger] results@[k]).entity_id() != j as nat)
+            ==> out@[j]@ == lift_point2::<RationalModel, R>(initial_points@[j]@),
 {
     let n = initial_points.len();
 
@@ -161,6 +172,8 @@ pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
             ext_points@.len() == i as int,
             all_points_wf(initial_points@),
             forall|j: int| 0 <= j < ext_points@.len() ==> (#[trigger] ext_points@[j]).wf_spec(),
+            forall|j: int| 0 <= j < ext_points@.len() ==>
+                ext_points@[j]@ == lift_point2::<RationalModel, R>(initial_points@[j]@),
         decreases n - i,
     {
         let pt = embed_rational_point::<R>(&initial_points[i]);
@@ -178,9 +191,22 @@ pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
             results@.len() == steps@.len(),
             forall|i: int| 0 <= i < results@.len() ==> (#[trigger] results@[i]).wf_spec(),
             forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
+            forall|i: int| 0 <= i < results@.len() ==>
+                (#[trigger] results@[i]).entity_id() == step_target(steps@[i].spec_step()),
             forall|i: int| 0 <= i < steps@.len() ==>
                 (step_target(#[trigger] steps@[i].spec_step()) as int) < n,
+            forall|i: int, j: int| 0 <= i < results@.len() && 0 <= j < results@.len() && i != j
+                ==> (#[trigger] results@[i]).entity_id() != (#[trigger] results@[j]).entity_id(),
             forall|j: int| 0 <= j < ext_points@.len() ==> (#[trigger] ext_points@[j]).wf_spec(),
+            // Overwritten entries: result ext_point_value for k < ri
+            forall|k: int| 0 <= k < ri ==>
+                ext_points@[results@[k].entity_id() as int]@
+                    == (#[trigger] results@[k]).ext_point_value(),
+            // Non-overwritten entries: still initial
+            forall|j: int| 0 <= j < n
+                && (forall|k: int| 0 <= k < ri
+                    ==> (#[trigger] results@[k]).entity_id() as int != j)
+                ==> ext_points@[j]@ == lift_point2::<RationalModel, R>(initial_points@[j]@),
         decreases results@.len() - ri,
     {
         let idx = steps[ri].target_id();
@@ -223,6 +249,14 @@ fn check_tangent_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>
     requires
         line_a_pt.wf_spec(), line_b_pt.wf_spec(),
         center.wf_spec(), radius_point.wf_spec(),
+    ensures
+        out ==> {
+            let line = line2_from_points::<SpecQuadExt<RationalModel, R>>(line_a_pt@, line_b_pt@);
+            let eval = line2_eval(line, center@);
+            let norm_sq = line.a.mul(line.a).add(line.b.mul(line.b));
+            let r_sq = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(center@, radius_point@);
+            eval.mul(eval).eqv(norm_sq.mul(r_sq))
+        },
 {
     let (la, lb, lc) = qext_line2_from_points::<R, RR>(line_a_pt, line_b_pt);
     let eval = qext_line2_eval::<R, RR>(&la, &lb, &lc, center);
@@ -246,6 +280,16 @@ fn check_circle_tangent_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadic
     rp2: &RuntimeQExtPoint2<R>,
 ) -> (out: bool)
     requires c1.wf_spec(), rp1.wf_spec(), c2.wf_spec(), rp2.wf_spec(),
+    ensures
+        out ==> {
+            let d = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(c1@, c2@);
+            let r1 = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(c1@, rp1@);
+            let r2 = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(c2@, rp2@);
+            let t_one = SpecQuadExt::<RationalModel, R>::one();
+            let four = t_one.add(t_one).mul(t_one.add(t_one));
+            let diff = d.sub(r1).sub(r2);
+            diff.mul(diff).eqv(four.mul(r1).mul(r2))
+        },
 {
     let d = qext_sq_dist_2d::<R, RR>(c1, c2);
     let r1 = qext_sq_dist_2d::<R, RR>(c1, rp1);
@@ -275,6 +319,16 @@ fn check_angle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     requires
         a1.wf_spec(), a2.wf_spec(), b1.wf_spec(), b2.wf_spec(),
         cos_sq.wf_spec(),
+    ensures
+        out ==> {
+            let d1 = sub2::<SpecQuadExt<RationalModel, R>>(a2@, a1@);
+            let d2 = sub2::<SpecQuadExt<RationalModel, R>>(b2@, b1@);
+            let dp = d1.x.mul(d2.x).add(d1.y.mul(d2.y));
+            let n1 = d1.x.mul(d1.x).add(d1.y.mul(d1.y));
+            let n2 = d2.x.mul(d2.x).add(d2.y.mul(d2.y));
+            let cos_sq_ext = qext_from_rational::<RationalModel, R>(cos_sq@);
+            dp.mul(dp).eqv(cos_sq_ext.mul(n1).mul(n2))
+        },
 {
     // d1 = a2 - a1
     let dx1 = a2.x.sub_exec(&a1.x);
