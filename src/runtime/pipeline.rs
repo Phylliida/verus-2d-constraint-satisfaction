@@ -1240,10 +1240,8 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
     let n_points = initial_points.len();
 
     // Step 1: Runtime plan soundness check
-    let mut work_points = copy_points_vec(initial_points);
-    let mut work_flags = copy_flags_vec(initial_flags);
     let sound = verify_plan_soundness_exec::<R, RR>(
-        variant, constraints, &mut work_points, &mut work_flags,
+        variant, constraints, n_points,
     );
     if !sound { return None; }
 
@@ -1418,6 +1416,11 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
         // Conjunct 4: plan_locus_ordered (from runtime check on full_plan_runtime)
         assert(plan_locus_ordered(full_plan, cstr_spec));
 
+        // Assert sub-predicates in stages to help Z3
+        assert(plan_valid_structure(full_plan, cstr_spec));
+        assert(plan_independence(full_plan, cstr_spec));
+        assert(plan_geometric_validity::<R>(full_plan));
+        assert(plan_dynamic_satisfaction(full_plan, cstr_spec));
         assert(plan_structurally_sound::<R>(full_plan, cstr_spec));
 
         // === Phase A: Prove verification constraint satisfaction ===
