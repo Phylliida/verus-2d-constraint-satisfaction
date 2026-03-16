@@ -279,7 +279,7 @@ pub proof fn lemma_step_target_not_in_prefix<T: OrderedField>(
 }
 
 /// execute_plan(plan.take(n+1)) == execute_plan(plan.take(n)).insert(target, result).
-proof fn lemma_execute_plan_take_step<T: OrderedField>(
+pub proof fn lemma_execute_plan_take_step<T: OrderedField>(
     plan: ConstructionPlan<T>,
     n: int,
 )
