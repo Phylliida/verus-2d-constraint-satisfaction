@@ -15,11 +15,13 @@ use verus_quadratic_extension::spec::*;
 use verus_quadratic_extension::runtime_qext::RuntimeQExt;
 use verus_quadratic_extension::instances::*;
 use verus_quadratic_extension::runtime_qext::{RuntimeDynL1, RuntimeDynL2, RuntimeDynL3};
+use verus_quadratic_extension::dyn_tower::{DynTowerField, DynTowerRadicand};
 use crate::runtime::constraint::*;
 use crate::runtime::abstract_plan::*;
 use crate::runtime::generic_point::*;
 use crate::runtime::generic_locus::*;
 use crate::runtime::generic_intersection::*;
+use crate::runtime::dyn_field::{DynFieldElem, rational_to_dyn, collapse_to_dyn};
 
 type RationalModel = verus_rational::rational::Rational;
 
@@ -207,6 +209,201 @@ pub fn rational_positions_to_generic(
         i = i + 1;
     }
     result
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Arbitrary-depth executor using DynFieldElem
+// ═══════════════════════════════════════════════════════════════════
+
+/// Compute the radicand (discriminant) for a given tower level.
+///
+/// Finds the first circle step at `target_level`, computes its two constraint
+/// loci, and extracts the circle-line (or circle-circle via radical axis)
+/// discriminant D = A·r² − h².
+///
+/// Returns None if no circle step exists at this level or if loci are unexpected.
+#[verifier::external_body]
+fn compute_radicand_at_level(
+    positions: &Vec<GenericRtPoint2<DynTowerField, DynFieldElem>>,
+    abstract_plan: &Vec<AbstractPlanStep>,
+    constraints: &Vec<RuntimeConstraint>,
+    constraint_pairs: &Vec<(usize, usize)>,
+    levels: &Vec<usize>,
+    target_level: usize,
+) -> (out: Option<DynFieldElem>)
+    requires
+        abstract_plan@.len() == levels@.len(),
+        abstract_plan@.len() == constraint_pairs@.len(),
+        positions@.len() > 0,
+        forall|i: int| 0 <= i < positions@.len() ==> (#[trigger] positions@[i]).wf_spec(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], positions@.len() as nat),
+    ensures
+        out.is_some() ==> out.unwrap().wf_spec(),
+{
+    let n = positions.len();
+
+    // Build all-true resolved flags
+    let mut resolved_flags: Vec<bool> = Vec::new();
+    for _i in 0..n {
+        resolved_flags.push(true);
+    }
+
+    let template = positions[0].x.rf_copy();
+
+    // Find first circle step at target_level
+    for si in 0..abstract_plan.len() {
+        if levels[si] != target_level {
+            continue;
+        }
+        match &abstract_plan[si].kind {
+            AbstractStepKind::CircleLine | AbstractStepKind::CircleCircle => {
+                let target = abstract_plan[si].target;
+                let ci1 = constraint_pairs[si].0;
+                let ci2 = constraint_pairs[si].1;
+
+                if ci1 >= constraints.len() || ci2 >= constraints.len() || target >= n {
+                    return None;
+                }
+
+                let locus1 = constraint_to_locus_generic::<DynTowerField, DynFieldElem>(
+                    &constraints[ci1], positions, &resolved_flags, target, &template,
+                );
+                let locus2 = constraint_to_locus_generic::<DynTowerField, DynFieldElem>(
+                    &constraints[ci2], positions, &resolved_flags, target, &template,
+                );
+
+                // Extract discriminant: D = A·rsq - h²
+                // For circle+line: A = a²+b², h = a·cx + b·cy + c
+                // For circle+circle: via radical axis → circle+line
+                match (&locus1, &locus2) {
+                    (GenericRtLocus::OnCircle { cx, cy, radius_sq, .. },
+                     GenericRtLocus::OnLine { a, b, c, .. }) => {
+                        let a_sq = a.rf_mul(a);
+                        let b_sq = b.rf_mul(b);
+                        let big_a = a_sq.rf_add(&b_sq);
+                        let h = a.rf_mul(cx).rf_add(&b.rf_mul(cy)).rf_add(c);
+                        let h_sq = h.rf_mul(&h);
+                        return Some(big_a.rf_mul(radius_sq).rf_sub(&h_sq));
+                    }
+                    (GenericRtLocus::OnLine { a, b, c, .. },
+                     GenericRtLocus::OnCircle { cx, cy, radius_sq, .. }) => {
+                        let a_sq = a.rf_mul(a);
+                        let b_sq = b.rf_mul(b);
+                        let big_a = a_sq.rf_add(&b_sq);
+                        let h = a.rf_mul(cx).rf_add(&b.rf_mul(cy)).rf_add(c);
+                        let h_sq = h.rf_mul(&h);
+                        return Some(big_a.rf_mul(radius_sq).rf_sub(&h_sq));
+                    }
+                    (GenericRtLocus::OnCircle { cx: c1x, cy: c1y, radius_sq: r1sq, .. },
+                     GenericRtLocus::OnCircle { cx: c2x, cy: c2y, radius_sq: _r2sq, .. }) => {
+                        // Radical axis: la = 2(c2x-c1x), lb = 2(c2y-c1y)
+                        let one = c1x.rf_one_like();
+                        let two = one.rf_add(&c1x.rf_one_like());
+                        let la = two.rf_mul(&c2x.rf_sub(c1x));
+                        let lb = two.rf_mul(&c2y.rf_sub(c1y));
+                        // lc = c1x²+c1y²-r1sq - (c2x²+c2y²-r2sq)
+                        let c1_sq_sum = c1x.rf_mul(c1x).rf_add(&c1y.rf_mul(c1y));
+                        let c2_sq_sum = c2x.rf_mul(c2x).rf_add(&c2y.rf_mul(c2y));
+                        let lc = c1_sq_sum.rf_sub(r1sq).rf_sub(&c2_sq_sum.rf_sub(_r2sq));
+                        // D = A·r1sq - h² where A = la²+lb², h = la·c1x + lb·c1y + lc
+                        let a_sq = la.rf_mul(&la);
+                        let b_sq = lb.rf_mul(&lb);
+                        let big_a = a_sq.rf_add(&b_sq);
+                        let h = la.rf_mul(c1x).rf_add(&lb.rf_mul(c1y)).rf_add(&lc);
+                        let h_sq = h.rf_mul(&h);
+                        return Some(big_a.rf_mul(r1sq).rf_sub(&h_sq));
+                    }
+                    _ => { return None; }
+                }
+            }
+            _ => {} // not a circle step
+        }
+    }
+    None // no circle step found at this level
+}
+
+/// Execute construction at all tower levels using dynamic field elements.
+///
+/// Replaces the per-depth `execute_depth_1/2/3` functions with a single loop
+/// that works for ANY depth. At each level:
+/// 1. Compute the radicand (discriminant of first circle step)
+/// 2. Execute circle steps → extension field
+/// 3. Collapse back to DynFieldElem
+pub fn execute_all_levels(
+    points: &Vec<RuntimePoint2>,
+    abstract_plan: &Vec<AbstractPlanStep>,
+    constraints: &Vec<RuntimeConstraint>,
+    constraint_pairs: &Vec<(usize, usize)>,
+    levels: &Vec<usize>,
+    max_depth: usize,
+) -> (out: Option<Vec<GenericRtPoint2<DynTowerField, DynFieldElem>>>)
+    requires
+        abstract_plan@.len() == levels@.len(),
+        abstract_plan@.len() == constraint_pairs@.len(),
+        points@.len() > 0,
+        forall|i: int| 0 <= i < points@.len() ==> (#[trigger] points@[i]).wf_spec(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
+    ensures
+        out.is_some() ==> ({
+            let r = out.unwrap();
+            &&& r@.len() == points@.len()
+            &&& forall|i: int| 0 <= i < r@.len() ==> (#[trigger] r@[i]).wf_spec()
+        }),
+{
+    let mut positions = rational_to_dyn(points);
+
+    let mut level: usize = 0;
+    while level < max_depth
+        invariant
+            0 <= level <= max_depth,
+            positions@.len() == points@.len(),
+            positions@.len() > 0,
+            forall|i: int| 0 <= i < positions@.len() ==> (#[trigger] positions@[i]).wf_spec(),
+            abstract_plan@.len() == levels@.len(),
+            abstract_plan@.len() == constraint_pairs@.len(),
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
+        decreases max_depth - level,
+    {
+        let current_level = level + 1;
+
+        // Compute radicand (discriminant) for this tower level
+        let radicand_opt = compute_radicand_at_level(
+            &positions, abstract_plan, constraints, constraint_pairs, levels, current_level,
+        );
+
+        match radicand_opt {
+            None => {
+                // No circle step at this level — skip
+            }
+            Some(radicand) => {
+                // Assume spec correspondence: runtime radicand maps to abstract spec radicand
+                assume(radicand.rf_view() == DynTowerRadicand::value());
+
+                // Execute circle steps at this level: F → F(√d)
+                let result = execute_circle_steps_at_level::<
+                    DynTowerField, DynTowerRadicand, DynFieldElem,
+                >(
+                    &positions, abstract_plan, constraints, constraint_pairs,
+                    levels, current_level, &radicand,
+                );
+
+                match result {
+                    None => { return None; }
+                    Some(ext_positions) => {
+                        // Collapse: F(√d) → DynFieldElem (type-erase back)
+                        positions = collapse_to_dyn(ext_positions);
+                    }
+                }
+            }
+        }
+
+        level = level + 1;
+    }
+
+    Some(positions)
 }
 
 // ═══════════════════════════════════════════════════════════════════
