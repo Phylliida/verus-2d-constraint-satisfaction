@@ -21,6 +21,13 @@ use crate::runtime::construction::*;
 use crate::runtime::solver::*;
 use crate::runtime::ext_constraint::*;
 use crate::runtime::pipeline_proofs::*;
+use crate::runtime::abstract_plan::{extract_abstract_plan, compute_step_levels, extract_constraint_pairs};
+use crate::runtime::multi_level::execute_all_levels;
+use crate::runtime::generic_constraint_check::check_all_constraints_generic;
+use crate::runtime::dyn_field::{DynFieldElem, extract_rational_points};
+use crate::runtime::generic_point::GenericRtPoint2;
+use verus_quadratic_extension::dyn_tower::DynTowerField;
+use verus_quadratic_extension::runtime_field::RuntimeFieldOps;
 
 type RationalModel = verus_rational::rational::Rational;
 
@@ -2314,6 +2321,93 @@ pub fn solve_and_verify_first_auto(
         _ => lazy_verify_first::<Sqrt2, RuntimeSqrt2>(
             &base_plan, constraints, &initial_points, &initial_flags),
     }
+}
+
+// ===========================================================================
+//  Arbitrary-depth solve-and-verify using dynamic field tower
+// ===========================================================================
+
+/// Solve constraints and verify using the arbitrary-depth dynamic field tower.
+///
+/// Unlike `solve_and_verify_auto` which dispatches to fixed radicand types (Sqrt2, Sqrt3, etc.)
+/// and only handles depth-1 extensions, this function handles ANY depth by using DynFieldElem
+/// to type-erase the tower level.
+///
+/// Flow:
+/// 1. Greedy solver → construction plan
+/// 2. Compute tower levels + constraint pairs
+/// 3. Execute all levels: rational → Q(√d₁) → Q(√d₁)(√d₂) → ... (arbitrary depth)
+/// 4. Runtime-check ALL constraints at the deepest level
+/// 5. Extract rational approximations
+pub fn solve_and_verify_chain(
+    free_ids: &Vec<usize>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: &mut Vec<RuntimePoint2>,
+    resolved_flags: &mut Vec<bool>,
+) -> (out: Option<Vec<RuntimePoint2>>)
+    requires
+        old(points)@.len() == old(resolved_flags)@.len(),
+        all_points_wf(old(points)@),
+        forall|i: int| 0 <= i < free_ids@.len() ==>
+            (free_ids@[i] as int) < old(points)@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], old(points)@.len() as nat),
+        forall|i: int| 0 <= i < old(resolved_flags)@.len() ==>
+            (#[trigger] old(resolved_flags)@[i]) ==
+            partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
+                .dom().contains(i as nat),
+    ensures
+        out.is_some() ==> ({
+            let r = out.unwrap();
+            &&& r@.len() == old(points)@.len()
+            &&& all_points_wf(r@)
+        }),
+{
+    // Run greedy solver (mutates points/resolved_flags)
+    let plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
+
+    if points.len() == 0 {
+        return None;
+    }
+
+    // Extract abstract plan and compute tower levels
+    let abstract_plan = extract_abstract_plan(&plan);
+    let levels = compute_step_levels(&abstract_plan, constraints);
+    let depth = crate::runtime::abstract_plan::max_depth(&levels);
+
+    // If no circle steps, all positions are rational — return directly
+    if depth == 0 {
+        let result = copy_points_vec(points);
+        return Some(result);
+    }
+
+    // Extract constraint pairs for circle steps
+    let pairs = match extract_constraint_pairs(&abstract_plan, constraints) {
+        None => { return None; }
+        Some(p) => p,
+    };
+
+    // Execute all tower levels using dynamic field elements
+    let deep_positions = match execute_all_levels(
+        &*points, &abstract_plan, constraints, &pairs, &levels, depth,
+    ) {
+        None => { return None; }
+        Some(pos) => pos,
+    };
+
+    // Runtime-check ALL constraints at the deepest level
+    let template = deep_positions[0].x.rf_copy();
+    let all_ok = check_all_constraints_generic::<DynTowerField, DynFieldElem>(
+        constraints, &deep_positions, &template,
+    );
+
+    if !all_ok {
+        return None;
+    }
+
+    // Extract rational approximations (innermost re.re.re...)
+    let rational_pts = extract_rational_points(&deep_positions);
+    Some(rational_pts)
 }
 
 } // verus!

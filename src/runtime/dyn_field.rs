@@ -345,23 +345,17 @@ impl RuntimeFieldOps<DynTowerField> for DynFieldElem {
     fn rf_copy(&self) -> (out: Self) { self.dyn_copy() }
 
     fn rf_zero_like(&self) -> (out: Self) {
-        let result = self.dyn_zero_like();
-        assume(result.rf_view() == DynTowerField::zero());
-        result
+        self.dyn_zero_like()
     }
 
     fn rf_one_like(&self) -> (out: Self) {
-        let result = self.dyn_one_like();
-        assume(result.rf_view() == DynTowerField::one());
-        result
+        self.dyn_one_like()
     }
 
     open spec fn spec_embed_rational(v: Rational) -> DynTowerField { arbitrary() }
 
     fn rf_embed_rational(&self, v: &RuntimeRational) -> (out: Self) {
-        let result = self.dyn_embed_rational(v);
-        assume(result.rf_view() == Self::spec_embed_rational(v@));
-        result
+        self.dyn_embed_rational(v)
     }
 }
 
@@ -376,13 +370,11 @@ pub fn collapse_elem(
     requires x.wf_spec()
     ensures out.wf_spec()
 {
-    let result = DynFieldElem::Extension {
+    DynFieldElem::Extension {
         re: Box::new(x.re),
         im: Box::new(x.im),
         radicand: Box::new(x.radicand_rt),
-    };
-    assume(result.dyn_wf());
-    result
+    }
 }
 
 /// Collapse a point from RuntimeQExt coordinates to DynFieldElem coordinates.
