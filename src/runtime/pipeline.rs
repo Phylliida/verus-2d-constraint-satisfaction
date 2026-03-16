@@ -2065,4 +2065,255 @@ pub fn solve_and_verify_auto(
     }
 }
 
+// ===========================================================================
+//  Lazy variant generation with early termination
+// ===========================================================================
+
+/// Detect discriminant from a single plan (not a vec of variants).
+/// Used by lazy generation to detect before enumerating variants.
+fn detect_discriminant_single(
+    plan: &Vec<RuntimeStepData>,
+) -> (out: u8)
+    requires
+        forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+{
+    let d2 = RuntimeRational::from_int(2);
+    let d3 = RuntimeRational::from_int(3);
+    let d5 = RuntimeRational::from_int(5);
+    let d6 = RuntimeRational::from_int(6);
+    let d7 = RuntimeRational::from_int(7);
+    let d10 = RuntimeRational::from_int(10);
+    let d11 = RuntimeRational::from_int(11);
+    let d13 = RuntimeRational::from_int(13);
+    let mut found: u8 = 0;
+    let mut i: usize = 0;
+
+    while i < plan.len()
+        invariant
+            i <= plan@.len(),
+            forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+            d2.wf_spec(), d3.wf_spec(), d5.wf_spec(),
+            d6.wf_spec(), d7.wf_spec(), d10.wf_spec(), d11.wf_spec(), d13.wf_spec(),
+        decreases plan@.len() - i,
+    {
+        let disc_val: u8 = match &plan[i] {
+            RuntimeStepData::CircleLine { circle, line, .. } => {
+                let disc = cl_discriminant_exec(circle, line);
+                if disc.eq(&d2) { 2u8 }
+                else if disc.eq(&d3) { 3u8 }
+                else if disc.eq(&d5) { 5u8 }
+                else if disc.eq(&d6) { 6u8 }
+                else if disc.eq(&d7) { 7u8 }
+                else if disc.eq(&d10) { 10u8 }
+                else if disc.eq(&d11) { 11u8 }
+                else if disc.eq(&d13) { 13u8 }
+                else { return 0; }
+            }
+            RuntimeStepData::CircleCircle { c1, c2, .. } => {
+                let disc = cc_discriminant_exec(c1, c2);
+                if disc.eq(&d2) { 2u8 }
+                else if disc.eq(&d3) { 3u8 }
+                else if disc.eq(&d5) { 5u8 }
+                else if disc.eq(&d6) { 6u8 }
+                else if disc.eq(&d7) { 7u8 }
+                else if disc.eq(&d10) { 10u8 }
+                else if disc.eq(&d11) { 11u8 }
+                else if disc.eq(&d13) { 13u8 }
+                else { return 0; }
+            }
+            _ => { 0u8 }
+        };
+
+        if disc_val > 0 {
+            if found == 0 {
+                found = disc_val;
+            } else if found != disc_val {
+                return 0;
+            }
+        }
+        i = i + 1;
+    }
+
+    found
+}
+
+/// Lazily generate variants and return the first verified solution.
+/// Generates one variant at a time, avoiding upfront 2^k allocation.
+fn lazy_verify_first<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    base_plan: &Vec<RuntimeStepData>,
+    constraints: &Vec<RuntimeConstraint>,
+    initial_points: &Vec<RuntimePoint2>,
+    initial_flags: &Vec<bool>,
+) -> (out: Option<SolvedPoints>)
+    requires
+        initial_points@.len() == initial_flags@.len(),
+        all_points_wf(initial_points@),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], initial_points@.len() as nat),
+        forall|i: int| 0 <= i < initial_flags@.len() ==>
+            (#[trigger] initial_flags@[i]) ==
+            partial_resolved_map(points_view(initial_points@), initial_flags@)
+                .dom().contains(i as nat),
+        forall|j: int| 0 <= j < base_plan@.len() ==> (#[trigger] base_plan@[j]).wf_spec(),
+        forall|i: int, j: int|
+            0 <= i < base_plan@.len() && 0 <= j < base_plan@.len() && i != j ==>
+            step_target(#[trigger] base_plan@[i].spec_step()) !=
+            step_target(#[trigger] base_plan@[j].spec_step()),
+        forall|j: int| 0 <= j < base_plan@.len() ==>
+            (step_target((#[trigger] base_plan@[j]).spec_step()) as int) < initial_points@.len(),
+{
+    // Check base plan feasibility once — discriminants don't change with sign flips
+    if !check_variant_feasible(base_plan) {
+        return None;
+    }
+
+    let k = count_circle_steps(base_plan);
+
+    if k > 63 {
+        // Too many circle steps to enumerate; try base plan only
+        proof {
+            assert forall|j: int| 0 <= j < base_plan@.len()
+            implies step_geometrically_valid((#[trigger] base_plan@[j]).spec_step())
+            by { assert(base_plan@[j].wf_spec()); }
+        }
+        let result = verify_single_variant::<R, RR>(
+            base_plan, constraints, initial_points, initial_flags,
+        );
+        return match result {
+            Some(sol) => Some(to_solved_points(&sol)),
+            None => None,
+        };
+    }
+
+    let n: u64 = 1u64 << (k as u64);
+    let mut mask: u64 = 0;
+
+    while mask < n
+        invariant
+            0 <= mask <= n,
+            n == 1u64 << (k as u64),
+            k <= 63,
+            // Base plan properties
+            forall|j: int| 0 <= j < base_plan@.len() ==> (#[trigger] base_plan@[j]).wf_spec(),
+            forall|i: int, j: int|
+                0 <= i < base_plan@.len() && 0 <= j < base_plan@.len() && i != j ==>
+                step_target(#[trigger] base_plan@[i].spec_step()) !=
+                step_target(#[trigger] base_plan@[j].spec_step()),
+            forall|j: int| 0 <= j < base_plan@.len() ==>
+                (step_target((#[trigger] base_plan@[j]).spec_step()) as int) < initial_points@.len(),
+            forall|j: int| 0 <= j < base_plan@.len() ==>
+                step_has_positive_discriminant((#[trigger] base_plan@[j]).spec_step()),
+            // Initial state properties
+            initial_points@.len() == initial_flags@.len(),
+            all_points_wf(initial_points@),
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], initial_points@.len() as nat),
+            forall|i: int| 0 <= i < initial_flags@.len() ==>
+                (#[trigger] initial_flags@[i]) ==
+                partial_resolved_map(points_view(initial_points@), initial_flags@)
+                    .dom().contains(i as nat),
+        decreases n - mask,
+    {
+        let variant = make_sign_variant(base_plan, mask);
+        proof {
+            // Derive variant properties from base plan + make_sign_variant ensures
+            assert forall|i: int, j: int|
+                0 <= i < variant@.len() && 0 <= j < variant@.len() && i != j
+            implies
+                step_target(#[trigger] variant@[i].spec_step()) !=
+                step_target(#[trigger] variant@[j].spec_step())
+            by {
+                assert(step_target(variant@[i].spec_step()) == step_target(base_plan@[i].spec_step()));
+                assert(step_target(variant@[j].spec_step()) == step_target(base_plan@[j].spec_step()));
+            }
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                (step_target((#[trigger] variant@[j]).spec_step()) as int) < initial_points@.len()
+            by {
+                assert(step_target(variant@[j].spec_step()) == step_target(base_plan@[j].spec_step()));
+            }
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                step_has_positive_discriminant((#[trigger] variant@[j]).spec_step())
+            by {
+                assert(step_has_positive_discriminant(variant@[j].spec_step())
+                    == step_has_positive_discriminant(base_plan@[j].spec_step()));
+            }
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                step_geometrically_valid((#[trigger] variant@[j]).spec_step())
+            by {
+                assert(variant@[j].wf_spec());
+            }
+        }
+        let result = verify_single_variant::<R, RR>(
+            &variant, constraints, initial_points, initial_flags,
+        );
+        match result {
+            Some(sol) => {
+                return Some(to_solved_points(&sol));
+            }
+            None => {}
+        }
+        mask = mask + 1;
+    }
+
+    None
+}
+
+/// Top-level solve-and-verify with early termination.
+/// Returns the first valid solution found, or None.
+/// Uses lazy variant generation: generates one variant at a time instead of
+/// pre-computing all 2^k variants upfront.
+pub fn solve_and_verify_first_auto(
+    free_ids: &Vec<usize>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: &mut Vec<RuntimePoint2>,
+    resolved_flags: &mut Vec<bool>,
+) -> (out: Option<SolvedPoints>)
+    requires
+        old(points)@.len() == old(resolved_flags)@.len(),
+        all_points_wf(old(points)@),
+        forall|i: int| 0 <= i < free_ids@.len() ==>
+            (free_ids@[i] as int) < old(points)@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], old(points)@.len() as nat),
+        forall|i: int| 0 <= i < old(resolved_flags)@.len() ==>
+            (#[trigger] old(resolved_flags)@[i]) ==
+            partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
+                .dom().contains(i as nat),
+{
+    // Save initial state before greedy_solve_exec mutates
+    let initial_points = copy_points_vec(points);
+    let initial_flags = copy_flags_vec(resolved_flags);
+
+    // Run greedy solver (mutates points/resolved_flags)
+    let base_plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
+
+    // Detect discriminant from base plan
+    let disc = detect_discriminant_single(&base_plan);
+
+    // Dispatch to appropriate generic instantiation with lazy verification
+    match disc {
+        2 => lazy_verify_first::<Sqrt2, RuntimeSqrt2>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        3 => lazy_verify_first::<Sqrt3, RuntimeSqrt3>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        5 => lazy_verify_first::<Sqrt5, RuntimeSqrt5>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        6 => lazy_verify_first::<Sqrt6, RuntimeSqrt6>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        7 => lazy_verify_first::<Sqrt7, RuntimeSqrt7>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        10 => lazy_verify_first::<Sqrt10, RuntimeSqrt10>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        11 => lazy_verify_first::<Sqrt11, RuntimeSqrt11>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        13 => lazy_verify_first::<Sqrt13, RuntimeSqrt13>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        _ => lazy_verify_first::<Sqrt2, RuntimeSqrt2>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+    }
+}
+
 } // verus!
