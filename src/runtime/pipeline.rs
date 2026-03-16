@@ -1262,37 +1262,33 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
     );
     if !locus_ordered { return None; }
 
-    // Step 2: Execute the solver plan to get results
-    let results = execute_plan_runtime::<R>(variant);
+    // Step 1e: Check dynamic conjuncts 9-12 via full plan replay
+    if n_points == 0 { return None; }
 
-    // Step 3: Build extension-level resolved points and check verification constraints
-    let ext_points = build_ext_resolved_vec::<R, RR>(
-        &results, variant, initial_points,
-    );
-    let ext_ok = check_all_verification_constraints_ext::<R, RR>(
-        constraints, &ext_points, n_points,
-    );
-    if !ext_ok { return None; }
+    // Establish preconditions for check_full_plan_dynamic_conjuncts_exec
+    // by proving facts about full_plan_runtime via its spec correspondence
+    let ghost plan_spec = plan_to_spec(variant@);
+    let ghost cstr_spec = constraints_to_spec(constraints@);
+    let ghost pts_spec = points_view(initial_points@);
+    let ghost full_plan = build_full_plan(pts_spec, initial_flags@, plan_spec);
+    let ghost init_steps = initial_point_steps(pts_spec, initial_flags@);
+    let ghost init_len = init_steps.len() as int;
 
-    // Step 3b: Formal bridge — all constraints satisfied at extension level.
     proof {
-        let plan_spec = plan_to_spec(variant@);
-        let cstr_spec = constraints_to_spec(constraints@);
-        let pts_spec = points_view(initial_points@);
-        let full_plan = build_full_plan(pts_spec, initial_flags@, plan_spec);
-        let init_steps = initial_point_steps(pts_spec, initial_flags@);
-        let init_len = init_steps.len() as int;
+        // full_plan_runtime spec correspondence
+        assert(plan_to_spec(full_plan_runtime@) =~= full_plan);
 
-        // === Prove structural conjuncts 1, 2, 6, 7, 8 ===
-
-        // Conjunct 1: distinct_targets(full_plan)
+        // Conjunct 1: distinct_targets for full_plan_runtime
         lemma_initial_steps_distinct_targets(pts_spec, initial_flags@);
         lemma_initial_steps_flags_true(pts_spec, initial_flags@);
         lemma_initial_steps_targets_bounded(pts_spec, initial_flags@);
         assert forall|i: int, j: int|
-            0 <= i < full_plan.len() && 0 <= j < full_plan.len() && i != j
-        implies step_target(full_plan[i]) != step_target(full_plan[j])
+            0 <= i < full_plan_runtime@.len() && 0 <= j < full_plan_runtime@.len() && i != j
+        implies step_target(full_plan_runtime@[i].spec_step())
+            != step_target(full_plan_runtime@[j].spec_step())
         by {
+            assert(full_plan_runtime@[i].spec_step() == full_plan[i]);
+            assert(full_plan_runtime@[j].spec_step() == full_plan[j]);
             if i < init_len && j < init_len {
                 assert(full_plan[i] == init_steps[i]);
                 assert(full_plan[j] == init_steps[j]);
@@ -1307,13 +1303,65 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
                 } else {
                     (j, i - init_len)
                 };
-                let init_target = step_target(init_steps[init_idx]);
+                assert(full_plan[init_idx] == init_steps[init_idx]);
                 let solver_step = plan_spec[solver_idx];
                 assert(solver_step == variant@[solver_idx].spec_step());
             }
         }
 
         // Conjuncts 6, 7, 8: geometrically valid, positive discriminant, radicand matches
+        lemma_initial_steps_trivial_properties::<R>(pts_spec, initial_flags@);
+        assert forall|i: int| 0 <= i < full_plan_runtime@.len()
+        implies step_geometrically_valid((#[trigger] full_plan_runtime@[i]).spec_step())
+        by {
+            assert(full_plan_runtime@[i].spec_step() == full_plan[i]);
+            if i < init_len {
+                assert(full_plan[i] == init_steps[i]);
+            } else {
+                assert(full_plan[i] == plan_spec[i - init_len]);
+                assert(plan_spec[i - init_len] == variant@[i - init_len].spec_step());
+            }
+        }
+
+        // Conjunct 5: is_fully_independent_plan for full_plan_runtime
+        lemma_initial_steps_are_rational(pts_spec, initial_flags@);
+        assert forall|j: int| 0 <= j < plan_spec.len()
+        implies !(#[trigger] initial_flags@[step_target(plan_spec[j]) as int])
+        by {
+            assert(plan_spec[j] == variant@[j].spec_step());
+        }
+        lemma_full_plan_independent(pts_spec, initial_flags@, plan_spec, cstr_spec);
+        // Transfer: plan_to_spec(full_plan_runtime@) =~= full_plan, so independence holds
+        assert(is_fully_independent_plan(
+            plan_to_spec(full_plan_runtime@), constraints_to_spec(constraints@)));
+    }
+
+    let dynamic_ok = check_full_plan_dynamic_conjuncts_exec(
+        &full_plan_runtime, constraints, n_points);
+    if !dynamic_ok { return None; }
+
+    // Step 2: Execute the solver plan to get results
+    let results = execute_plan_runtime::<R>(variant);
+
+    // Step 3: Build extension-level resolved points and check verification constraints
+    let ext_points = build_ext_resolved_vec::<R, RR>(
+        &results, variant, initial_points,
+    );
+    let ext_ok = check_all_verification_constraints_ext::<R, RR>(
+        constraints, &ext_points, n_points,
+    );
+    if !ext_ok { return None; }
+
+    // Step 3b: Formal bridge — all constraints satisfied at extension level.
+    proof {
+        // Conjuncts 9-12: from check_full_plan_dynamic_conjuncts_exec ensures
+        // plan_to_spec(full_plan_runtime@) =~= full_plan, so results transfer
+        let fp_spec = plan_to_spec(full_plan_runtime@);
+        let cs_spec = constraints_to_spec(constraints@);
+        assert(fp_spec =~= full_plan);
+        assert(cs_spec =~= cstr_spec);
+
+        // Conjuncts 6, 7, 8 for spec full_plan (needed for plan_structurally_sound)
         lemma_initial_steps_trivial_properties::<R>(pts_spec, initial_flags@);
         assert forall|j: int| #![trigger full_plan[j]]
             0 <= j < full_plan.len()
@@ -1329,14 +1377,17 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
             }
         }
 
-        // Conjunct 5: is_fully_independent_plan(full_plan, cstr_spec)
-        lemma_initial_steps_are_rational(pts_spec, initial_flags@);
-        assert forall|j: int| 0 <= j < plan_spec.len()
-        implies !(#[trigger] initial_flags@[step_target(plan_spec[j]) as int])
+        // Distinct targets for spec full_plan
+        assert forall|i: int, j: int|
+            0 <= i < full_plan.len() && 0 <= j < full_plan.len() && i != j
+        implies step_target(full_plan[i]) != step_target(full_plan[j])
         by {
-            assert(plan_spec[j] == variant@[j].spec_step());
+            assert(full_plan[i] == fp_spec[i]);
+            assert(full_plan[j] == fp_spec[j]);
         }
-        lemma_full_plan_independent(pts_spec, initial_flags@, plan_spec, cstr_spec);
+
+        // Conjunct 5: independence for spec full_plan
+        assert(is_fully_independent_plan(full_plan, cstr_spec));
 
         // === Prove conjunct 3: entity coverage ===
         assert forall|ci: int| 0 <= ci < cstr_spec.len()
@@ -1366,27 +1417,6 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
 
         // Conjunct 4: plan_locus_ordered (from runtime check on full_plan_runtime)
         assert(plan_locus_ordered(full_plan, cstr_spec));
-
-        // Remaining assumes: conjuncts 9-12
-        assume(forall|si: int| #![trigger full_plan[si]]
-            0 <= si < full_plan.len() ==>
-            at_most_two_nontrivial_loci(
-                step_target(full_plan[si]), cstr_spec,
-                execute_plan(full_plan.take(si as int)).dom()));
-        assume(forall|si: int| #![trigger full_plan[si]]
-            0 <= si < full_plan.len() && is_rational_step(full_plan[si]) ==>
-            step_satisfies_all_constraint_loci(
-                full_plan[si], cstr_spec, execute_plan(full_plan.take(si as int))));
-        assume(forall|si: int| #![trigger full_plan[si]]
-            0 <= si < full_plan.len() && !is_rational_step(full_plan[si]) ==>
-            step_loci_match_geometry(
-                full_plan[si], cstr_spec, execute_plan(full_plan.take(si as int))));
-        assume(forall|si: int, ci: int|
-            #![trigger full_plan[si], cstr_spec[ci]]
-            0 <= si < full_plan.len() && 0 <= ci < cstr_spec.len() ==>
-            constraint_locus_nondegenerate(
-                cstr_spec[ci], execute_plan(full_plan.take(si as int)),
-                step_target(full_plan[si])));
 
         assert(plan_structurally_sound::<R>(full_plan, cstr_spec));
 
