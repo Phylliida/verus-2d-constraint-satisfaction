@@ -3741,48 +3741,64 @@ pub open spec fn step_loci_match_geometry<T: OrderedField>(
 }
 
 // ===========================================================================
-//  Composite structural soundness predicate
+//  Composite structural soundness predicate — sub-predicates
 // ===========================================================================
 
-/// All conditions needed for the master bridge lemma.
-/// Bundles plan validity preconditions, independence, nontrivial count bounds,
-/// geometric validity, positive discriminants, and radicand matching.
-pub open spec fn plan_structurally_sound<R: PositiveRadicand<RationalModel>>(
+/// Conjuncts 1-4: distinct targets, well-formed constraints, entity coverage,
+/// locus ordering.
+pub open spec fn plan_valid_structure(
     plan: ConstructionPlan<RationalModel>,
     constraints: Seq<Constraint<RationalModel>>,
 ) -> bool {
-    // Distinct targets
+    // 1. Distinct targets
     &&& forall|i: int, j: int|
         0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
         step_target(plan[i]) != step_target(plan[j])
 
-    // All constraints well-formed
+    // 2. All constraints well-formed
     &&& forall|ci: int| 0 <= ci < constraints.len() ==>
         constraint_well_formed(#[trigger] constraints[ci])
 
-    // All constraint entities covered by the plan
+    // 3. All constraint entities covered by the plan
     &&& forall|ci: int| 0 <= ci < constraints.len() ==>
         constraint_entities(constraints[ci]).subset_of(execute_plan(plan).dom())
 
-    // Plan is locus-ordered
+    // 4. Plan is locus-ordered
     &&& plan_locus_ordered(plan, constraints)
+}
 
-    // Fully independent plan (no constraint input is a circle target)
-    &&& is_fully_independent_plan(plan, constraints)
+/// Conjunct 5: no constraint input is a circle target.
+pub open spec fn plan_independence(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+) -> bool {
+    is_fully_independent_plan(plan, constraints)
+}
 
-    // Each step geometrically valid
+/// Conjuncts 6-8: geometric validity, positive discriminant, radicand match.
+pub open spec fn plan_geometric_validity<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+) -> bool {
+    // 6. Each step geometrically valid
     &&& forall|j: int| #![trigger plan[j]]
         0 <= j < plan.len() ==> step_geometrically_valid(plan[j])
 
-    // Each step has positive discriminant
+    // 7. Each step has positive discriminant
     &&& forall|j: int| #![trigger plan[j]]
         0 <= j < plan.len() ==> step_has_positive_discriminant(plan[j])
 
-    // Each step's radicand matches
+    // 8. Each step's radicand matches
     &&& forall|j: int| #![trigger plan[j]]
         0 <= j < plan.len() ==> step_radicand_matches::<R>(plan[j])
+}
 
-    // At most two nontrivial loci per step
+/// Conjuncts 9-12: nontrivial loci count, step satisfaction, geometry match,
+/// nondegeneracy.
+pub open spec fn plan_dynamic_satisfaction(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+) -> bool {
+    // 9. At most two nontrivial loci per step
     &&& forall|si: int| #![trigger plan[si]]
         0 <= si < plan.len() ==>
         at_most_two_nontrivial_loci(
@@ -3791,26 +3807,41 @@ pub open spec fn plan_structurally_sound<R: PositiveRadicand<RationalModel>>(
             execute_plan(plan.take(si as int)).dom(),
         )
 
-    // Base-level step satisfaction: each RATIONAL step satisfies all constraint loci.
-    // Circle steps satisfy loci at the extension level, not the base level.
+    // 10. Rational steps satisfy all constraint loci
     &&& forall|si: int| #![trigger plan[si]]
         0 <= si < plan.len() && is_rational_step(plan[si]) ==>
         step_satisfies_all_constraint_loci(
             plan[si], constraints, execute_plan(plan.take(si as int)))
 
-    // For circle steps, nontrivial loci match step geometry
+    // 11. Circle steps: nontrivial loci match step geometry
     &&& forall|si: int| #![trigger plan[si]]
         0 <= si < plan.len() && !is_rational_step(plan[si]) ==>
         step_loci_match_geometry(
             plan[si], constraints, execute_plan(plan.take(si as int)))
 
-    // Non-degeneracy for Symmetric constraints (axis non-degenerate)
-    // Trivially true for all non-Symmetric constraints.
+    // 12. Non-degeneracy (axis non-degenerate for Symmetric constraints)
     &&& forall|si: int, ci: int|
         #![trigger plan[si], constraints[ci]]
         0 <= si < plan.len() && 0 <= ci < constraints.len() ==>
         constraint_locus_nondegenerate(
             constraints[ci], execute_plan(plan.take(si as int)), step_target(plan[si]))
+}
+
+// ===========================================================================
+//  Composite structural soundness predicate
+// ===========================================================================
+
+/// All conditions needed for the master bridge lemma.
+/// Conjunction of the 4 sub-predicates: valid_structure, independence,
+/// geometric_validity, dynamic_satisfaction.
+pub open spec fn plan_structurally_sound<R: PositiveRadicand<RationalModel>>(
+    plan: ConstructionPlan<RationalModel>,
+    constraints: Seq<Constraint<RationalModel>>,
+) -> bool {
+    &&& plan_valid_structure(plan, constraints)
+    &&& plan_independence(plan, constraints)
+    &&& plan_geometric_validity::<R>(plan)
+    &&& plan_dynamic_satisfaction(plan, constraints)
 }
 
 // ===========================================================================
@@ -3952,11 +3983,13 @@ pub proof fn lemma_det_plan_agrees<F: OrderedField, R: PositiveRadicand<F>>(
 }
 
 /// det_plan preserves plan_valid: all steps are well-formed PointSteps with distinct targets.
+/// Only needs distinct targets (from plan_valid_structure); step_well_formed is trivial
+/// for PointStep.
 proof fn lemma_det_plan_valid<R: PositiveRadicand<RationalModel>>(
     plan: ConstructionPlan<RationalModel>,
     constraints: Seq<Constraint<RationalModel>>,
 )
-    requires plan_structurally_sound::<R>(plan, constraints),
+    requires plan_valid_structure(plan, constraints),
     ensures plan_valid(
         det_plan::<RationalModel, R>(plan),
         lift_constraints::<RationalModel, R>(constraints)),

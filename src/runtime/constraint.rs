@@ -206,28 +206,16 @@ fn point2_eqv(a: &RuntimePoint2, b: &RuntimePoint2) -> (out: bool)
 }
 
 // ===========================================================================
-//  Main checker
+//  Per-constraint satisfaction checkers
 // ===========================================================================
 
-/// Check if a single runtime constraint is satisfied by the resolved points.
-pub fn check_constraint_satisfied_exec(
-    rc: &RuntimeConstraint,
-    points: &Vec<RuntimePoint2>,
-) -> (out: bool)
-    requires
-        runtime_constraint_wf(*rc, points@.len() as nat),
-        all_points_wf(points@),
-    ensures
-        out ==> constraint_satisfied(
-            runtime_constraint_model(*rc),
-            vec_to_resolved_map(points_view(points@)),
-        ),
+fn check_coincident_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
 {
     let ghost resolved = vec_to_resolved_map(points_view(points@));
     match rc {
         RuntimeConstraint::Coincident { a, b, .. } => {
-            // constraint_satisfied: resolved[a].eqv(resolved[b])
-            // dom checks are automatic since all indices < points.len()
             proof {
                 assert(resolved.dom().contains(*a as nat));
                 assert(resolved.dom().contains(*b as nat));
@@ -236,7 +224,16 @@ pub fn check_constraint_satisfied_exec(
             }
             point2_eqv(&points[*a], &points[*b])
         }
+        _ => { false }
+    }
+}
 
+fn check_distance_sq_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::DistanceSq { a, b, dist_sq, .. } => {
             proof {
                 assert(resolved.dom().contains(*a as nat));
@@ -247,7 +244,16 @@ pub fn check_constraint_satisfied_exec(
             let d = sq_dist_2d_exec(&points[*a], &points[*b]);
             rational_eqv(&d, dist_sq)
         }
+        _ => { false }
+    }
+}
 
+fn check_fixed_x_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::FixedX { point, x, .. } => {
             proof {
                 assert(resolved.dom().contains(*point as nat));
@@ -255,7 +261,16 @@ pub fn check_constraint_satisfied_exec(
             }
             rational_eqv(&points[*point].x, x)
         }
+        _ => { false }
+    }
+}
 
+fn check_fixed_y_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::FixedY { point, y, .. } => {
             proof {
                 assert(resolved.dom().contains(*point as nat));
@@ -263,7 +278,16 @@ pub fn check_constraint_satisfied_exec(
             }
             rational_eqv(&points[*point].y, y)
         }
+        _ => { false }
+    }
+}
 
+fn check_same_x_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::SameX { a, b, .. } => {
             proof {
                 assert(resolved.dom().contains(*a as nat));
@@ -273,7 +297,16 @@ pub fn check_constraint_satisfied_exec(
             }
             rational_eqv(&points[*a].x, &points[*b].x)
         }
+        _ => { false }
+    }
+}
 
+fn check_same_y_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::SameY { a, b, .. } => {
             proof {
                 assert(resolved.dom().contains(*a as nat));
@@ -283,7 +316,16 @@ pub fn check_constraint_satisfied_exec(
             }
             rational_eqv(&points[*a].y, &points[*b].y)
         }
+        _ => { false }
+    }
+}
 
+fn check_point_on_line_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::PointOnLine { point, line_a, line_b, .. } => {
             proof {
                 assert(resolved.dom().contains(*point as nat));
@@ -297,7 +339,16 @@ pub fn check_constraint_satisfied_exec(
             let eval = line2_eval_exec(&line, &points[*point]);
             eval.is_zero()
         }
+        _ => { false }
+    }
+}
 
+fn check_equal_length_sq_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::EqualLengthSq { a1, a2, b1, b2, .. } => {
             proof {
                 assert(resolved.dom().contains(*a1 as nat));
@@ -313,7 +364,16 @@ pub fn check_constraint_satisfied_exec(
             let db = sq_dist_2d_exec(&points[*b1], &points[*b2]);
             rational_eqv(&da, &db)
         }
+        _ => { false }
+    }
+}
 
+fn check_midpoint_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::Midpoint { mid, a, b, .. } => {
             proof {
                 assert(resolved.dom().contains(*mid as nat));
@@ -323,7 +383,6 @@ pub fn check_constraint_satisfied_exec(
                 assert(resolved[*a as nat] == points@[*a as int]@);
                 assert(resolved[*b as nat] == points@[*b as int]@);
             }
-            // mid.x * 2 ≡ a.x + b.x && mid.y * 2 ≡ a.y + b.y
             let one = RuntimeRational::from_int(1);
             let two = one.add(&one);
             let mx2 = points[*mid].x.mul(&two);
@@ -332,7 +391,16 @@ pub fn check_constraint_satisfied_exec(
             let sy = points[*a].y.add(&points[*b].y);
             rational_eqv(&mx2, &sx) && rational_eqv(&my2, &sy)
         }
+        _ => { false }
+    }
+}
 
+fn check_perpendicular_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::Perpendicular { a1, a2, b1, b2, .. } => {
             proof {
                 assert(resolved.dom().contains(*a1 as nat));
@@ -344,7 +412,6 @@ pub fn check_constraint_satisfied_exec(
                 assert(resolved[*b1 as nat] == points@[*b1 as int]@);
                 assert(resolved[*b2 as nat] == points@[*b2 as int]@);
             }
-            // point_on_line2(Line2{db.x, db.y, -(db.x*a1.x + db.y*a1.y)}, a2)
             let dbx = points[*b2].x.sub(&points[*b1].x);
             let dby = points[*b2].y.sub(&points[*b1].y);
             let c_val = dbx.mul(&points[*a1].x).add(&dby.mul(&points[*a1].y)).neg();
@@ -352,7 +419,16 @@ pub fn check_constraint_satisfied_exec(
             let eval = line2_eval_exec(&line, &points[*a2]);
             eval.is_zero()
         }
+        _ => { false }
+    }
+}
 
+fn check_parallel_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::Parallel { a1, a2, b1, b2, .. } => {
             proof {
                 assert(resolved.dom().contains(*a1 as nat));
@@ -364,7 +440,6 @@ pub fn check_constraint_satisfied_exec(
                 assert(resolved[*b1 as nat] == points@[*b1 as int]@);
                 assert(resolved[*b2 as nat] == points@[*b2 as int]@);
             }
-            // point_on_line2(Line2{db.y, -db.x, -(db.y*a1.x + (-db.x)*a1.y)}, a2)
             let dbx = points[*b2].x.sub(&points[*b1].x);
             let dby = points[*b2].y.sub(&points[*b1].y);
             let neg_dbx = dbx.neg();
@@ -373,7 +448,16 @@ pub fn check_constraint_satisfied_exec(
             let eval = line2_eval_exec(&line, &points[*a2]);
             eval.is_zero()
         }
+        _ => { false }
+    }
+}
 
+fn check_collinear_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::Collinear { a, b, c, .. } => {
             proof {
                 assert(resolved.dom().contains(*a as nat));
@@ -387,7 +471,16 @@ pub fn check_constraint_satisfied_exec(
             let eval = line2_eval_exec(&line, &points[*c]);
             eval.is_zero()
         }
+        _ => { false }
+    }
+}
 
+fn check_point_on_circle_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::PointOnCircle { point, center, radius_point, .. } => {
             proof {
                 assert(resolved.dom().contains(*point as nat));
@@ -401,7 +494,16 @@ pub fn check_constraint_satisfied_exec(
             let d_radius = sq_dist_2d_exec(&points[*radius_point], &points[*center]);
             rational_eqv(&d_point, &d_radius)
         }
+        _ => { false }
+    }
+}
 
+fn check_symmetric_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::Symmetric { point, original, axis_a, axis_b, .. } => {
             proof {
                 assert(resolved.dom().contains(*point as nat));
@@ -413,36 +515,35 @@ pub fn check_constraint_satisfied_exec(
                 assert(resolved[*axis_a as nat] == points@[*axis_a as int]@);
                 assert(resolved[*axis_b as nat] == points@[*axis_b as int]@);
             }
-            // Compute reflect(original, axis_a, axis_b) and compare with point
-            // d = axis_b - axis_a
             let dx = points[*axis_b].x.sub(&points[*axis_a].x);
             let dy = points[*axis_b].y.sub(&points[*axis_a].y);
-            // pa = original - axis_a
             let pax = points[*original].x.sub(&points[*axis_a].x);
             let pay = points[*original].y.sub(&points[*axis_a].y);
-            // dot_dd = dx*dx + dy*dy
             let dot_dd = dx.mul(&dx).add(&dy.mul(&dy));
-            // If axis is degenerate (both axis points coincide), return false
             if dot_dd.is_zero() {
                 return false;
             }
-            // dot_pad = pax*dx + pay*dy
             let dot_pad = pax.mul(&dx).add(&pay.mul(&dy));
-            // t = dot_pad / dot_dd
             let t = dot_pad.div(&dot_dd);
-            // proj = axis_a + t * d
             let proj_x = points[*axis_a].x.add(&t.mul(&dx));
             let proj_y = points[*axis_a].y.add(&t.mul(&dy));
-            // reflected = 2 * proj - original
             let one = RuntimeRational::from_int(1);
             let two = one.add(&one);
             let ref_x = two.mul(&proj_x).sub(&points[*original].x);
             let ref_y = two.mul(&proj_y).sub(&points[*original].y);
-            // Compare point with reflected
             rational_eqv(&points[*point].x, &ref_x)
                 && rational_eqv(&points[*point].y, &ref_y)
         }
+        _ => { false }
+    }
+}
 
+fn check_fixed_point_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::FixedPoint { point, x, y, .. } => {
             proof {
                 assert(resolved.dom().contains(*point as nat));
@@ -450,7 +551,16 @@ pub fn check_constraint_satisfied_exec(
             }
             rational_eqv(&points[*point].x, x) && rational_eqv(&points[*point].y, y)
         }
+        _ => { false }
+    }
+}
 
+fn check_ratio_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::Ratio { a1, a2, b1, b2, ratio_sq, .. } => {
             proof {
                 assert(resolved.dom().contains(*a1 as nat));
@@ -467,7 +577,16 @@ pub fn check_constraint_satisfied_exec(
             let rhs = ratio_sq.mul(&db);
             rational_eqv(&da, &rhs)
         }
+        _ => { false }
+    }
+}
 
+fn check_tangent_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, .. } => {
             proof {
                 assert(resolved.dom().contains(*line_a as nat));
@@ -487,7 +606,16 @@ pub fn check_constraint_satisfied_exec(
             let rhs = norm_sq.mul(&r_sq);
             rational_eqv(&lhs, &rhs)
         }
+        _ => { false }
+    }
+}
 
+fn check_circle_tangent_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } => {
             proof {
                 assert(resolved.dom().contains(*c1 as nat));
@@ -510,7 +638,16 @@ pub fn check_constraint_satisfied_exec(
             let rhs = four.mul(&r1).mul(&r2);
             rational_eqv(&lhs, &rhs)
         }
+        _ => { false }
+    }
+}
 
+fn check_angle_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
         RuntimeConstraint::Angle { a1, a2, b1, b2, cos_sq, .. } => {
             proof {
                 assert(resolved.dom().contains(*a1 as nat));
@@ -533,6 +670,49 @@ pub fn check_constraint_satisfied_exec(
             let rhs = cos_sq.mul(&n1).mul(&n2);
             rational_eqv(&lhs, &rhs)
         }
+        _ => { false }
+    }
+}
+
+// ===========================================================================
+//  Main checker (dispatcher)
+// ===========================================================================
+
+/// Check if a single runtime constraint is satisfied by the resolved points.
+/// Dispatches to per-constraint helpers for efficient verification.
+pub fn check_constraint_satisfied_exec(
+    rc: &RuntimeConstraint,
+    points: &Vec<RuntimePoint2>,
+) -> (out: bool)
+    requires
+        runtime_constraint_wf(*rc, points@.len() as nat),
+        all_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied(
+            runtime_constraint_model(*rc),
+            vec_to_resolved_map(points_view(points@)),
+        ),
+{
+    match rc {
+        RuntimeConstraint::Coincident { .. } => check_coincident_exec(rc, points),
+        RuntimeConstraint::DistanceSq { .. } => check_distance_sq_exec(rc, points),
+        RuntimeConstraint::FixedX { .. } => check_fixed_x_exec(rc, points),
+        RuntimeConstraint::FixedY { .. } => check_fixed_y_exec(rc, points),
+        RuntimeConstraint::SameX { .. } => check_same_x_exec(rc, points),
+        RuntimeConstraint::SameY { .. } => check_same_y_exec(rc, points),
+        RuntimeConstraint::PointOnLine { .. } => check_point_on_line_exec(rc, points),
+        RuntimeConstraint::EqualLengthSq { .. } => check_equal_length_sq_exec(rc, points),
+        RuntimeConstraint::Midpoint { .. } => check_midpoint_exec(rc, points),
+        RuntimeConstraint::Perpendicular { .. } => check_perpendicular_exec(rc, points),
+        RuntimeConstraint::Parallel { .. } => check_parallel_exec(rc, points),
+        RuntimeConstraint::Collinear { .. } => check_collinear_exec(rc, points),
+        RuntimeConstraint::PointOnCircle { .. } => check_point_on_circle_exec(rc, points),
+        RuntimeConstraint::Symmetric { .. } => check_symmetric_exec(rc, points),
+        RuntimeConstraint::FixedPoint { .. } => check_fixed_point_exec(rc, points),
+        RuntimeConstraint::Ratio { .. } => check_ratio_exec(rc, points),
+        RuntimeConstraint::Tangent { .. } => check_tangent_exec(rc, points),
+        RuntimeConstraint::CircleTangent { .. } => check_circle_tangent_exec(rc, points),
+        RuntimeConstraint::Angle { .. } => check_angle_exec(rc, points),
     }
 }
 
