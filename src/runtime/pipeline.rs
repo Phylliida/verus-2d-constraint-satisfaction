@@ -20,6 +20,7 @@ use crate::runtime::constraint::*;
 use crate::runtime::construction::*;
 use crate::runtime::solver::*;
 use crate::runtime::ext_constraint::*;
+use crate::runtime::pipeline_proofs::*;
 
 type RationalModel = verus_rational::rational::Rational;
 

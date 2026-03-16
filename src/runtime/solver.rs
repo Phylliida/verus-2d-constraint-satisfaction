@@ -1360,7 +1360,7 @@ proof fn lemma_count_at_least_one<T: OrderedField>(
 }
 
 /// Runtime check: at most two constraints impose nontrivial loci on `target`.
-fn check_at_most_two_nontrivial_exec(
+pub fn check_at_most_two_nontrivial_exec(
     target: usize,
     constraints: &Vec<RuntimeConstraint>,
     resolved_flags: &Vec<bool>,
@@ -2218,7 +2218,7 @@ pub fn check_plan_locus_ordered_exec(
 // --- 1e_helper: point_satisfies_locus_exec ---
 
 /// Check if a point satisfies a locus at runtime.
-fn point_satisfies_locus_exec(
+pub fn point_satisfies_locus_exec(
     locus: &RuntimeLocus,
     p: &RuntimePoint2,
 ) -> (out: bool)
