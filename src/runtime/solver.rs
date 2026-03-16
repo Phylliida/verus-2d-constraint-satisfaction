@@ -772,7 +772,7 @@ fn flip_step_sign(s: RuntimeStepData) -> (out: RuntimeStepData)
 
 /// Create a sign variant of a plan by flipping the k-th circle step
 /// when bit k of sign_mask is 1.
-fn make_sign_variant(
+pub fn make_sign_variant(
     plan: &Vec<RuntimeStepData>,
     sign_mask: u64,
 ) -> (out: Vec<RuntimeStepData>)
@@ -836,7 +836,7 @@ fn make_sign_variant(
 }
 
 /// Check if a plan variant is feasible: all circle steps have positive discriminant.
-fn check_variant_feasible(plan: &Vec<RuntimeStepData>) -> (out: bool)
+pub fn check_variant_feasible(plan: &Vec<RuntimeStepData>) -> (out: bool)
     requires
         forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
     ensures
