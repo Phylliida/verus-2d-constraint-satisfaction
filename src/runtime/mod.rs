@@ -23,6 +23,8 @@ pub mod dyn_field;
 #[cfg(verus_keep_ghost)]
 pub mod generic_constraint_check;
 #[cfg(verus_keep_ghost)]
+pub mod dyn_pipeline;
+#[cfg(verus_keep_ghost)]
 pub mod multi_level;
 #[cfg(verus_keep_ghost)]
 pub mod pipeline;
