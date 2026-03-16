@@ -8,8 +8,8 @@ use verus_quadratic_extension::radicand::PositiveRadicand;
 use verus_quadratic_extension::spec::SpecQuadExt;
 use verus_geometry::constructed_scalar::lift_point2;
 use verus_quadratic_extension::runtime::RuntimeRadicand;
-use verus_quadratic_extension::instances::{Sqrt2, Sqrt3, Sqrt5};
-use verus_quadratic_extension::runtime::{RuntimeSqrt2, RuntimeSqrt3, RuntimeSqrt5};
+use verus_quadratic_extension::instances::{Sqrt2, Sqrt3, Sqrt5, Sqrt6, Sqrt7, Sqrt10, Sqrt11, Sqrt13};
+use verus_quadratic_extension::runtime::{RuntimeSqrt2, RuntimeSqrt3, RuntimeSqrt5, RuntimeSqrt6, RuntimeSqrt7, RuntimeSqrt10, RuntimeSqrt11, RuntimeSqrt13};
 use verus_geometry::runtime::circle_line::cl_discriminant_exec;
 use verus_geometry::runtime::circle_circle::cc_discriminant_exec;
 use crate::entities::*;
@@ -1878,6 +1878,11 @@ fn detect_discriminant(
     let d2 = RuntimeRational::from_int(2);
     let d3 = RuntimeRational::from_int(3);
     let d5 = RuntimeRational::from_int(5);
+    let d6 = RuntimeRational::from_int(6);
+    let d7 = RuntimeRational::from_int(7);
+    let d10 = RuntimeRational::from_int(10);
+    let d11 = RuntimeRational::from_int(11);
+    let d13 = RuntimeRational::from_int(13);
     let mut found: u8 = 0; // 0 = none seen yet
     let mut i: usize = 0;
 
@@ -1886,6 +1891,7 @@ fn detect_discriminant(
             i <= plan@.len(),
             forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
             d2.wf_spec(), d3.wf_spec(), d5.wf_spec(),
+            d6.wf_spec(), d7.wf_spec(), d10.wf_spec(), d11.wf_spec(), d13.wf_spec(),
         decreases plan@.len() - i,
     {
         let disc_val: u8 = match &plan[i] {
@@ -1894,6 +1900,11 @@ fn detect_discriminant(
                 if disc.eq(&d2) { 2u8 }
                 else if disc.eq(&d3) { 3u8 }
                 else if disc.eq(&d5) { 5u8 }
+                else if disc.eq(&d6) { 6u8 }
+                else if disc.eq(&d7) { 7u8 }
+                else if disc.eq(&d10) { 10u8 }
+                else if disc.eq(&d11) { 11u8 }
+                else if disc.eq(&d13) { 13u8 }
                 else { return 0; } // Unrecognized discriminant
             }
             RuntimeStepData::CircleCircle { c1, c2, .. } => {
@@ -1901,6 +1912,11 @@ fn detect_discriminant(
                 if disc.eq(&d2) { 2u8 }
                 else if disc.eq(&d3) { 3u8 }
                 else if disc.eq(&d5) { 5u8 }
+                else if disc.eq(&d6) { 6u8 }
+                else if disc.eq(&d7) { 7u8 }
+                else if disc.eq(&d10) { 10u8 }
+                else if disc.eq(&d11) { 11u8 }
+                else if disc.eq(&d13) { 13u8 }
                 else { return 0; }
             }
             _ => { 0u8 } // Rational step, skip
@@ -1952,8 +1968,9 @@ fn collect_solved_points<R: PositiveRadicand<RationalModel>>(
 }
 
 /// Top-level solve-and-verify with automatic radicand detection.
-/// Detects whether all circle steps share discriminant 2, 3, or 5,
-/// then dispatches to the appropriate generic instantiation.
+/// Detects whether all circle steps share a common square-free discriminant
+/// (2, 3, 5, 6, 7, 10, 11, or 13), then dispatches to the appropriate
+/// generic instantiation.
 /// Returns solved point sets (rational approximations) for each valid variant.
 pub fn solve_and_verify_auto(
     free_ids: &Vec<usize>,
@@ -2003,6 +2020,36 @@ pub fn solve_and_verify_auto(
         }
         5 => {
             let solutions = verify_variants::<Sqrt5, RuntimeSqrt5>(
+                &variants, constraints, &initial_points, &initial_flags,
+            );
+            collect_solved_points(&solutions)
+        }
+        6 => {
+            let solutions = verify_variants::<Sqrt6, RuntimeSqrt6>(
+                &variants, constraints, &initial_points, &initial_flags,
+            );
+            collect_solved_points(&solutions)
+        }
+        7 => {
+            let solutions = verify_variants::<Sqrt7, RuntimeSqrt7>(
+                &variants, constraints, &initial_points, &initial_flags,
+            );
+            collect_solved_points(&solutions)
+        }
+        10 => {
+            let solutions = verify_variants::<Sqrt10, RuntimeSqrt10>(
+                &variants, constraints, &initial_points, &initial_flags,
+            );
+            collect_solved_points(&solutions)
+        }
+        11 => {
+            let solutions = verify_variants::<Sqrt11, RuntimeSqrt11>(
+                &variants, constraints, &initial_points, &initial_flags,
+            );
+            collect_solved_points(&solutions)
+        }
+        13 => {
+            let solutions = verify_variants::<Sqrt13, RuntimeSqrt13>(
                 &variants, constraints, &initial_points, &initial_flags,
             );
             collect_solved_points(&solutions)
