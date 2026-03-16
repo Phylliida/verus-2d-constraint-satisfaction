@@ -1058,7 +1058,7 @@ proof fn lemma_lift_dot_neg_eqv<F: OrderedField, R: PositiveRadicand<F>>(
 }
 
 /// In an OrderedField, 1+1 ≢ 0.
-proof fn lemma_two_ne_zero<F: OrderedField>()
+pub proof fn lemma_two_ne_zero<F: OrderedField>()
     ensures
         !F::one().add(F::one()).eqv(F::zero()),
 {
