@@ -601,7 +601,6 @@ proof fn lemma_connect_rational_loci(
 /// Process a single step of the replay loop. Checks conjuncts 9-12 for step si,
 /// updates points/flags, and proves the loop invariant update.
 /// Takes and returns owned Vecs to avoid &mut borrow limitations in Verus.
-#[verifier::rlimit(60)]
 fn process_single_step(
     full_plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -892,9 +891,105 @@ fn process_single_step(
     (true, points, flags)
 }
 
+/// Recursive replay of the plan from step `si`, checking conjuncts 9-12 at each step.
+/// Uses recursion instead of a while loop to avoid expensive loop invariant checking.
+fn check_dynamic_conjuncts_recursive(
+    full_plan: &Vec<RuntimeStepData>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: Vec<RuntimePoint2>,
+    flags: Vec<bool>,
+    si: usize,
+    n_points: usize,
+    Ghost(ps): Ghost<ConstructionPlan<RationalModel>>,
+    Ghost(cs): Ghost<Seq<Constraint<RationalModel>>>,
+) -> (out: bool)
+    requires
+        si <= full_plan@.len(),
+        points@.len() == n_points,
+        flags@.len() == n_points,
+        n_points > 0,
+        all_points_wf(points@),
+        // Forwarded preconditions
+        forall|i: int| 0 <= i < full_plan@.len() ==>
+            (#[trigger] full_plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < full_plan@.len() ==>
+            (step_target((#[trigger] full_plan@[i]).spec_step()) as int) < n_points,
+        forall|i: int, j: int|
+            0 <= i < full_plan@.len() && 0 <= j < full_plan@.len() && i != j ==>
+            step_target((#[trigger] full_plan@[i]).spec_step())
+                != step_target((#[trigger] full_plan@[j]).spec_step()),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+        forall|ci: int| 0 <= ci < constraints@.len() ==>
+            constraint_well_formed(
+                runtime_constraint_model(#[trigger] constraints@[ci])),
+        forall|i: int| 0 <= i < full_plan@.len() ==>
+            step_geometrically_valid((#[trigger] full_plan@[i]).spec_step()),
+        is_fully_independent_plan(ps, cs),
+        // Identity
+        ps.len() == full_plan@.len(),
+        cs.len() == constraints@.len(),
+        forall|j: int| 0 <= j < full_plan@.len() ==>
+            (#[trigger] ps[j]) == full_plan@[j].spec_step(),
+        forall|j: int| 0 <= j < constraints@.len() ==>
+            (#[trigger] cs[j]) == runtime_constraint_model(constraints@[j]),
+        // Self-consistency
+        forall|i: int| 0 <= i < n_points as int ==>
+            (#[trigger] flags@[i]) ==
+            partial_resolved_map(points_view(points@), flags@)
+                .dom().contains(i as nat),
+        // Domain invariant at si
+        forall|id: nat| (id as int) < n_points ==>
+            (flags@[id as int] <==>
+             execute_plan(ps.take(si as int)).dom().contains(id)),
+        forall|id: EntityId|
+            execute_plan(ps.take(si as int)).dom().contains(id) ==>
+            (id as int) < n_points,
+        // Value invariant at si
+        forall|id: EntityId|
+            execute_plan(ps.take(si as int)).dom().contains(id)
+            && !circle_targets(ps).contains(id)
+            ==> points_view(points@)[id as int]
+                == execute_plan(ps.take(si as int))[id],
+    ensures
+        out ==> {
+            &&& forall|j: int| #![trigger ps[j]]
+                si <= j < ps.len() ==>
+                at_most_two_nontrivial_loci(step_target(ps[j]), cs,
+                    execute_plan(ps.take(j)).dom())
+            &&& forall|j: int| #![trigger ps[j]]
+                si <= j < ps.len() && is_rational_step(ps[j]) ==>
+                step_satisfies_all_constraint_loci(ps[j], cs,
+                    execute_plan(ps.take(j)))
+            &&& forall|j: int| #![trigger ps[j]]
+                si <= j < ps.len() && !is_rational_step(ps[j]) ==>
+                step_loci_match_geometry(ps[j], cs,
+                    execute_plan(ps.take(j)))
+            &&& forall|j: int, ci: int|
+                #![trigger ps[j], cs[ci]]
+                si <= j < ps.len() && 0 <= ci < cs.len() ==>
+                constraint_locus_nondegenerate(cs[ci],
+                    execute_plan(ps.take(j)), step_target(ps[j]))
+        }
+    decreases full_plan@.len() - si,
+{
+    if si >= full_plan.len() {
+        return true;
+    }
+    let r = process_single_step(
+        full_plan, constraints, points, flags,
+        si, n_points, Ghost(ps), Ghost(cs));
+    let new_points = r.1;
+    let new_flags = r.2;
+    if !r.0 {
+        return false;
+    }
+    check_dynamic_conjuncts_recursive(
+        full_plan, constraints, new_points, new_flags,
+        si + 1, n_points, Ghost(ps), Ghost(cs))
+}
+
 /// Replay the full plan at runtime, checking conjuncts 9-12 at each step.
-/// Maintains domain/value correspondence with execute_plan(ps.take(si)).
-#[verifier::rlimit(700)]
 pub fn check_full_plan_dynamic_conjuncts_exec(
     full_plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -986,87 +1081,9 @@ pub fn check_full_plan_dynamic_conjuncts_exec(
         by { }
     }
 
-    let mut si: usize = 0;
-    while si < full_plan.len()
-        invariant
-            si <= full_plan@.len(),
-            points@.len() == n_points,
-            flags@.len() == n_points,
-            n_points > 0,
-            all_points_wf(points@),
-            // Forwarded preconditions (about immutable shared refs)
-            forall|i: int| 0 <= i < full_plan@.len() ==>
-                (#[trigger] full_plan@[i]).wf_spec(),
-            forall|i: int| 0 <= i < full_plan@.len() ==>
-                (step_target((#[trigger] full_plan@[i]).spec_step()) as int) < n_points,
-            forall|i: int, j: int|
-                0 <= i < full_plan@.len() && 0 <= j < full_plan@.len() && i != j ==>
-                step_target((#[trigger] full_plan@[i]).spec_step())
-                    != step_target((#[trigger] full_plan@[j]).spec_step()),
-            forall|i: int| 0 <= i < constraints@.len() ==>
-                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
-            forall|ci: int| 0 <= ci < constraints@.len() ==>
-                constraint_well_formed(
-                    runtime_constraint_model(#[trigger] constraints@[ci])),
-            forall|i: int| 0 <= i < full_plan@.len() ==>
-                step_geometrically_valid((#[trigger] full_plan@[i]).spec_step()),
-            is_fully_independent_plan(ps, cs),
-            // Identity
-            ps.len() == full_plan@.len(),
-            cs.len() == constraints@.len(),
-            forall|j: int| 0 <= j < full_plan@.len() ==>
-                (#[trigger] ps[j]) == full_plan@[j].spec_step(),
-            forall|j: int| 0 <= j < constraints@.len() ==>
-                (#[trigger] cs[j]) == runtime_constraint_model(constraints@[j]),
-            // Self-consistency
-            forall|i: int| 0 <= i < n_points as int ==>
-                (#[trigger] flags@[i]) ==
-                partial_resolved_map(points_view(points@), flags@)
-                    .dom().contains(i as nat),
-            // Domain invariant: flags track execute_plan domain
-            forall|id: nat| (id as int) < n_points ==>
-                (flags@[id as int] <==>
-                 execute_plan(ps.take(si as int)).dom().contains(id)),
-            forall|id: EntityId|
-                execute_plan(ps.take(si as int)).dom().contains(id) ==>
-                (id as int) < n_points,
-            // Value invariant for non-circle targets
-            forall|id: EntityId|
-                execute_plan(ps.take(si as int)).dom().contains(id)
-                && !circle_targets(ps).contains(id)
-                ==> points_view(points@)[id as int]
-                    == execute_plan(ps.take(si as int))[id],
-            // Accumulated conjuncts 9-12
-            forall|j: int| #![trigger ps[j]]
-                0 <= j < si ==>
-                at_most_two_nontrivial_loci(step_target(ps[j]), cs,
-                    execute_plan(ps.take(j)).dom()),
-            forall|j: int| #![trigger ps[j]]
-                0 <= j < si && is_rational_step(ps[j]) ==>
-                step_satisfies_all_constraint_loci(ps[j], cs,
-                    execute_plan(ps.take(j))),
-            forall|j: int| #![trigger ps[j]]
-                0 <= j < si && !is_rational_step(ps[j]) ==>
-                step_loci_match_geometry(ps[j], cs,
-                    execute_plan(ps.take(j))),
-            forall|j: int, ci: int|
-                #![trigger ps[j], cs[ci]]
-                0 <= j < si && 0 <= ci < cs.len() ==>
-                constraint_locus_nondegenerate(cs[ci],
-                    execute_plan(ps.take(j)), step_target(ps[j])),
-        decreases full_plan@.len() - si,
-    {
-        let r = process_single_step(
-            full_plan, constraints, points, flags,
-            si, n_points, Ghost(ps), Ghost(cs));
-        points = r.1;
-        flags = r.2;
-        if !r.0 {
-            return false;
-        }
-        si = si + 1;
-    }
-    true
+    check_dynamic_conjuncts_recursive(
+        full_plan, constraints, points, flags,
+        0, n_points, Ghost(ps), Ghost(cs))
 }
 
 } // verus!
