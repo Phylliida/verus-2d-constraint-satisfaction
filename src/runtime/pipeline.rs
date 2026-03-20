@@ -22,11 +22,9 @@ use crate::runtime::solver::*;
 use crate::runtime::ext_constraint::*;
 use crate::runtime::pipeline_proofs::*;
 use crate::runtime::abstract_plan::{extract_abstract_plan, compute_step_levels, extract_constraint_pairs};
-use crate::runtime::multi_level::execute_all_levels;
+use crate::runtime::dyn_pipeline::{execute_all_levels_dyn, check_all_constraints_dyn, extract_rational_points_dyn};
 use crate::runtime::generic_constraint_check::check_all_constraints_generic;
-use crate::runtime::dyn_field::{DynFieldElem, extract_rational_points};
 use crate::runtime::generic_point::GenericRtPoint2;
-use verus_quadratic_extension::dyn_tower::DynTowerField;
 use verus_quadratic_extension::runtime_field::RuntimeFieldOps;
 
 type RationalModel = verus_rational::rational::Rational;
@@ -2387,26 +2385,23 @@ pub fn solve_and_verify_chain(
         Some(p) => p,
     };
 
-    // Execute all tower levels using dynamic field elements
-    let deep_positions = match execute_all_levels(
+    // Execute all tower levels using dyn_pipeline (no OrderedField, no assumes)
+    let deep_positions = match execute_all_levels_dyn(
         &*points, &abstract_plan, constraints, &pairs, &levels, depth,
     ) {
         None => { return None; }
         Some(pos) => pos,
     };
 
-    // Runtime-check ALL constraints at the deepest level
-    let template = deep_positions[0].x.rf_copy();
-    let all_ok = check_all_constraints_generic::<DynTowerField, DynFieldElem>(
-        constraints, &deep_positions, &template,
-    );
+    // Runtime-check ALL constraints at the deepest level (dyn-specific, no assumes)
+    let all_ok = check_all_constraints_dyn(constraints, &deep_positions);
 
     if !all_ok {
         return None;
     }
 
     // Extract rational approximations (innermost re.re.re...)
-    let rational_pts = extract_rational_points(&deep_positions);
+    let rational_pts = extract_rational_points_dyn(&deep_positions);
     Some(rational_pts)
 }
 
