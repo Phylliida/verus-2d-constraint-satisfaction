@@ -7,9 +7,7 @@
 /// `DynTowerSpec`, enabling spec-level reasoning about operations.
 ///
 /// All methods are fully verified (no external_body, no assume).
-/// Spec correspondence is proved for add, sub, neg, mul, eq, copy,
-/// zero_like, one_like, embed_rational. Reciprocal/division prove only
-/// wf (spec correspondence needs norm≠0 algebraic lemma, deferred).
+/// Spec correspondence proved for all operations including reciprocal/division.
 use vstd::prelude::*;
 use verus_rational::runtime_rational::RuntimeRational;
 use verus_quadratic_extension::dyn_tower::*;
@@ -219,11 +217,10 @@ impl DynFieldElem {
 
 
     /// Reciprocal with explicit fuel for termination.
-    /// Spec correspondence for reciprocal requires algebraic lemma (norm ≠ 0
-    /// when element ≠ 0 for non-square d) which is deferred. Only wf is proved.
+    /// Returns self for zero inputs (matching spec's reciprocal_spec behavior).
     fn dyn_recip_fuel(&self, fuel: u64) -> (out: Self)
         requires self.dyn_wf()
-        ensures out.dyn_wf()
+        ensures out.dyn_wf(), dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)
         decreases fuel,
     {
         match self {
@@ -231,8 +228,16 @@ impl DynFieldElem {
                 match a.recip() {
                     Some(r) => DynFieldElem::Rational(r),
                     None => {
-                        // a ≡ 0: reciprocal undefined, return wf zero
-                        DynFieldElem::Rational(RuntimeRational::from_int(0))
+                        // a ≡ 0: reciprocal undefined, spec returns self
+                        proof {
+                            // a.recip() == None means a@ is eqv to zero
+                            // eqv_spec unfolds: a@.num * 1 == 0 * a@.denom() → a@.num == 0
+                            // reciprocal_spec with num == 0 returns self
+                            let m = a@;
+                            assert(m.eqv_spec(verus_rational::rational::Rational::from_int_spec(0)));
+                            assert(m.reciprocal_spec() == m);
+                        }
+                        self.dyn_copy()
                     }
                 }
             }
@@ -245,6 +250,12 @@ impl DynFieldElem {
                 let b_sq = b.dyn_mul(b);
                 let d_b_sq = d.dyn_mul(&b_sq);
                 let norm = a_sq.dyn_sub(&d_b_sq);
+                proof {
+                    // Bridge u64 and nat fuel arithmetic for the recursive call
+                    assert((fuel - 1) as nat == (fuel as nat - 1) as nat);
+                    // Help Z3 see that runtime norm matches spec dts_norm
+                    assert(dts_model(norm) == dts_norm(dts_model(*self)));
+                }
                 let norm_inv = norm.dyn_recip_fuel(fuel - 1);
                 // re_out = a · norm_inv
                 let re_out = a.dyn_mul(&norm_inv);
@@ -262,16 +273,15 @@ impl DynFieldElem {
 
     pub fn dyn_recip(&self) -> (out: Self)
         requires self.dyn_wf()
-        ensures out.dyn_wf()
+        ensures out.dyn_wf(), dts_model(out) == dts_recip_fuel(dts_model(*self), u64::MAX as nat)
     {
-        // u64::MAX fuel is sufficient for any constructible tower.
-        // Fuel is just a decreases bound — actual recursion is bounded by depth.
         self.dyn_recip_fuel(u64::MAX)
     }
 
     pub fn dyn_div(&self, rhs: &Self) -> (out: Self)
         requires self.dyn_wf(), rhs.dyn_wf()
-        ensures out.dyn_wf()
+        ensures out.dyn_wf(),
+            dts_model(out) == dts_mul(dts_model(*self), dts_recip_fuel(dts_model(*rhs), u64::MAX as nat))
     {
         self.dyn_mul(&rhs.dyn_recip())
     }

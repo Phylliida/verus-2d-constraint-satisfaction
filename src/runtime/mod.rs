@@ -13,15 +13,7 @@ pub mod pipeline_proofs;
 #[cfg(verus_keep_ghost)]
 pub mod abstract_plan;
 #[cfg(verus_keep_ghost)]
-pub mod generic_point;
-#[cfg(verus_keep_ghost)]
-pub mod generic_locus;
-#[cfg(verus_keep_ghost)]
-pub mod generic_intersection;
-#[cfg(verus_keep_ghost)]
 pub mod dyn_field;
-#[cfg(verus_keep_ghost)]
-pub mod generic_constraint_check;
 #[cfg(verus_keep_ghost)]
 pub mod dyn_pipeline;
 #[cfg(verus_keep_ghost)]
