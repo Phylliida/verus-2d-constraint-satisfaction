@@ -264,8 +264,9 @@ impl DynFieldElem {
         requires self.dyn_wf()
         ensures out.dyn_wf()
     {
-        // Fuel 100 >> any practical tower depth (typically < 10).
-        self.dyn_recip_fuel(100)
+        // u64::MAX fuel is sufficient for any constructible tower.
+        // Fuel is just a decreases bound — actual recursion is bounded by depth.
+        self.dyn_recip_fuel(u64::MAX)
     }
 
     pub fn dyn_div(&self, rhs: &Self) -> (out: Self)
