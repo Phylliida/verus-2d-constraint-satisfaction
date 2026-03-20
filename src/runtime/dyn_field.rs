@@ -226,24 +226,38 @@ impl DynFieldElem {
         match self {
             DynFieldElem::Rational(a) => {
                 match a.recip() {
-                    Some(r) => DynFieldElem::Rational(r),
-                    None => {
-                        // a ≡ 0: reciprocal undefined, spec returns self
+                    Some(r) => {
+                        let out = DynFieldElem::Rational(r);
                         proof {
-                            // a.recip() == None means a@ is eqv to zero
-                            // eqv_spec unfolds: a@.num * 1 == 0 * a@.denom() → a@.num == 0
-                            // reciprocal_spec with num == 0 returns self
+                            assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); // CHECK A
+                        }
+                        out
+                    }
+                    None => {
+                        proof {
+                            use verus_rational::rational::Rational;
                             let m = a@;
-                            assert(m.eqv_spec(verus_rational::rational::Rational::from_int_spec(0)));
+                            let zero = Rational::from_int_spec(0);
+                            assert(m.eqv_spec(zero));
+                            assert(m.num * zero.denom() == zero.num * m.denom());
+                            assert(m.num == 0int);
                             assert(m.reciprocal_spec() == m);
                         }
-                        self.dyn_copy()
+                        let out = self.dyn_copy();
+                        proof {
+                            assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); // CHECK B
+                        }
+                        out
                     }
                 }
             }
             DynFieldElem::Extension { re: a, im: b, radicand: d } => {
                 if fuel == 0 {
-                    return self.dyn_copy();
+                    let out = self.dyn_copy();
+                    proof {
+                        assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); // CHECK C
+                    }
+                    return out;
                 }
                 // norm = a² - d·b²
                 let a_sq = a.dyn_mul(a);
@@ -251,22 +265,22 @@ impl DynFieldElem {
                 let d_b_sq = d.dyn_mul(&b_sq);
                 let norm = a_sq.dyn_sub(&d_b_sq);
                 proof {
-                    // Bridge u64 and nat fuel arithmetic for the recursive call
                     assert((fuel - 1) as nat == (fuel as nat - 1) as nat);
-                    // Help Z3 see that runtime norm matches spec dts_norm
                     assert(dts_model(norm) == dts_norm(dts_model(*self)));
                 }
                 let norm_inv = norm.dyn_recip_fuel(fuel - 1);
-                // re_out = a · norm_inv
                 let re_out = a.dyn_mul(&norm_inv);
-                // im_out = -(b · norm_inv)
                 let b_norm_inv = b.dyn_mul(&norm_inv);
                 let im_out = b_norm_inv.dyn_neg();
-                DynFieldElem::Extension {
+                let out = DynFieldElem::Extension {
                     re: Box::new(re_out),
                     im: Box::new(im_out),
                     radicand: Box::new(d.dyn_copy()),
+                };
+                proof {
+                    assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); // CHECK D
                 }
+                out
             }
         }
     }
