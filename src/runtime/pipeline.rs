@@ -23,9 +23,6 @@ use crate::runtime::ext_constraint::*;
 use crate::runtime::pipeline_proofs::*;
 use crate::runtime::abstract_plan::{extract_abstract_plan, compute_step_levels, extract_constraint_pairs};
 use crate::runtime::dyn_pipeline::{execute_all_levels_dyn, check_all_constraints_dyn, extract_rational_points_dyn};
-use crate::runtime::generic_constraint_check::check_all_constraints_generic;
-use crate::runtime::generic_point::GenericRtPoint2;
-use verus_quadratic_extension::runtime_field::RuntimeFieldOps;
 
 type RationalModel = verus_rational::rational::Rational;
 
