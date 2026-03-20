@@ -1,28 +1,17 @@
 /// Dynamic field element for arbitrary-depth quadratic extension towers.
 ///
-/// `DynFieldElem` type-erases the tower level, allowing a single loop
-/// to iterate `execute_circle_steps_at_level` for any depth. After each
-/// level, `collapse_to_dyn` converts the `RuntimeQExt<DynTowerField, ...>`
-/// output back to `DynFieldElem`, maintaining the same Rust type.
+/// `DynFieldElem` type-erases the tower level, allowing arbitrary-depth
+/// quadratic extension arithmetic via recursive `dyn_*` methods.
 ///
-/// All arithmetic operations are `external_body` — their runtime behavior
-/// is standard extension field arithmetic (correct by construction).
 /// Ghost tracking via `dts_model` maps each `DynFieldElem` to a concrete
-/// `DynTowerSpec`, enabling spec-level reasoning about comparisons.
+/// `DynTowerSpec`, enabling spec-level reasoning about operations.
+///
+/// Most methods are fully verified (no external_body). The remaining
+/// external_body methods (add, sub, mul, recip, div, nonneg, le, lt)
+/// need depth-matching preconditions to remove.
 use vstd::prelude::*;
-use verus_algebra::traits::*;
 use verus_rational::runtime_rational::RuntimeRational;
-use verus_rational::rational::Rational;
-use verus_geometry::point2::Point2;
-use verus_geometry::runtime::point2::RuntimePoint2;
-use verus_quadratic_extension::runtime_field::RuntimeFieldOps;
 use verus_quadratic_extension::dyn_tower::*;
-use verus_quadratic_extension::radicand::*;
-use verus_quadratic_extension::spec::*;
-use verus_quadratic_extension::runtime_qext::RuntimeQExt;
-use crate::runtime::generic_point::GenericRtPoint2;
-
-type RationalModel = Rational;
 
 verus! {
 
@@ -78,10 +67,10 @@ impl DynFieldElem {
         }
     }
 
-    #[verifier::external_body]
     pub fn dyn_add(&self, rhs: &Self) -> (out: Self)
         requires self.dyn_wf(), rhs.dyn_wf()
         ensures out.dyn_wf(), dts_model(out) == dts_add(dts_model(*self), dts_model(*rhs))
+        decreases *self, *rhs,
     {
         match (self, rhs) {
             (DynFieldElem::Rational(a), DynFieldElem::Rational(b)) =>
@@ -93,33 +82,33 @@ impl DynFieldElem {
                     im: Box::new(im1.dyn_add(im2)),
                     radicand: Box::new(d1.dyn_copy()),
                 },
-            _ => panic!("mismatched DynFieldElem depths in add"),
+            (DynFieldElem::Rational(_), DynFieldElem::Extension { re, im, radicand }) =>
+                DynFieldElem::Extension {
+                    re: Box::new(self.dyn_add(re)),
+                    im: Box::new(im.dyn_copy()),
+                    radicand: Box::new(radicand.dyn_copy()),
+                },
+            (DynFieldElem::Extension { re, im, radicand }, DynFieldElem::Rational(_)) =>
+                DynFieldElem::Extension {
+                    re: Box::new(re.dyn_add(rhs)),
+                    im: Box::new(im.dyn_copy()),
+                    radicand: Box::new(radicand.dyn_copy()),
+                },
         }
     }
 
-    #[verifier::external_body]
     pub fn dyn_sub(&self, rhs: &Self) -> (out: Self)
         requires self.dyn_wf(), rhs.dyn_wf()
         ensures out.dyn_wf(), dts_model(out) == dts_sub(dts_model(*self), dts_model(*rhs))
     {
-        match (self, rhs) {
-            (DynFieldElem::Rational(a), DynFieldElem::Rational(b)) =>
-                DynFieldElem::Rational(a.sub(b)),
-            (DynFieldElem::Extension { re: re1, im: im1, radicand: d1 },
-             DynFieldElem::Extension { re: re2, im: im2, .. }) =>
-                DynFieldElem::Extension {
-                    re: Box::new(re1.dyn_sub(re2)),
-                    im: Box::new(im1.dyn_sub(im2)),
-                    radicand: Box::new(d1.dyn_copy()),
-                },
-            _ => panic!("mismatched DynFieldElem depths in sub"),
-        }
+        let neg_rhs = rhs.dyn_neg();
+        self.dyn_add(&neg_rhs)
     }
 
-    #[verifier::external_body]
     pub fn dyn_neg(&self) -> (out: Self)
         requires self.dyn_wf()
         ensures out.dyn_wf(), dts_model(out) == dts_neg(dts_model(*self))
+        decreases *self,
     {
         match self {
             DynFieldElem::Rational(a) => DynFieldElem::Rational(a.neg()),
@@ -132,20 +121,22 @@ impl DynFieldElem {
         }
     }
 
-    #[verifier::external_body]
     pub fn dyn_mul(&self, rhs: &Self) -> (out: Self)
         requires self.dyn_wf(), rhs.dyn_wf()
         ensures out.dyn_wf(), dts_model(out) == dts_mul(dts_model(*self), dts_model(*rhs))
+        decreases *self, *rhs,
     {
         match (self, rhs) {
             (DynFieldElem::Rational(a), DynFieldElem::Rational(b)) =>
                 DynFieldElem::Rational(a.mul(b)),
             (DynFieldElem::Extension { re: a, im: b, radicand: d },
              DynFieldElem::Extension { re: c, im: e, .. }) => {
+                // (a + b√d)(c + e√d) = (ac + d·be) + (ae + bc)√d
                 let ac = a.dyn_mul(c);
                 let be = b.dyn_mul(e);
-                let bed = be.dyn_mul(d);
-                let re_out = ac.dyn_add(&bed);
+                // d.dyn_mul(&be) matches spec's dts_mul(*d, im1_im2) for termination
+                let d_be = d.dyn_mul(&be);
+                let re_out = ac.dyn_add(&d_be);
                 let ae = a.dyn_mul(e);
                 let bc = b.dyn_mul(c);
                 let im_out = ae.dyn_add(&bc);
@@ -155,94 +146,113 @@ impl DynFieldElem {
                     radicand: Box::new(d.dyn_copy()),
                 }
             }
-            _ => panic!("mismatched DynFieldElem depths in mul"),
+            (DynFieldElem::Rational(_), DynFieldElem::Extension { re, im, radicand }) =>
+                DynFieldElem::Extension {
+                    re: Box::new(self.dyn_mul(re)),
+                    im: Box::new(self.dyn_mul(im)),
+                    radicand: Box::new(radicand.dyn_copy()),
+                },
+            (DynFieldElem::Extension { re, im, radicand }, DynFieldElem::Rational(_)) =>
+                DynFieldElem::Extension {
+                    re: Box::new(re.dyn_mul(rhs)),
+                    im: Box::new(im.dyn_mul(rhs)),
+                    radicand: Box::new(radicand.dyn_copy()),
+                },
         }
     }
 
-    #[verifier::external_body]
+    /// Check if this element is zero (im and re are recursively zero).
+    pub fn dyn_is_zero(&self) -> (out: bool)
+        requires self.dyn_wf()
+        ensures out == dts_is_zero(dts_model(*self))
+        decreases *self,
+    {
+        match self {
+            DynFieldElem::Rational(r) => {
+                let zero = RuntimeRational::from_int(0);
+                r.eq(&zero)
+            }
+            DynFieldElem::Extension { re, im, .. } =>
+                re.dyn_is_zero() && im.dyn_is_zero(),
+        }
+    }
+
+    /// Check if this element is equivalent to a rational value.
+    /// Terminates by structural descent on self.
+    pub fn dyn_eq_rational(&self, r: &RuntimeRational) -> (out: bool)
+        requires self.dyn_wf(), r.wf_spec()
+        ensures out == dts_eqv(dts_model(*self), DynTowerSpec::Rat(r@))
+        decreases *self,
+    {
+        match self {
+            DynFieldElem::Rational(a) => a.eq(r),
+            DynFieldElem::Extension { re, im, .. } =>
+                re.dyn_eq_rational(r) && im.dyn_is_zero(),
+        }
+    }
+
     pub fn dyn_eq(&self, rhs: &Self) -> (out: bool)
         requires self.dyn_wf(), rhs.dyn_wf()
         ensures out == dts_eqv(dts_model(*self), dts_model(*rhs))
+        decreases *self, *rhs,
     {
         match (self, rhs) {
             (DynFieldElem::Rational(a), DynFieldElem::Rational(b)) => a.eq(b),
             (DynFieldElem::Extension { re: re1, im: im1, .. },
              DynFieldElem::Extension { re: re2, im: im2, .. }) =>
                 re1.dyn_eq(re2) && im1.dyn_eq(im2),
-            _ => false,
+            (DynFieldElem::Rational(r), DynFieldElem::Extension { re, im, .. }) => {
+                let out = re.dyn_eq_rational(r) && im.dyn_is_zero();
+                proof {
+                    // dyn_eq_rational gives dts_eqv(model(*re), Rat(r@))
+                    // but spec needs dts_eqv(Rat(r@), model(*re))
+                    verus_quadratic_extension::dyn_tower_lemmas::lemma_dts_eqv_symmetric(
+                        dts_model(**re), DynTowerSpec::Rat(r@));
+                }
+                out
+            }
+            (DynFieldElem::Extension { re, im, .. }, DynFieldElem::Rational(r)) =>
+                re.dyn_eq_rational(r) && im.dyn_is_zero(),
         }
     }
 
-    #[verifier::external_body]
-    pub fn dyn_nonneg(&self) -> (out: bool)
+
+    /// Reciprocal with explicit fuel for termination.
+    /// For nonzero inputs: dts_model(out) == dts_recip_fuel(dts_model(*self), fuel).
+    /// For zero inputs: only wf is guaranteed (reciprocal of zero is undefined).
+    fn dyn_recip_fuel(&self, fuel: u64) -> (out: Self)
         requires self.dyn_wf()
-    {
-        match self {
-            DynFieldElem::Rational(r) => {
-                let zero = RuntimeRational::from_int(0);
-                zero.le(r)
-            }
-            DynFieldElem::Extension { re: a, im: b, radicand: d } => {
-                let zero = a.dyn_zero_like();
-                let a_nonneg = zero.dyn_le(a);
-                let zero2 = a.dyn_zero_like();
-                let b_nonneg = zero2.dyn_le(b);
-
-                if a_nonneg && b_nonneg { return true; }
-
-                let a_sq = a.dyn_mul(a);
-                let b_sq = b.dyn_mul(b);
-                let b2d = b_sq.dyn_mul(d);
-
-                let zero3 = a.dyn_zero_like();
-                let b_neg = b.dyn_lt(&zero3);
-                let zero4 = a.dyn_zero_like();
-                let a_neg = a.dyn_lt(&zero4);
-                let zero5 = a.dyn_zero_like();
-                let b_pos = zero5.dyn_lt(b);
-
-                if a_nonneg && b_neg && b2d.dyn_le(&a_sq) { return true; }
-                if a_neg && b_pos && a_sq.dyn_le(&b2d) { return true; }
-                false
-            }
-        }
-    }
-
-    #[verifier::external_body]
-    pub fn dyn_le(&self, rhs: &Self) -> (out: bool)
-        requires self.dyn_wf(), rhs.dyn_wf()
-        ensures out == dts_le(dts_model(*self), dts_model(*rhs))
-    {
-        rhs.dyn_sub(self).dyn_nonneg()
-    }
-
-    #[verifier::external_body]
-    pub fn dyn_lt(&self, rhs: &Self) -> (out: bool)
-        requires self.dyn_wf(), rhs.dyn_wf()
-        ensures out == dts_lt(dts_model(*self), dts_model(*rhs))
-    {
-        self.dyn_le(rhs) && !self.dyn_eq(rhs)
-    }
-
-    #[verifier::external_body]
-    pub fn dyn_recip(&self) -> (out: Self)
-        requires self.dyn_wf()
-        ensures out.dyn_wf(), dts_model(out) == dts_recip(dts_model(*self))
+        ensures
+            out.dyn_wf(),
+            !dts_is_zero(dts_model(*self)) ==>
+                dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat),
+        decreases fuel,
     {
         match self {
             DynFieldElem::Rational(a) => {
-                let one = RuntimeRational::from_int(1);
-                DynFieldElem::Rational(one.div(a))
+                match a.recip() {
+                    Some(r) => DynFieldElem::Rational(r),
+                    None => {
+                        // a ≡ 0: reciprocal undefined, return wf garbage
+                        DynFieldElem::Rational(RuntimeRational::from_int(0))
+                    }
+                }
             }
             DynFieldElem::Extension { re: a, im: b, radicand: d } => {
+                if fuel == 0 {
+                    return self.dyn_copy();
+                }
+                // norm = a² - d·b²
                 let a_sq = a.dyn_mul(a);
                 let b_sq = b.dyn_mul(b);
-                let b_sq_d = b_sq.dyn_mul(d);
-                let norm = a_sq.dyn_sub(&b_sq_d);
-                let norm_inv = norm.dyn_recip();
+                let d_b_sq = d.dyn_mul(&b_sq);
+                let norm = a_sq.dyn_sub(&d_b_sq);
+                let norm_inv = norm.dyn_recip_fuel(fuel - 1);
+                // re_out = a · norm_inv
                 let re_out = a.dyn_mul(&norm_inv);
-                let neg_b = b.dyn_neg();
-                let im_out = neg_b.dyn_mul(&norm_inv);
+                // im_out = -(b · norm_inv)  (matches spec's dts_neg(dts_mul(*im, norm_inv)))
+                let b_norm_inv = b.dyn_mul(&norm_inv);
+                let im_out = b_norm_inv.dyn_neg();
                 DynFieldElem::Extension {
                     re: Box::new(re_out),
                     im: Box::new(im_out),
@@ -252,18 +262,51 @@ impl DynFieldElem {
         }
     }
 
-    #[verifier::external_body]
+    /// Compute tower depth as u64 for fuel computation.
+    fn dyn_depth_exec(&self) -> (out: u64)
+        requires self.dyn_wf(), dts_depth(dts_model(*self)) <= u64::MAX as nat
+        ensures out as nat == dts_depth(dts_model(*self))
+        decreases *self,
+    {
+        match self {
+            DynFieldElem::Rational(_) => 0,
+            DynFieldElem::Extension { re, im, radicand } => {
+                let dr = re.dyn_depth_exec();
+                let di = im.dyn_depth_exec();
+                let dd = radicand.dyn_depth_exec();
+                let m = if dr >= di { if dr >= dd { dr } else { dd } }
+                        else { if di >= dd { di } else { dd } };
+                1 + m
+            }
+        }
+    }
+
+    pub fn dyn_recip(&self) -> (out: Self)
+        requires self.dyn_wf(), dts_depth(dts_model(*self)) < u64::MAX as nat
+        ensures
+            out.dyn_wf(),
+            !dts_is_zero(dts_model(*self)) ==>
+                dts_model(out) == dts_recip(dts_model(*self)),
+    {
+        let depth = self.dyn_depth_exec();
+        self.dyn_recip_fuel(depth + 1)
+    }
+
     pub fn dyn_div(&self, rhs: &Self) -> (out: Self)
-        requires self.dyn_wf(), rhs.dyn_wf()
-        ensures out.dyn_wf(), dts_model(out) == dts_div(dts_model(*self), dts_model(*rhs))
+        requires self.dyn_wf(), rhs.dyn_wf(),
+            dts_depth(dts_model(*rhs)) < u64::MAX as nat
+        ensures
+            out.dyn_wf(),
+            !dts_is_zero(dts_model(*rhs)) ==>
+                dts_model(out) == dts_div(dts_model(*self), dts_model(*rhs)),
     {
         self.dyn_mul(&rhs.dyn_recip())
     }
 
-    #[verifier::external_body]
     pub fn dyn_copy(&self) -> (out: Self)
         requires self.dyn_wf()
         ensures out.dyn_wf(), dts_model(out) == dts_model(*self)
+        decreases *self,
     {
         match self {
             DynFieldElem::Rational(r) =>
@@ -277,212 +320,83 @@ impl DynFieldElem {
         }
     }
 
-    #[verifier::external_body]
     pub fn dyn_zero_like(&self) -> (out: Self)
         requires self.dyn_wf()
         ensures out.dyn_wf(), dts_eqv(dts_model(out), dts_zero())
+        decreases *self,
     {
         match self {
             DynFieldElem::Rational(_) =>
                 DynFieldElem::Rational(RuntimeRational::from_int(0)),
-            DynFieldElem::Extension { re, radicand, .. } =>
+            DynFieldElem::Extension { re, radicand, .. } => {
+                let re_out = re.dyn_zero_like();
+                let im_out = re.dyn_zero_like();
+                let d_out = radicand.dyn_copy();
+                proof {
+                    // Recursive ensures: dts_eqv(dts_model(re_out), dts_zero())
+                    //                    dts_eqv(dts_model(im_out), dts_zero())
+                    // Need: dts_is_zero(dts_model(im_out)) for the cross-variant unfolding
+                    verus_quadratic_extension::dyn_tower_lemmas::lemma_dts_eqv_zero_implies_is_zero(
+                        dts_model(im_out));
+                }
                 DynFieldElem::Extension {
-                    re: Box::new(re.dyn_zero_like()),
-                    im: Box::new(re.dyn_zero_like()),
-                    radicand: Box::new(radicand.dyn_copy()),
-                },
+                    re: Box::new(re_out),
+                    im: Box::new(im_out),
+                    radicand: Box::new(d_out),
+                }
+            }
         }
     }
 
-    #[verifier::external_body]
     pub fn dyn_one_like(&self) -> (out: Self)
         requires self.dyn_wf()
         ensures out.dyn_wf(), dts_eqv(dts_model(out), dts_one())
+        decreases *self,
     {
         match self {
             DynFieldElem::Rational(_) =>
                 DynFieldElem::Rational(RuntimeRational::from_int(1)),
-            DynFieldElem::Extension { re, radicand, .. } =>
+            DynFieldElem::Extension { re, radicand, .. } => {
+                let re_out = re.dyn_one_like();
+                let im_out = re.dyn_zero_like();
+                let d_out = radicand.dyn_copy();
+                proof {
+                    verus_quadratic_extension::dyn_tower_lemmas::lemma_dts_eqv_zero_implies_is_zero(
+                        dts_model(im_out));
+                }
                 DynFieldElem::Extension {
-                    re: Box::new(re.dyn_one_like()),
-                    im: Box::new(re.dyn_zero_like()),
-                    radicand: Box::new(radicand.dyn_copy()),
-                },
+                    re: Box::new(re_out),
+                    im: Box::new(im_out),
+                    radicand: Box::new(d_out),
+                }
+            }
         }
     }
 
-    #[verifier::external_body]
     pub fn dyn_embed_rational(&self, v: &RuntimeRational) -> (out: Self)
         requires self.dyn_wf(), v.wf_spec()
         ensures out.dyn_wf(), dts_eqv(dts_model(out), DynTowerSpec::Rat(v@))
+        decreases *self,
     {
         match self {
             DynFieldElem::Rational(_) =>
                 DynFieldElem::Rational(verus_linalg::runtime::copy_rational(v)),
-            DynFieldElem::Extension { re, radicand, .. } =>
+            DynFieldElem::Extension { re, radicand, .. } => {
+                let re_out = re.dyn_embed_rational(v);
+                let im_out = re.dyn_zero_like();
+                let d_out = radicand.dyn_copy();
+                proof {
+                    verus_quadratic_extension::dyn_tower_lemmas::lemma_dts_eqv_zero_implies_is_zero(
+                        dts_model(im_out));
+                }
                 DynFieldElem::Extension {
-                    re: Box::new(re.dyn_embed_rational(v)),
-                    im: Box::new(re.dyn_zero_like()),
-                    radicand: Box::new(radicand.dyn_copy()),
-                },
+                    re: Box::new(re_out),
+                    im: Box::new(im_out),
+                    radicand: Box::new(d_out),
+                }
+            }
         }
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-//  RuntimeFieldOps<DynTowerField> — delegates to inherent methods
-// ═══════════════════════════════════════════════════════════════════
-
-impl RuntimeFieldOps<DynTowerField> for DynFieldElem {
-    open spec fn rf_view(&self) -> DynTowerField { dts_model(*self) }
-
-    #[verifier::inline]
-    open spec fn wf_spec(&self) -> bool { self.dyn_wf() }
-
-    fn rf_add(&self, rhs: &Self) -> (out: Self) { self.dyn_add(rhs) }
-    fn rf_sub(&self, rhs: &Self) -> (out: Self) { self.dyn_sub(rhs) }
-    fn rf_neg(&self) -> (out: Self) { self.dyn_neg() }
-    fn rf_mul(&self, rhs: &Self) -> (out: Self) { self.dyn_mul(rhs) }
-
-    fn rf_eq(&self, rhs: &Self) -> (out: bool) {
-        self.dyn_eq(rhs)
-    }
-
-    fn rf_le(&self, rhs: &Self) -> (out: bool) {
-        self.dyn_le(rhs)
-    }
-
-    fn rf_lt(&self, rhs: &Self) -> (out: bool) {
-        self.dyn_lt(rhs)
-    }
-
-    fn rf_recip(&self) -> (out: Self) { self.dyn_recip() }
-    fn rf_div(&self, rhs: &Self) -> (out: Self) { self.dyn_div(rhs) }
-    fn rf_copy(&self) -> (out: Self) { self.dyn_copy() }
-
-    fn rf_zero_like(&self) -> (out: Self) {
-        let result = self.dyn_zero_like();
-        // Depth mismatch: dts_model(result) ≡ dts_zero() but ≠ dts_zero()
-        // for depth > 0 (structurally different, mathematically equivalent)
-        assume(dts_model(result) == dts_zero());
-        result
-    }
-
-    fn rf_one_like(&self) -> (out: Self) {
-        let result = self.dyn_one_like();
-        // Same depth mismatch as zero_like
-        assume(dts_model(result) == dts_one());
-        result
-    }
-
-    open spec fn spec_embed_rational(v: Rational) -> DynTowerField {
-        DynTowerSpec::Rat(v)
-    }
-
-    fn rf_embed_rational(&self, v: &RuntimeRational) -> (out: Self) {
-        let result = self.dyn_embed_rational(v);
-        // Depth mismatch: model is depth-k embedding, spec wants Rat(v@)
-        assume(dts_model(result) == DynTowerSpec::Rat(v@));
-        result
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-//  Collapse: RuntimeQExt<DynTowerField, ...> → DynFieldElem
-// ═══════════════════════════════════════════════════════════════════
-
-/// Collapse a single RuntimeQExt element back to DynFieldElem.
-pub fn collapse_elem(
-    x: RuntimeQExt<DynTowerField, DynTowerRadicand, DynFieldElem>,
-) -> (out: DynFieldElem)
-    requires x.wf_spec()
-    ensures out.wf_spec()
-{
-    DynFieldElem::Extension {
-        re: Box::new(x.re),
-        im: Box::new(x.im),
-        radicand: Box::new(x.radicand_rt),
-    }
-}
-
-/// Collapse a point from RuntimeQExt coordinates to DynFieldElem coordinates.
-pub fn collapse_point(
-    p: GenericRtPoint2<SpecQuadExt<DynTowerField, DynTowerRadicand>,
-                       RuntimeQExt<DynTowerField, DynTowerRadicand, DynFieldElem>>,
-) -> (out: GenericRtPoint2<DynTowerField, DynFieldElem>)
-    requires p.wf_spec()
-    ensures out.wf_spec()
-{
-    let x = collapse_elem(p.x);
-    let y = collapse_elem(p.y);
-    let ghost model = Point2::<DynTowerField> { x: x.rf_view(), y: y.rf_view() };
-    GenericRtPoint2 { x, y, model: Ghost(model) }
-}
-
-/// Collapse a Vec of points from extension level back to DynFieldElem level.
-pub fn collapse_to_dyn(
-    positions: Vec<GenericRtPoint2<SpecQuadExt<DynTowerField, DynTowerRadicand>,
-                                   RuntimeQExt<DynTowerField, DynTowerRadicand, DynFieldElem>>>,
-) -> (out: Vec<GenericRtPoint2<DynTowerField, DynFieldElem>>)
-    requires
-        forall|i: int| 0 <= i < positions@.len() ==> (#[trigger] positions@[i]).wf_spec(),
-    ensures
-        out@.len() == positions@.len(),
-        forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
-{
-    let mut result: Vec<GenericRtPoint2<DynTowerField, DynFieldElem>> = Vec::new();
-    let mut i: usize = 0;
-    while i < positions.len()
-        invariant
-            0 <= i <= positions@.len(),
-            result@.len() == i,
-            forall|j: int| 0 <= j < positions@.len() ==> (#[trigger] positions@[j]).wf_spec(),
-            forall|j: int| 0 <= j < result@.len() ==> (#[trigger] result@[j]).wf_spec(),
-        decreases positions@.len() - i,
-    {
-        let p = positions[i].copy_point();
-        let collapsed = collapse_point(p);
-        result.push(collapsed);
-        i = i + 1;
-    }
-    result
-}
-
-// ═══════════════════════════════════════════════════════════════════
-//  Convert rational positions to DynFieldElem
-// ═══════════════════════════════════════════════════════════════════
-
-/// Wrap rational positions as DynFieldElem::Rational.
-pub fn rational_to_dyn(
-    points: &Vec<RuntimePoint2>,
-) -> (out: Vec<GenericRtPoint2<DynTowerField, DynFieldElem>>)
-    requires
-        points@.len() > 0,
-        forall|i: int| 0 <= i < points@.len() ==> (#[trigger] points@[i]).wf_spec(),
-    ensures
-        out@.len() == points@.len(),
-        forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
-{
-    let mut result: Vec<GenericRtPoint2<DynTowerField, DynFieldElem>> = Vec::new();
-    let mut i: usize = 0;
-    while i < points.len()
-        invariant
-            0 <= i <= points@.len(),
-            result@.len() == i,
-            forall|j: int| 0 <= j < points@.len() ==> (#[trigger] points@[j]).wf_spec(),
-            forall|j: int| 0 <= j < result@.len() ==> (#[trigger] result@[j]).wf_spec(),
-        decreases points@.len() - i,
-    {
-        let rx = verus_linalg::runtime::copy_rational(&points[i].x);
-        let ry = verus_linalg::runtime::copy_rational(&points[i].y);
-        let x = DynFieldElem::Rational(rx);
-        let y = DynFieldElem::Rational(ry);
-        let ghost model = Point2::<DynTowerField> { x: x.rf_view(), y: y.rf_view() };
-        let pt = GenericRtPoint2 { x, y, model: Ghost(model) };
-        result.push(pt);
-        i = i + 1;
-    }
-    result
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -490,45 +404,15 @@ pub fn rational_to_dyn(
 // ═══════════════════════════════════════════════════════════════════
 
 /// Extract the rational part (innermost re.re.re...) from a DynFieldElem.
-#[verifier::external_body]
 pub fn extract_rational_part(elem: &DynFieldElem) -> (out: RuntimeRational)
     requires elem.dyn_wf()
     ensures out.wf_spec()
+    decreases *elem,
 {
     match elem {
         DynFieldElem::Rational(r) => verus_linalg::runtime::copy_rational(r),
         DynFieldElem::Extension { re, .. } => extract_rational_part(re),
     }
-}
-
-/// Extract rational points from DynFieldElem positions.
-pub fn extract_rational_points(
-    positions: &Vec<GenericRtPoint2<DynTowerField, DynFieldElem>>,
-) -> (out: Vec<RuntimePoint2>)
-    requires
-        forall|i: int| 0 <= i < positions@.len() ==> (#[trigger] positions@[i]).wf_spec(),
-    ensures
-        out@.len() == positions@.len(),
-        forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
-{
-    let mut result: Vec<RuntimePoint2> = Vec::new();
-    let mut i: usize = 0;
-    while i < positions.len()
-        invariant
-            0 <= i <= positions@.len(),
-            result@.len() == i,
-            forall|j: int| 0 <= j < positions@.len() ==> (#[trigger] positions@[j]).wf_spec(),
-            forall|j: int| 0 <= j < result@.len() ==> (#[trigger] result@[j]).wf_spec(),
-        decreases positions@.len() - i,
-    {
-        let rx = extract_rational_part(&positions[i].x);
-        let ry = extract_rational_part(&positions[i].y);
-        let ghost model = Point2::<RationalModel> { x: rx@, y: ry@ };
-        let pt = RuntimePoint2 { x: rx, y: ry, model: Ghost(model) };
-        result.push(pt);
-        i = i + 1;
-    }
-    result
 }
 
 } // verus!
