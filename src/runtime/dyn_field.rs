@@ -239,8 +239,17 @@ impl DynFieldElem {
                             let m = a@;
                             let zero = Rational::from_int_spec(0);
                             assert(m.eqv_spec(zero));
-                            assert(m.num * zero.denom() == zero.num * m.denom());
-                            assert(m.num == 0int);
+                            // eqv_spec expands to: m.num * zero.denom() == zero.num * m.denom()
+                            // zero = Rational { num: 0, den: 0 }
+                            // zero.denom() = zero.den + 1 = 1
+                            // zero.num = 0
+                            assert(zero.num == 0int);
+                            assert(zero.denom() == 1int);
+                            // So: m.num * 1 == 0 * m.denom()
+                            assert(m.num * 1 == 0int * m.denom());
+                            assert(m.num == 0int) by(nonlinear_arith)
+                                requires m.num * 1 == 0int * m.denom()
+                            {};
                             assert(m.reciprocal_spec() == m);
                         }
                         let out = self.dyn_copy();

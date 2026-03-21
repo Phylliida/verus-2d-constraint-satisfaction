@@ -456,6 +456,48 @@ proof fn lemma_ext_identity_to_constraint_satisfied<R: PositiveRadicand<Rational
 //  2f: Check all verification constraints at QExt level
 // ===========================================================================
 
+/// Check a single constraint at the ext level and establish ext_verification_identity.
+/// Extracted from the loop body to reduce Z3 proof context.
+fn check_single_verification_constraint_ext<
+    R: PositiveRadicand<RationalModel>,
+    RR: RuntimeRadicand<R>,
+>(
+    rc: &RuntimeConstraint,
+    ext_points: &Vec<RuntimeQExtPoint2<R>>,
+    n_points: usize,
+) -> (out: bool)
+    requires
+        n_points == ext_points@.len(),
+        forall|i: int| 0 <= i < ext_points@.len() ==> (#[trigger] ext_points@[i]).wf_spec(),
+        runtime_constraint_wf(*rc, n_points as nat),
+    ensures
+        out && is_verification_constraint(runtime_constraint_model(*rc))
+            ==> ext_verification_identity::<R>(*rc, ext_points@),
+{
+    match rc {
+        RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, .. } => {
+            check_tangent_ext::<R, RR>(
+                &ext_points[*line_a], &ext_points[*line_b],
+                &ext_points[*center], &ext_points[*radius_point],
+            )
+        }
+        RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } => {
+            check_circle_tangent_ext::<R, RR>(
+                &ext_points[*c1], &ext_points[*rp1],
+                &ext_points[*c2], &ext_points[*rp2],
+            )
+        }
+        RuntimeConstraint::Angle { a1, a2, b1, b2, cos_sq, .. } => {
+            check_angle_ext::<R, RR>(
+                &ext_points[*a1], &ext_points[*a2],
+                &ext_points[*b1], &ext_points[*b2],
+                cos_sq,
+            )
+        }
+        _ => true, // Non-verification constraints: skip
+    }
+}
+
 /// Check all verification constraints are satisfied by the ext-level resolved points.
 pub fn check_all_verification_constraints_ext<
     R: PositiveRadicand<RationalModel>,
@@ -491,28 +533,9 @@ pub fn check_all_verification_constraints_ext<
                 ==> ext_verification_identity::<R>(constraints@[j], ext_points@),
         decreases constraints@.len() - ci,
     {
-        let ok = match &constraints[ci] {
-            RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, .. } => {
-                check_tangent_ext::<R, RR>(
-                    &ext_points[*line_a], &ext_points[*line_b],
-                    &ext_points[*center], &ext_points[*radius_point],
-                )
-            }
-            RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } => {
-                check_circle_tangent_ext::<R, RR>(
-                    &ext_points[*c1], &ext_points[*rp1],
-                    &ext_points[*c2], &ext_points[*rp2],
-                )
-            }
-            RuntimeConstraint::Angle { a1, a2, b1, b2, cos_sq, .. } => {
-                check_angle_ext::<R, RR>(
-                    &ext_points[*a1], &ext_points[*a2],
-                    &ext_points[*b1], &ext_points[*b2],
-                    cos_sq,
-                )
-            }
-            _ => true, // Non-verification constraints: skip
-        };
+        let ok = check_single_verification_constraint_ext::<R, RR>(
+            &constraints[ci], ext_points, n_points,
+        );
         if !ok {
             return false;
         }
