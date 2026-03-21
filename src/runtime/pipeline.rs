@@ -847,6 +847,8 @@ pub struct VerifiedSolution<R: PositiveRadicand<RationalModel>> {
     pub ext_points: Vec<RuntimeQExtPoint2<R>>,
     /// Ghost constraints for the soundness theorem.
     pub ghost_constraints: Ghost<Seq<Constraint<RationalModel>>>,
+    /// Ghost full plan (initial PointSteps + solver steps) for the soundness theorem.
+    pub ghost_full_plan: Ghost<ConstructionPlan<RationalModel>>,
 }
 
 /// A type-erased solution containing rational approximations.
@@ -858,6 +860,9 @@ pub struct SolvedPoints {
     /// For rational entities, this is the exact position.
     /// For irrational entities, this is the rational part (re of a + b*sqrt(d)).
     pub points_re: Vec<RuntimePoint2>,
+    /// Ghost: number of constraints verified at the extension level.
+    /// When this equals the input constraint count, all constraints were satisfied.
+    pub ghost_n_constraints_verified: Ghost<nat>,
 }
 
 /// Extract rational parts from ext_points into a Vec<RuntimePoint2>.
@@ -901,10 +906,13 @@ fn to_solved_points<R: PositiveRadicand<RationalModel>>(
             (#[trigger] solution.ext_points@[i]).wf_spec(),
         forall|j: int| 0 <= j < solution.plan@.len() ==>
             (#[trigger] solution.plan@[j]).wf_spec(),
+    ensures
+        out.ghost_n_constraints_verified@ == solution.ghost_constraints@.len(),
 {
     let plan = copy_plan(&solution.plan);
     let points_re = extract_rational_parts(&solution.ext_points);
-    SolvedPoints { plan, points_re }
+    let ghost n = solution.ghost_constraints@.len();
+    SolvedPoints { plan, points_re, ghost_n_constraints_verified: Ghost(n) }
 }
 
 // ===========================================================================
@@ -1237,6 +1245,11 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
                     (#[trigger] sol.ext_points@[i]).wf_spec()
             &&& forall|j: int| 0 <= j < sol.plan@.len() ==>
                     (#[trigger] sol.plan@[j]).wf_spec()
+            &&& sol.ghost_constraints@ == constraints_to_spec(constraints@)
+            &&& forall|ci: int| 0 <= ci < sol.ghost_constraints@.len() ==>
+                    constraint_satisfied(
+                        #[trigger] lift_constraints::<RationalModel, R>(sol.ghost_constraints@)[ci],
+                        execute_plan_in_ext::<RationalModel, R>(sol.ghost_full_plan@))
         },
 {
     let n_points = initial_points.len();
@@ -1499,6 +1512,7 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
         results,
         ext_points,
         ghost_constraints: Ghost(cstr_spec),
+        ghost_full_plan: Ghost(full_plan),
     };
     Some(solution)
 }
@@ -1547,6 +1561,13 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
         forall|si: int| 0 <= si < out@.len() ==>
             forall|j: int| 0 <= j < (#[trigger] out@[si]).plan@.len() ==>
                 (#[trigger] out@[si].plan@[j]).wf_spec(),
+        forall|si: int| 0 <= si < out@.len() ==>
+            (#[trigger] out@[si]).ghost_constraints@ == constraints_to_spec(constraints@),
+        forall|si: int| 0 <= si < out@.len() ==>
+            forall|ci: int| 0 <= ci < (#[trigger] out@[si]).ghost_constraints@.len() ==>
+                constraint_satisfied(
+                    #[trigger] lift_constraints::<RationalModel, R>(out@[si].ghost_constraints@)[ci],
+                    execute_plan_in_ext::<RationalModel, R>(out@[si].ghost_full_plan@)),
 {
     let n_points = initial_points.len();
     let mut solutions: Vec<VerifiedSolution<R>> = Vec::new();
@@ -1590,6 +1611,15 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
             forall|si: int| 0 <= si < solutions@.len() ==>
                 forall|j: int| 0 <= j < (#[trigger] solutions@[si]).plan@.len() ==>
                     (#[trigger] solutions@[si].plan@[j]).wf_spec(),
+            // Ghost constraints match input
+            forall|si: int| 0 <= si < solutions@.len() ==>
+                (#[trigger] solutions@[si]).ghost_constraints@ == constraints_to_spec(constraints@),
+            // All constraints satisfied at extension level
+            forall|si: int| 0 <= si < solutions@.len() ==>
+                forall|ci: int| 0 <= ci < (#[trigger] solutions@[si]).ghost_constraints@.len() ==>
+                    constraint_satisfied(
+                        #[trigger] lift_constraints::<RationalModel, R>(solutions@[si].ghost_constraints@)[ci],
+                        execute_plan_in_ext::<RationalModel, R>(solutions@[si].ghost_full_plan@)),
         decreases variants@.len() - vi,
     {
         let result = verify_single_variant::<R, RR>(
@@ -1626,6 +1656,15 @@ pub fn solve_and_verify<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<
             (#[trigger] old(resolved_flags)@[i]) ==
             partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
                 .dom().contains(i as nat),
+    ensures
+        // Every returned solution has all constraints satisfied at the extension level.
+        forall|si: int| 0 <= si < out@.len() ==>
+            (#[trigger] out@[si]).ghost_constraints@ == constraints_to_spec(constraints@),
+        forall|si: int| 0 <= si < out@.len() ==>
+            forall|ci: int| 0 <= ci < (#[trigger] out@[si]).ghost_constraints@.len() ==>
+                constraint_satisfied(
+                    #[trigger] lift_constraints::<RationalModel, R>(out@[si].ghost_constraints@)[ci],
+                    execute_plan_in_ext::<RationalModel, R>(out@[si].ghost_full_plan@)),
 {
     // Save initial state
     let initial_points = copy_points_vec(points);
@@ -1948,18 +1987,27 @@ fn collect_solved_points<R: PositiveRadicand<RationalModel>>(
         forall|si: int| 0 <= si < solutions@.len() ==>
             forall|j: int| 0 <= j < (#[trigger] solutions@[si]).plan@.len() ==>
                 (#[trigger] solutions@[si].plan@[j]).wf_spec(),
+    ensures
+        out@.len() == solutions@.len(),
+        forall|si: int| 0 <= si < out@.len() ==>
+            (#[trigger] out@[si]).ghost_n_constraints_verified@
+                == solutions@[si].ghost_constraints@.len(),
 {
     let mut result: Vec<SolvedPoints> = Vec::new();
     let mut i: usize = 0;
     while i < solutions.len()
         invariant
             i <= solutions@.len(),
+            result@.len() == i,
             forall|si: int| 0 <= si < solutions@.len() ==>
                 forall|k: int| 0 <= k < (#[trigger] solutions@[si]).ext_points@.len() ==>
                     (#[trigger] solutions@[si].ext_points@[k]).wf_spec(),
             forall|si: int| 0 <= si < solutions@.len() ==>
                 forall|j: int| 0 <= j < (#[trigger] solutions@[si]).plan@.len() ==>
                     (#[trigger] solutions@[si].plan@[j]).wf_spec(),
+            forall|si: int| 0 <= si < result@.len() ==>
+                (#[trigger] result@[si]).ghost_n_constraints_verified@
+                    == solutions@[si].ghost_constraints@.len(),
         decreases solutions@.len() - i,
     {
         let sp = to_solved_points(&solutions[i]);
@@ -1991,6 +2039,12 @@ pub fn solve_and_verify_auto(
             (#[trigger] old(resolved_flags)@[i]) ==
             partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
                 .dom().contains(i as nat),
+    ensures
+        // Every returned solution verified all input constraints
+        // at the extension level (radicand type-erased).
+        forall|si: int| 0 <= si < out@.len() ==>
+            (#[trigger] out@[si]).ghost_n_constraints_verified@
+                == constraints_to_spec(constraints@).len(),
 {
     // Save initial state before solve_all_variants mutates it
     let initial_points = copy_points_vec(points);
@@ -2163,6 +2217,10 @@ fn lazy_verify_first<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>
             step_target(#[trigger] base_plan@[j].spec_step()),
         forall|j: int| 0 <= j < base_plan@.len() ==>
             (step_target((#[trigger] base_plan@[j]).spec_step()) as int) < initial_points@.len(),
+    ensures
+        out.is_some() ==>
+            out.unwrap().ghost_n_constraints_verified@
+                == constraints_to_spec(constraints@).len(),
 {
     // Check base plan feasibility once — discriminants don't change with sign flips
     if !check_variant_feasible(base_plan) {
@@ -2284,6 +2342,10 @@ pub fn solve_and_verify_first_auto(
             (#[trigger] old(resolved_flags)@[i]) ==
             partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
                 .dom().contains(i as nat),
+    ensures
+        out.is_some() ==>
+            out.unwrap().ghost_n_constraints_verified@
+                == constraints_to_spec(constraints@).len(),
 {
     // Save initial state before greedy_solve_exec mutates
     let initial_points = copy_points_vec(points);
@@ -2334,6 +2396,13 @@ pub fn solve_and_verify_first_auto(
 /// 3. Execute all levels: rational → Q(√d₁) → Q(√d₁)(√d₂) → ... (arbitrary depth)
 /// 4. Runtime-check ALL constraints at the deepest level
 /// 5. Extract rational approximations
+///
+/// **Formal gap:** Unlike `solve_and_verify<R>` which ensures `constraint_satisfied`
+/// at the spec level, this function's constraint checking is runtime-only.
+/// DynFieldElem has no spec model connecting it to the algebraic `constraint_satisfied`
+/// predicate. Closing this gap would require proving the entire dynamic tower correct
+/// (a separate project). For formal guarantees, use `solve_and_verify<R>` or
+/// `solve_and_verify_auto` (which dispatches to generic instantiations with full proofs).
 pub fn solve_and_verify_chain(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,

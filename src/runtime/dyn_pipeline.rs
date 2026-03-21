@@ -897,6 +897,10 @@ fn check_angle_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: b
 // ═══════════════════════════════════════════════════════════════════
 
 /// Check if a single constraint is satisfied by DynRtPoint2 positions.
+/// Note: DynFieldElem has no spec model connecting it to the algebraic
+/// constraint_satisfied predicate. The correctness of these checks relies
+/// on the dyn_* primitives faithfully implementing field arithmetic.
+/// For formal constraint_satisfied guarantees, use solve_and_verify<R>.
 pub fn check_constraint_satisfied_dyn(
     rc: &RuntimeConstraint,
     points: &Vec<DynRtPoint2>,
@@ -930,6 +934,7 @@ pub fn check_constraint_satisfied_dyn(
 }
 
 /// Check if ALL constraints are satisfied by DynRtPoint2 positions.
+/// See check_constraint_satisfied_dyn for trust boundary notes.
 pub fn check_all_constraints_dyn(
     constraints: &Vec<RuntimeConstraint>,
     points: &Vec<DynRtPoint2>,
