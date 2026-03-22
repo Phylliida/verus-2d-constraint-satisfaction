@@ -1259,6 +1259,53 @@ fn check_tangent_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out:
     }
 }
 
+/// Helper: compute circle tangent check with isolated proof context.
+fn check_circle_tangent_inner_dyn(
+    c1_pt: &DynRtPoint2, rp1_pt: &DynRtPoint2,
+    c2_pt: &DynRtPoint2, rp2_pt: &DynRtPoint2,
+) -> (out: bool)
+    requires c1_pt.wf_spec(), rp1_pt.wf_spec(), c2_pt.wf_spec(), rp2_pt.wf_spec(),
+    ensures out ==> {
+        let d = dts_sq_dist(dts_model(c1_pt.x), dts_model(c1_pt.y),
+                            dts_model(c2_pt.x), dts_model(c2_pt.y));
+        let r1 = dts_sq_dist(dts_model(c1_pt.x), dts_model(c1_pt.y),
+                             dts_model(rp1_pt.x), dts_model(rp1_pt.y));
+        let r2 = dts_sq_dist(dts_model(c2_pt.x), dts_model(c2_pt.y),
+                             dts_model(rp2_pt.x), dts_model(rp2_pt.y));
+        let diff = dts_sub(dts_sub(d, r1), r2);
+        exists|four: DynTowerSpec|
+            dts_eqv(four, dts_mul(dts_add(dts_one(), dts_one()), dts_add(dts_one(), dts_one())))
+            && dts_eqv(dts_mul(diff, diff), dts_mul(dts_mul(four, r1), r2))
+    },
+{
+    let d = dyn_sq_dist(c1_pt, c2_pt);
+    let r1 = dyn_sq_dist(c1_pt, rp1_pt);
+    let r2 = dyn_sq_dist(c2_pt, rp2_pt);
+    let one1 = c1_pt.x.dyn_one_like();
+    let one2 = c1_pt.x.dyn_one_like();
+    let two = one1.dyn_add(&one2);
+    let four = two.dyn_mul(&two);
+    let diff = d.dyn_sub(&r1).dyn_sub(&r2);
+    let lhs = diff.dyn_mul(&diff);
+    let rhs = four.dyn_mul(&r1).dyn_mul(&r2);
+    let result = d_eqv(&lhs, &rhs);
+    proof { if result {
+        // Prove dts_eqv(dts_model(two), dts_add(dts_one(), dts_one()))
+        lemma_dts_add_congruence_left(dts_model(one1), dts_one(), dts_model(one2));
+        lemma_dts_add_commutative(dts_one(), dts_model(one2));
+        lemma_dts_add_congruence_left(dts_model(one2), dts_one(), dts_one());
+        lemma_dts_eqv_transitive(
+            dts_add(dts_one(), dts_model(one2)),
+            dts_add(dts_model(one2), dts_one()),
+            dts_add(dts_one(), dts_one()));
+        lemma_dts_eqv_transitive(
+            dts_model(two),
+            dts_add(dts_one(), dts_model(one2)),
+            dts_add(dts_one(), dts_one()));
+    }}
+    result
+}
+
 fn check_circle_tangent_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: bool)
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
@@ -1268,32 +1315,8 @@ fn check_circle_tangent_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -
 {
     match rc {
         RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } => {
-            let d = dyn_sq_dist(&points[*c1], &points[*c2]);
-            let r1 = dyn_sq_dist(&points[*c1], &points[*rp1]);
-            let r2 = dyn_sq_dist(&points[*c2], &points[*rp2]);
-            let one1 = points[*c1].x.dyn_one_like();
-            let one2 = points[*c1].x.dyn_one_like();
-            let two = one1.dyn_add(&one2);
-            let four = two.dyn_mul(&two);
-            let diff = d.dyn_sub(&r1).dyn_sub(&r2);
-            let lhs = diff.dyn_mul(&diff);
-            let rhs = four.dyn_mul(&r1).dyn_mul(&r2);
-            let result = d_eqv(&lhs, &rhs);
-            proof { if result {
-                // Prove dts_eqv(dts_model(two), dts_add(dts_one(), dts_one()))
-                lemma_dts_add_congruence_left(dts_model(one1), dts_one(), dts_model(one2));
-                lemma_dts_add_commutative(dts_one(), dts_model(one2));
-                lemma_dts_add_congruence_left(dts_model(one2), dts_one(), dts_one());
-                lemma_dts_eqv_transitive(
-                    dts_add(dts_one(), dts_model(one2)),
-                    dts_add(dts_model(one2), dts_one()),
-                    dts_add(dts_one(), dts_one()));
-                lemma_dts_eqv_transitive(
-                    dts_model(two),
-                    dts_add(dts_one(), dts_model(one2)),
-                    dts_add(dts_one(), dts_one()));
-            }}
-            result
+            check_circle_tangent_inner_dyn(
+                &points[*c1], &points[*rp1], &points[*c2], &points[*rp2])
         }
         _ => false,
     }
