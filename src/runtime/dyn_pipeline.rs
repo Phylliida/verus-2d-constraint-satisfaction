@@ -810,21 +810,7 @@ fn check_distance_sq_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (
         RuntimeConstraint::DistanceSq { a, b, dist_sq, .. } => {
             let d = dyn_sq_dist(&points[*a], &points[*b]);
             let target = points[0].x.dyn_embed_rational(dist_sq);
-            let result = d_eqv(&d, &target);
-            proof {
-                if result {
-                    // d_eqv gives: dts_eqv(dts_model(d), dts_model(target))
-                    // dyn_sq_dist gives: dts_model(d) == dts_sq_dist(...)
-                    // dyn_embed gives: dts_eqv(dts_model(target), Rat(dist_sq@))
-                    // By transitivity: dts_eqv(dts_sq_dist(...), Rat(dist_sq@))
-                    lemma_dts_eqv_transitive(
-                        dts_sq_dist(dts_model(points@[*a as int].x), dts_model(points@[*a as int].y),
-                                    dts_model(points@[*b as int].x), dts_model(points@[*b as int].y)),
-                        dts_model(target),
-                        DynTowerSpec::Rat(dist_sq@));
-                }
-            }
-            result
+            d_eqv(&d, &target)
         }
         _ => false,
     }
@@ -841,16 +827,7 @@ fn check_fixed_x_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out:
     match rc {
         RuntimeConstraint::FixedX { point, x, .. } => {
             let target = points[0].x.dyn_embed_rational(x);
-            let result = d_eqv(&points[*point].x, &target);
-            proof {
-                if result {
-                    lemma_dts_eqv_transitive(
-                        dts_model(points@[*point as int].x),
-                        dts_model(target),
-                        DynTowerSpec::Rat(x@));
-                }
-            }
-            result
+            d_eqv(&points[*point].x, &target)
         }
         _ => false,
     }
@@ -867,16 +844,7 @@ fn check_fixed_y_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out:
     match rc {
         RuntimeConstraint::FixedY { point, y, .. } => {
             let target = points[0].x.dyn_embed_rational(y);
-            let result = d_eqv(&points[*point].y, &target);
-            proof {
-                if result {
-                    lemma_dts_eqv_transitive(
-                        dts_model(points@[*point as int].y),
-                        dts_model(target),
-                        DynTowerSpec::Rat(y@));
-                }
-            }
-            result
+            d_eqv(&points[*point].y, &target)
         }
         _ => false,
     }
@@ -912,6 +880,8 @@ fn check_point_on_line_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) ->
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::PointOnLine { point, line_a, line_b, .. } => {
@@ -928,6 +898,8 @@ fn check_equal_length_sq_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) 
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::EqualLengthSq { a1, a2, b1, b2, .. } => {
@@ -943,6 +915,8 @@ fn check_midpoint_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Midpoint { mid, a, b, .. } => {
@@ -962,6 +936,8 @@ fn check_perpendicular_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) ->
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Perpendicular { a1, a2, b1, b2, .. } => {
@@ -981,6 +957,8 @@ fn check_parallel_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Parallel { a1, a2, b1, b2, .. } => {
@@ -1000,6 +978,8 @@ fn check_collinear_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (ou
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Collinear { a, b, c, .. } => {
@@ -1016,6 +996,8 @@ fn check_point_on_circle_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) 
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::PointOnCircle { point, center, radius_point, .. } => {
@@ -1031,6 +1013,8 @@ fn check_symmetric_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (ou
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Symmetric { point, original, axis_a, axis_b, .. } => {
@@ -1066,6 +1050,8 @@ fn check_fixed_point_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
         points@.len() > 0,
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::FixedPoint { point, x, y, .. } => {
@@ -1082,6 +1068,8 @@ fn check_ratio_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: b
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
         points@.len() > 0,
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Ratio { a1, a2, b1, b2, ratio_sq, .. } => {
@@ -1099,6 +1087,8 @@ fn check_tangent_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out:
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, .. } => {
@@ -1118,6 +1108,8 @@ fn check_circle_tangent_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } => {
@@ -1141,6 +1133,8 @@ fn check_angle_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: b
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
         points@.len() > 0,
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Angle { a1, a2, b1, b2, cos_sq, .. } => {
