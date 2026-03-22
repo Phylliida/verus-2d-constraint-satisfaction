@@ -15,7 +15,11 @@ use crate::runtime::abstract_plan::*;
 use crate::runtime::dyn_field::*;
 
 use verus_quadratic_extension::dyn_tower::*;
-use verus_quadratic_extension::dyn_tower_lemmas::lemma_dts_eqv_transitive;
+use verus_quadratic_extension::dyn_tower_lemmas::{
+    lemma_dts_eqv_transitive,
+    lemma_dts_add_congruence_left,
+    lemma_dts_add_commutative,
+};
 
 type RationalModel = verus_rational::rational::Rational;
 
@@ -925,7 +929,11 @@ fn check_point_on_line_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) ->
             let (a, b, c) = dyn_line_from_points(&points[*line_a], &points[*line_b]);
             let eval = d_line_eval(&a, &b, &c, &points[*point].x, &points[*point].y);
             let zero = points[*point].x.dyn_zero_like();
-            d_eqv(&eval, &zero)
+            let result = d_eqv(&eval, &zero);
+            proof { if result {
+                lemma_dts_eqv_transitive(dts_model(eval), dts_model(zero), dts_zero());
+            }}
+            result
         }
         _ => false,
     }
@@ -957,13 +965,36 @@ fn check_midpoint_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out
 {
     match rc {
         RuntimeConstraint::Midpoint { mid, a, b, .. } => {
-            let one = points[*mid].x.dyn_one_like();
-            let two = one.dyn_add(&points[*mid].x.dyn_one_like());
+            let one1 = points[*mid].x.dyn_one_like();
+            let one2 = points[*mid].x.dyn_one_like();
+            let two = one1.dyn_add(&one2);
             let mx2 = two.dyn_mul(&points[*mid].x);
             let my2 = two.dyn_mul(&points[*mid].y);
             let sx = points[*a].x.dyn_add(&points[*b].x);
             let sy = points[*a].y.dyn_add(&points[*b].y);
-            d_eqv(&mx2, &sx) && d_eqv(&my2, &sy)
+            let result = d_eqv(&mx2, &sx) && d_eqv(&my2, &sy);
+            proof { if result {
+                // dts_model(two) == dts_add(dts_model(one1), dts_model(one2))
+                // dts_eqv(dts_model(one1), dts_one()) and dts_eqv(dts_model(one2), dts_one())
+                // By add_congruence_left: dts_eqv(dts_add(m1, m2), dts_add(dts_one(), m2))
+                // Then add_commutative + add_congruence_left for m2→dts_one()
+                lemma_dts_add_congruence_left(dts_model(one1), dts_one(), dts_model(one2));
+                // Now: dts_eqv(dts_add(dts_model(one1), dts_model(one2)), dts_add(dts_one(), dts_model(one2)))
+                // = dts_eqv(dts_model(two), dts_add(dts_one(), dts_model(one2)))
+                lemma_dts_add_commutative(dts_one(), dts_model(one2));
+                lemma_dts_add_commutative(dts_one(), dts_one());
+                lemma_dts_add_congruence_left(dts_model(one2), dts_one(), dts_one());
+                // dts_eqv(dts_add(dts_model(one2), dts_one()), dts_add(dts_one(), dts_one()))
+                lemma_dts_eqv_transitive(
+                    dts_add(dts_one(), dts_model(one2)),
+                    dts_add(dts_model(one2), dts_one()),
+                    dts_add(dts_one(), dts_one()));
+                lemma_dts_eqv_transitive(
+                    dts_model(two),
+                    dts_add(dts_one(), dts_model(one2)),
+                    dts_add(dts_one(), dts_one()));
+            }}
+            result
         }
         _ => false,
     }
@@ -984,7 +1015,11 @@ fn check_perpendicular_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) ->
             let d2y = points[*b2].y.dyn_sub(&points[*b1].y);
             let dot = d1x.dyn_mul(&d2x).dyn_add(&d1y.dyn_mul(&d2y));
             let zero = points[*a1].x.dyn_zero_like();
-            d_eqv(&dot, &zero)
+            let result = d_eqv(&dot, &zero);
+            proof { if result {
+                lemma_dts_eqv_transitive(dts_model(dot), dts_model(zero), dts_zero());
+            }}
+            result
         }
         _ => false,
     }
@@ -1005,7 +1040,11 @@ fn check_parallel_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out
             let d2y = points[*b2].y.dyn_sub(&points[*b1].y);
             let cross = d1x.dyn_mul(&d2y).dyn_sub(&d1y.dyn_mul(&d2x));
             let zero = points[*a1].x.dyn_zero_like();
-            d_eqv(&cross, &zero)
+            let result = d_eqv(&cross, &zero);
+            proof { if result {
+                lemma_dts_eqv_transitive(dts_model(cross), dts_model(zero), dts_zero());
+            }}
+            result
         }
         _ => false,
     }
@@ -1023,7 +1062,11 @@ fn check_collinear_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (ou
             let (la, lb, lc) = dyn_line_from_points(&points[*a], &points[*b]);
             let eval = d_line_eval(&la, &lb, &lc, &points[*c].x, &points[*c].y);
             let zero = points[*a].x.dyn_zero_like();
-            d_eqv(&eval, &zero)
+            let result = d_eqv(&eval, &zero);
+            proof { if result {
+                lemma_dts_eqv_transitive(dts_model(eval), dts_model(zero), dts_zero());
+            }}
+            result
         }
         _ => false,
     }
@@ -1046,6 +1089,79 @@ fn check_point_on_circle_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) 
     }
 }
 
+/// Helper: check perpendicularity for Symmetric constraint.
+fn check_symmetric_perp_dyn(
+    pt: &DynRtPoint2, orig: &DynRtPoint2,
+    ax_a: &DynRtPoint2, ax_b: &DynRtPoint2,
+) -> (out: bool)
+    requires pt.wf_spec(), orig.wf_spec(), ax_a.wf_spec(), ax_b.wf_spec(),
+    ensures out ==> {
+        let dx = dts_sub(dts_model(ax_b.x), dts_model(ax_a.x));
+        let dy = dts_sub(dts_model(ax_b.y), dts_model(ax_a.y));
+        let px = dts_sub(dts_model(pt.x), dts_model(orig.x));
+        let py = dts_sub(dts_model(pt.y), dts_model(orig.y));
+        let dot = dts_add(dts_mul(px, dx), dts_mul(py, dy));
+        dts_eqv(dot, dts_zero())
+    },
+{
+    let dx = ax_b.x.dyn_sub(&ax_a.x);
+    let dy = ax_b.y.dyn_sub(&ax_a.y);
+    let px = pt.x.dyn_sub(&orig.x);
+    let py = pt.y.dyn_sub(&orig.y);
+    let dot = px.dyn_mul(&dx).dyn_add(&py.dyn_mul(&dy));
+    let zero = pt.x.dyn_zero_like();
+    let result = d_eqv(&dot, &zero);
+    proof { if result {
+        lemma_dts_eqv_transitive(dts_model(dot), dts_model(zero), dts_zero());
+    }}
+    result
+}
+
+/// Helper: check midpoint-on-axis for Symmetric constraint.
+fn check_symmetric_axis_dyn(
+    pt: &DynRtPoint2, orig: &DynRtPoint2,
+    ax_a: &DynRtPoint2, ax_b: &DynRtPoint2,
+) -> (out: bool)
+    requires pt.wf_spec(), orig.wf_spec(), ax_a.wf_spec(), ax_b.wf_spec(),
+    ensures out ==> {
+        let mx2 = dts_add(dts_model(pt.x), dts_model(orig.x));
+        let my2 = dts_add(dts_model(pt.y), dts_model(orig.y));
+        let (la, lb, lc) = dts_line_from_points(
+            dts_model(ax_a.x), dts_model(ax_a.y),
+            dts_model(ax_b.x), dts_model(ax_b.y));
+        exists|two: DynTowerSpec|
+            dts_eqv(two, dts_add(dts_one(), dts_one()))
+            && dts_eqv(
+                dts_add(dts_add(dts_mul(la, mx2), dts_mul(lb, my2)), dts_mul(two, lc)),
+                dts_zero())
+    },
+{
+    let one1 = pt.x.dyn_one_like();
+    let one2 = pt.x.dyn_one_like();
+    let two = one1.dyn_add(&one2);
+    let mx2 = pt.x.dyn_add(&orig.x);
+    let my2 = pt.y.dyn_add(&orig.y);
+    let (la, lb, lc) = dyn_line_from_points(ax_a, ax_b);
+    let eval2 = la.dyn_mul(&mx2).dyn_add(&lb.dyn_mul(&my2)).dyn_add(&two.dyn_mul(&lc));
+    let zero = pt.x.dyn_zero_like();
+    let result = d_eqv(&eval2, &zero);
+    proof { if result {
+        lemma_dts_eqv_transitive(dts_model(eval2), dts_model(zero), dts_zero());
+        lemma_dts_add_congruence_left(dts_model(one1), dts_one(), dts_model(one2));
+        lemma_dts_add_commutative(dts_one(), dts_model(one2));
+        lemma_dts_add_congruence_left(dts_model(one2), dts_one(), dts_one());
+        lemma_dts_eqv_transitive(
+            dts_add(dts_one(), dts_model(one2)),
+            dts_add(dts_model(one2), dts_one()),
+            dts_add(dts_one(), dts_one()));
+        lemma_dts_eqv_transitive(
+            dts_model(two),
+            dts_add(dts_one(), dts_model(one2)),
+            dts_add(dts_one(), dts_one()));
+    }}
+    result
+}
+
 fn check_symmetric_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: bool)
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
@@ -1055,28 +1171,10 @@ fn check_symmetric_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (ou
 {
     match rc {
         RuntimeConstraint::Symmetric { point, original, axis_a, axis_b, .. } => {
-            let dx = points[*axis_b].x.dyn_sub(&points[*axis_a].x);
-            let dy = points[*axis_b].y.dyn_sub(&points[*axis_a].y);
-
-            // Check perpendicularity
-            let px = points[*point].x.dyn_sub(&points[*original].x);
-            let py = points[*point].y.dyn_sub(&points[*original].y);
-            let dot = px.dyn_mul(&dx).dyn_add(&py.dyn_mul(&dy));
-            let zero = points[*point].x.dyn_zero_like();
-            let perp = d_eqv(&dot, &zero);
-
-            // Check midpoint on axis
-            let one = points[*point].x.dyn_one_like();
-            let two = one.dyn_add(&points[*point].x.dyn_one_like());
-            let mx2 = points[*point].x.dyn_add(&points[*original].x);
-            let my2 = points[*point].y.dyn_add(&points[*original].y);
-
-            let (la, lb, lc) = dyn_line_from_points(&points[*axis_a], &points[*axis_b]);
-            let eval2 = la.dyn_mul(&mx2).dyn_add(&lb.dyn_mul(&my2)).dyn_add(&two.dyn_mul(&lc));
-            let zero2 = points[*point].x.dyn_zero_like();
-            let on_line = d_eqv(&eval2, &zero2);
-
-            perp && on_line
+            check_symmetric_perp_dyn(&points[*point], &points[*original],
+                &points[*axis_a], &points[*axis_b])
+            && check_symmetric_axis_dyn(&points[*point], &points[*original],
+                &points[*axis_a], &points[*axis_b])
         }
         _ => false,
     }
@@ -1173,13 +1271,29 @@ fn check_circle_tangent_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -
             let d = dyn_sq_dist(&points[*c1], &points[*c2]);
             let r1 = dyn_sq_dist(&points[*c1], &points[*rp1]);
             let r2 = dyn_sq_dist(&points[*c2], &points[*rp2]);
-            let one = points[*c1].x.dyn_one_like();
-            let two = one.dyn_add(&points[*c1].x.dyn_one_like());
+            let one1 = points[*c1].x.dyn_one_like();
+            let one2 = points[*c1].x.dyn_one_like();
+            let two = one1.dyn_add(&one2);
             let four = two.dyn_mul(&two);
             let diff = d.dyn_sub(&r1).dyn_sub(&r2);
             let lhs = diff.dyn_mul(&diff);
             let rhs = four.dyn_mul(&r1).dyn_mul(&r2);
-            d_eqv(&lhs, &rhs)
+            let result = d_eqv(&lhs, &rhs);
+            proof { if result {
+                // Prove dts_eqv(dts_model(two), dts_add(dts_one(), dts_one()))
+                lemma_dts_add_congruence_left(dts_model(one1), dts_one(), dts_model(one2));
+                lemma_dts_add_commutative(dts_one(), dts_model(one2));
+                lemma_dts_add_congruence_left(dts_model(one2), dts_one(), dts_one());
+                lemma_dts_eqv_transitive(
+                    dts_add(dts_one(), dts_model(one2)),
+                    dts_add(dts_model(one2), dts_one()),
+                    dts_add(dts_one(), dts_one()));
+                lemma_dts_eqv_transitive(
+                    dts_model(two),
+                    dts_add(dts_one(), dts_model(one2)),
+                    dts_add(dts_one(), dts_one()));
+            }}
+            result
         }
         _ => false,
     }
