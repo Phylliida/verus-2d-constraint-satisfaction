@@ -419,4 +419,42 @@ pub proof fn lemma_greedy_solver_sound<T: OrderedField>(
     );
 }
 
+// ===========================================================================
+//  System well-constrained predicate
+// ===========================================================================
+
+/// A constraint system is well-constrained when the greedy solver with
+/// sufficient fuel produces a plan covering ALL free entity IDs.
+///
+/// This is the spec-level characterization of solvability: every free entity
+/// eventually becomes ready (has ≥ 2 non-trivial loci from resolved neighbors),
+/// and the greedy algorithm terminates with all entities placed.
+///
+/// When this predicate is false, the system is either:
+/// - Under-constrained: some entity has < 2 loci
+/// - Cyclically constrained: entities depend on each other
+/// - Degenerately constrained: locus intersections are invalid (parallel lines, etc.)
+pub open spec fn system_is_well_constrained<T: OrderedField>(
+    free_ids: Seq<EntityId>,
+    constraints: Seq<Constraint<T>>,
+    initial_resolved: ResolvedPoints<T>,
+) -> bool {
+    greedy_solve(free_ids, constraints, initial_resolved, free_ids.len()).len()
+        == free_ids.len()
+}
+
+/// The set of entity IDs that the greedy solver could not resolve.
+/// Empty iff `system_is_well_constrained` holds.
+pub open spec fn solver_stuck_entities<T: OrderedField>(
+    free_ids: Seq<EntityId>,
+    constraints: Seq<Constraint<T>>,
+    initial_resolved: ResolvedPoints<T>,
+) -> Set<EntityId> {
+    let plan = greedy_solve(free_ids, constraints, initial_resolved, free_ids.len());
+    Set::new(|id: EntityId|
+        exists|i: int| 0 <= i < free_ids.len() && free_ids[i] == id
+        && forall|j: int| 0 <= j < plan.len() ==> step_target(plan[j]) != id
+    )
+}
+
 } // verus!

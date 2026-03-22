@@ -207,8 +207,12 @@ pub proof fn lemma_lift_plan_distinct_targets<F: OrderedField, R: PositiveRadica
 //  Phase 4: Deterministic execution model
 // ===========================================================================
 
-/// Execute a plan in the extension field Q(√R), using deterministic
-/// circle intersection formulas instead of `choose|p|`.
+/// **Canonical deterministic** plan execution in Q(√R).
+///
+/// Uses `execute_step_in_ext` (deterministic circle intersection formulas)
+/// instead of `execute_step` (non-deterministic `choose`). This is the
+/// execution model referenced by the soundness theorem and the ensures
+/// on `solve_and_verify<R>`.
 pub open spec fn execute_plan_in_ext<F: OrderedField, R: PositiveRadicand<F>>(
     plan: ConstructionPlan<F>,
 ) -> ResolvedPoints<SpecQuadExt<F, R>>
