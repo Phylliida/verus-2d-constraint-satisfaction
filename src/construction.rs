@@ -69,6 +69,17 @@ pub open spec fn step_target<T: OrderedField>(step: ConstructionStep<T>) -> Enti
 }
 
 /// Execute a single construction step, returning the placed point.
+///
+/// **Non-deterministic for circle steps:** CircleLine and CircleCircle use `choose`
+/// to select an arbitrary intersection point, ignoring the `plus` field. This is
+/// because circle intersection formulas require square roots (√discriminant), which
+/// do not exist in a generic `T: OrderedField`.
+///
+/// The canonical **deterministic** execution is `execute_step_in_ext`, which operates
+/// in the extension field `SpecQuadExt<F, R>` where √ is available and uses the
+/// `plus` flag to select a specific intersection. The soundness proof
+/// (`lemma_solver_to_soundness_det`) goes through `execute_plan_in_ext`, not
+/// `execute_plan`, so this non-determinism does not weaken any guarantees.
 pub open spec fn execute_step<T: OrderedField>(step: ConstructionStep<T>) -> Point2<T> {
     match step {
         ConstructionStep::PointStep { position, .. } => position,
@@ -77,10 +88,6 @@ pub open spec fn execute_step<T: OrderedField>(step: ConstructionStep<T>) -> Poi
             line_line_intersection_2d(line1, line2)
         }
 
-        // Circle-line and circle-circle: use `choose` to select an arbitrary
-        // point satisfying both loci. step_well_formed requires that such a
-        // point exists, so the choose is well-defined. No stored position
-        // witness needed — structurally impossible to provide a wrong one.
         ConstructionStep::CircleLine { circle, line, .. } => {
             choose|p: Point2<T>| point_on_circle2(circle, p) && point_on_line2(line, p)
         }
@@ -1137,10 +1144,17 @@ pub open spec fn lift_construction_step<F: OrderedField, R: PositiveRadicand<F>>
     }
 }
 
-/// Execute a construction step in the extension field Q(√R).
-/// Unlike execute_step (which uses choose|p|), this is deterministic:
-/// circle intersections use cl_intersection_point / cc_intersection_point
-/// with the actual plus/minus flag.
+/// **Canonical deterministic** execution of a construction step in Q(√R).
+///
+/// Unlike `execute_step` (which uses `choose` for circle steps), this function
+/// is fully deterministic: circle intersections use `cl_intersection_point` /
+/// `cc_intersection_point` with the `plus` flag to select a specific solution.
+/// This works because `SpecQuadExt<F, R>` supports √R, enabling closed-form
+/// intersection formulas.
+///
+/// The soundness theorem (`lemma_solver_to_soundness_det`) and the main ensures
+/// on `solve_and_verify<R>` are stated in terms of `execute_plan_in_ext`, making
+/// this the primary spec for constraint satisfaction guarantees.
 pub open spec fn execute_step_in_ext<F: OrderedField, R: PositiveRadicand<F>>(
     step: ConstructionStep<F>,
 ) -> Point2<SpecQuadExt<F, R>> {

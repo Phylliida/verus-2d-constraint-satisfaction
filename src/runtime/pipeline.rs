@@ -1250,6 +1250,11 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
                     constraint_satisfied(
                         #[trigger] lift_constraints::<RationalModel, R>(sol.ghost_constraints@)[ci],
                         execute_plan_in_ext::<RationalModel, R>(sol.ghost_full_plan@))
+            // The runtime ext_points agree with the spec-level deterministic execution.
+            &&& forall|id: EntityId|
+                    execute_plan_in_ext::<RationalModel, R>(sol.ghost_full_plan@).dom().contains(id) ==>
+                    ext_vec_to_resolved_map::<R>(sol.ext_points@)[id]
+                        == execute_plan_in_ext::<RationalModel, R>(sol.ghost_full_plan@)[id]
         },
 {
     let n_points = initial_points.len();
@@ -1568,6 +1573,11 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
                 constraint_satisfied(
                     #[trigger] lift_constraints::<RationalModel, R>(out@[si].ghost_constraints@)[ci],
                     execute_plan_in_ext::<RationalModel, R>(out@[si].ghost_full_plan@)),
+        forall|si: int| 0 <= si < out@.len() ==>
+            forall|id: EntityId|
+                execute_plan_in_ext::<RationalModel, R>((#[trigger] out@[si]).ghost_full_plan@).dom().contains(id) ==>
+                ext_vec_to_resolved_map::<R>(out@[si].ext_points@)[id]
+                    == execute_plan_in_ext::<RationalModel, R>(out@[si].ghost_full_plan@)[id],
 {
     let n_points = initial_points.len();
     let mut solutions: Vec<VerifiedSolution<R>> = Vec::new();
@@ -1620,6 +1630,12 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
                     constraint_satisfied(
                         #[trigger] lift_constraints::<RationalModel, R>(solutions@[si].ghost_constraints@)[ci],
                         execute_plan_in_ext::<RationalModel, R>(solutions@[si].ghost_full_plan@)),
+            // Runtime ext_points agree with spec-level deterministic execution
+            forall|si: int| 0 <= si < solutions@.len() ==>
+                forall|id: EntityId|
+                    execute_plan_in_ext::<RationalModel, R>((#[trigger] solutions@[si]).ghost_full_plan@).dom().contains(id) ==>
+                    ext_vec_to_resolved_map::<R>(solutions@[si].ext_points@)[id]
+                        == execute_plan_in_ext::<RationalModel, R>(solutions@[si].ghost_full_plan@)[id],
         decreases variants@.len() - vi,
     {
         let result = verify_single_variant::<R, RR>(
@@ -1665,6 +1681,12 @@ pub fn solve_and_verify<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<
                 constraint_satisfied(
                     #[trigger] lift_constraints::<RationalModel, R>(out@[si].ghost_constraints@)[ci],
                     execute_plan_in_ext::<RationalModel, R>(out@[si].ghost_full_plan@)),
+        // The runtime ext_points agree with the spec-level deterministic execution.
+        forall|si: int| 0 <= si < out@.len() ==>
+            forall|id: EntityId|
+                execute_plan_in_ext::<RationalModel, R>((#[trigger] out@[si]).ghost_full_plan@).dom().contains(id) ==>
+                ext_vec_to_resolved_map::<R>(out@[si].ext_points@)[id]
+                    == execute_plan_in_ext::<RationalModel, R>(out@[si].ghost_full_plan@)[id],
 {
     // Save initial state
     let initial_points = copy_points_vec(points);

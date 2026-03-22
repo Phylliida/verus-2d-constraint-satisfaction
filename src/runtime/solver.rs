@@ -2402,4 +2402,91 @@ pub fn verify_plan_soundness_exec<R: PositiveRadicand<RationalModel>, RR: Runtim
     true
 }
 
+// ===========================================================================
+//  System well-constrained runtime diagnostic
+// ===========================================================================
+
+/// Result of a well-constrained check.
+pub enum WellConstrainedResult {
+    /// All free entities resolved. Contains the construction plan.
+    Ok { plan: Vec<RuntimeStepData> },
+    /// Solver got stuck. `n_resolved` entities were placed out of `n_free` total.
+    /// `unresolved_ids` lists which entity IDs could not be resolved.
+    Stuck { n_resolved: usize, n_free: usize, unresolved_ids: Vec<usize> },
+}
+
+/// Runtime diagnostic: check if the greedy solver resolves all free entities.
+/// Returns Ok with the plan if all entities resolved, or Stuck with diagnostic
+/// information about which entities could not be resolved.
+pub fn check_well_constrained(
+    free_ids: &Vec<usize>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: &mut Vec<RuntimePoint2>,
+    resolved_flags: &mut Vec<bool>,
+) -> (out: WellConstrainedResult)
+    requires
+        old(points)@.len() == old(resolved_flags)@.len(),
+        all_points_wf(old(points)@),
+        forall|i: int| 0 <= i < free_ids@.len() ==>
+            (free_ids@[i] as int) < old(points)@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], old(points)@.len() as nat),
+        forall|i: int| 0 <= i < old(resolved_flags)@.len() ==>
+            (#[trigger] old(resolved_flags)@[i]) ==
+            partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
+                .dom().contains(i as nat),
+    ensures
+        match out {
+            WellConstrainedResult::Ok { plan } => {
+                &&& plan@.len() == free_ids@.len()
+                &&& forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec()
+                &&& forall|i: int, j: int|
+                        0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
+                        step_target(#[trigger] plan@[i].spec_step())
+                            != step_target(#[trigger] plan@[j].spec_step())
+            }
+            WellConstrainedResult::Stuck { n_resolved, n_free, .. } => {
+                n_resolved != n_free
+            }
+        },
+{
+    let plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
+
+    if plan.len() == free_ids.len() {
+        WellConstrainedResult::Ok { plan }
+    } else {
+        // Plan is shorter than free_ids — collect unresolved entity IDs.
+        let n_resolved = plan.len();
+        let n_free = free_ids.len();
+        let mut unresolved_ids: Vec<usize> = Vec::new();
+        let mut i: usize = 0;
+        while i < free_ids.len()
+            invariant
+                i <= free_ids@.len(),
+                forall|k: int| 0 <= k < plan@.len() ==> (#[trigger] plan@[k]).wf_spec(),
+            decreases free_ids@.len() - i,
+        {
+            let id = free_ids[i];
+            let mut found = false;
+            let mut j: usize = 0;
+            while j < plan.len()
+                invariant
+                    j <= plan@.len(),
+                    forall|k: int| 0 <= k < plan@.len() ==> (#[trigger] plan@[k]).wf_spec(),
+                decreases plan@.len() - j,
+            {
+                if plan[j].target_id() == id {
+                    found = true;
+                }
+                j = j + 1;
+            }
+            if !found {
+                unresolved_ids.push(id);
+            }
+            i = i + 1;
+        }
+        WellConstrainedResult::Stuck { n_resolved, n_free, unresolved_ids }
+    }
+}
+
 } // verus!
