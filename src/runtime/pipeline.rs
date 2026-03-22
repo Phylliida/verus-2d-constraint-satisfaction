@@ -2419,12 +2419,12 @@ pub fn solve_and_verify_first_auto(
 /// 4. Runtime-check ALL constraints at the deepest level
 /// 5. Extract rational approximations
 ///
-/// **Formal gap:** Unlike `solve_and_verify<R>` which ensures `constraint_satisfied`
-/// at the spec level, this function's constraint checking is runtime-only.
-/// DynFieldElem has no spec model connecting it to the algebraic `constraint_satisfied`
-/// predicate. Closing this gap would require proving the entire dynamic tower correct
-/// (a separate project). For formal guarantees, use `solve_and_verify<R>` or
-/// `solve_and_verify_auto` (which dispatches to generic instantiations with full proofs).
+/// **Spec guarantee:** When this function returns Some, all constraints are satisfied
+/// at the DynTowerSpec level (`constraint_satisfied_dts`). This is a weaker guarantee
+/// than `solve_and_verify<R>` (which ensures `constraint_satisfied` on
+/// `execute_plan_in_ext`), but it is fully verified: each `check_*_dyn` function
+/// has ensures connecting its runtime arithmetic to the `dts_*` spec operations.
+/// The trust boundary is the `dyn_*` primitive methods on DynFieldElem.
 pub fn solve_and_verify_chain(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
