@@ -14,9 +14,219 @@ use crate::runtime::constraint::*;
 use crate::runtime::abstract_plan::*;
 use crate::runtime::dyn_field::*;
 
+use verus_quadratic_extension::dyn_tower::*;
+
 type RationalModel = verus_rational::rational::Rational;
 
 verus! {
+
+// ═══════════════════════════════════════════════════════════════════
+//  DynTowerSpec constraint satisfaction predicate
+// ═══════════════════════════════════════════════════════════════════
+
+/// Spec-level squared distance using DynTowerSpec operations.
+pub open spec fn dts_sq_dist(
+    px: DynTowerSpec, py: DynTowerSpec,
+    qx: DynTowerSpec, qy: DynTowerSpec,
+) -> DynTowerSpec {
+    let dx = dts_sub(px, qx);
+    let dy = dts_sub(py, qy);
+    dts_add(dts_mul(dx, dx), dts_mul(dy, dy))
+}
+
+/// Spec-level line evaluation: a*x + b*y + c.
+pub open spec fn dts_line_eval(
+    a: DynTowerSpec, b: DynTowerSpec, c: DynTowerSpec,
+    x: DynTowerSpec, y: DynTowerSpec,
+) -> DynTowerSpec {
+    dts_add(dts_add(dts_mul(a, x), dts_mul(b, y)), c)
+}
+
+/// Spec-level line coefficients from two points.
+pub open spec fn dts_line_from_points(
+    px: DynTowerSpec, py: DynTowerSpec,
+    qx: DynTowerSpec, qy: DynTowerSpec,
+) -> (DynTowerSpec, DynTowerSpec, DynTowerSpec) {
+    let a = dts_neg(dts_sub(qy, py));
+    let b = dts_sub(qx, px);
+    let c = dts_neg(dts_add(dts_mul(a, px), dts_mul(b, py)));
+    (a, b, c)
+}
+
+/// Extract spec models from a DynRtPoint2 Vec as (x, y) pairs.
+pub open spec fn dts_points_x(points: Seq<DynRtPoint2>, i: int) -> DynTowerSpec {
+    dts_model(points[i].x)
+}
+
+pub open spec fn dts_points_y(points: Seq<DynRtPoint2>, i: int) -> DynTowerSpec {
+    dts_model(points[i].y)
+}
+
+/// Constraint satisfaction at the DynTowerSpec level.
+/// Mirrors `constraint_satisfied` but uses `dts_*` operations.
+/// Scalar fields (dist_sq, x, y, ratio_sq, cos_sq) are embedded as `DynTowerSpec::Rat(value)`.
+pub open spec fn constraint_satisfied_dts(
+    rc: RuntimeConstraint,
+    points: Seq<DynRtPoint2>,
+) -> bool {
+    match rc {
+        RuntimeConstraint::Coincident { a, b, .. } => {
+            dts_eqv(dts_points_x(points, a as int), dts_points_x(points, b as int))
+            && dts_eqv(dts_points_y(points, a as int), dts_points_y(points, b as int))
+        }
+        RuntimeConstraint::DistanceSq { a, b, dist_sq, .. } => {
+            dts_eqv(
+                dts_sq_dist(
+                    dts_points_x(points, a as int), dts_points_y(points, a as int),
+                    dts_points_x(points, b as int), dts_points_y(points, b as int)),
+                DynTowerSpec::Rat(dist_sq@))
+        }
+        RuntimeConstraint::FixedX { point, x, .. } => {
+            dts_eqv(dts_points_x(points, point as int), DynTowerSpec::Rat(x@))
+        }
+        RuntimeConstraint::FixedY { point, y, .. } => {
+            dts_eqv(dts_points_y(points, point as int), DynTowerSpec::Rat(y@))
+        }
+        RuntimeConstraint::SameX { a, b, .. } => {
+            dts_eqv(dts_points_x(points, a as int), dts_points_x(points, b as int))
+        }
+        RuntimeConstraint::SameY { a, b, .. } => {
+            dts_eqv(dts_points_y(points, a as int), dts_points_y(points, b as int))
+        }
+        RuntimeConstraint::PointOnLine { point, line_a, line_b, .. } => {
+            let (a, b, c) = dts_line_from_points(
+                dts_points_x(points, line_a as int), dts_points_y(points, line_a as int),
+                dts_points_x(points, line_b as int), dts_points_y(points, line_b as int));
+            dts_eqv(
+                dts_line_eval(a, b, c,
+                    dts_points_x(points, point as int), dts_points_y(points, point as int)),
+                dts_zero())
+        }
+        RuntimeConstraint::EqualLengthSq { a1, a2, b1, b2, .. } => {
+            dts_eqv(
+                dts_sq_dist(
+                    dts_points_x(points, a1 as int), dts_points_y(points, a1 as int),
+                    dts_points_x(points, a2 as int), dts_points_y(points, a2 as int)),
+                dts_sq_dist(
+                    dts_points_x(points, b1 as int), dts_points_y(points, b1 as int),
+                    dts_points_x(points, b2 as int), dts_points_y(points, b2 as int)))
+        }
+        RuntimeConstraint::Midpoint { mid, a, b, .. } => {
+            let two = dts_add(dts_one(), dts_one());
+            dts_eqv(
+                dts_mul(dts_points_x(points, mid as int), two),
+                dts_add(dts_points_x(points, a as int), dts_points_x(points, b as int)))
+            && dts_eqv(
+                dts_mul(dts_points_y(points, mid as int), two),
+                dts_add(dts_points_y(points, a as int), dts_points_y(points, b as int)))
+        }
+        RuntimeConstraint::Perpendicular { a1, a2, b1, b2, .. } => {
+            let d1x = dts_sub(dts_points_x(points, a2 as int), dts_points_x(points, a1 as int));
+            let d1y = dts_sub(dts_points_y(points, a2 as int), dts_points_y(points, a1 as int));
+            let d2x = dts_sub(dts_points_x(points, b2 as int), dts_points_x(points, b1 as int));
+            let d2y = dts_sub(dts_points_y(points, b2 as int), dts_points_y(points, b1 as int));
+            let dot = dts_add(dts_mul(d1x, d2x), dts_mul(d1y, d2y));
+            dts_eqv(dot, dts_zero())
+        }
+        RuntimeConstraint::Parallel { a1, a2, b1, b2, .. } => {
+            let d1x = dts_sub(dts_points_x(points, a2 as int), dts_points_x(points, a1 as int));
+            let d1y = dts_sub(dts_points_y(points, a2 as int), dts_points_y(points, a1 as int));
+            let d2x = dts_sub(dts_points_x(points, b2 as int), dts_points_x(points, b1 as int));
+            let d2y = dts_sub(dts_points_y(points, b2 as int), dts_points_y(points, b1 as int));
+            let cross = dts_sub(dts_mul(d1x, d2y), dts_mul(d1y, d2x));
+            dts_eqv(cross, dts_zero())
+        }
+        RuntimeConstraint::Collinear { a, b, c, .. } => {
+            let (la, lb, lc) = dts_line_from_points(
+                dts_points_x(points, a as int), dts_points_y(points, a as int),
+                dts_points_x(points, b as int), dts_points_y(points, b as int));
+            dts_eqv(
+                dts_line_eval(la, lb, lc,
+                    dts_points_x(points, c as int), dts_points_y(points, c as int)),
+                dts_zero())
+        }
+        RuntimeConstraint::PointOnCircle { point, center, radius_point, .. } => {
+            dts_eqv(
+                dts_sq_dist(
+                    dts_points_x(points, point as int), dts_points_y(points, point as int),
+                    dts_points_x(points, center as int), dts_points_y(points, center as int)),
+                dts_sq_dist(
+                    dts_points_x(points, radius_point as int), dts_points_y(points, radius_point as int),
+                    dts_points_x(points, center as int), dts_points_y(points, center as int)))
+        }
+        RuntimeConstraint::Symmetric { point, original, axis_a, axis_b, .. } => {
+            let dx = dts_sub(dts_points_x(points, axis_b as int), dts_points_x(points, axis_a as int));
+            let dy = dts_sub(dts_points_y(points, axis_b as int), dts_points_y(points, axis_a as int));
+            let px = dts_sub(dts_points_x(points, point as int), dts_points_x(points, original as int));
+            let py = dts_sub(dts_points_y(points, point as int), dts_points_y(points, original as int));
+            let dot = dts_add(dts_mul(px, dx), dts_mul(py, dy));
+            let perp = dts_eqv(dot, dts_zero());
+            // Midpoint on axis
+            let two = dts_add(dts_one(), dts_one());
+            let mx2 = dts_add(dts_points_x(points, point as int), dts_points_x(points, original as int));
+            let my2 = dts_add(dts_points_y(points, point as int), dts_points_y(points, original as int));
+            let (la, lb, lc) = dts_line_from_points(
+                dts_points_x(points, axis_a as int), dts_points_y(points, axis_a as int),
+                dts_points_x(points, axis_b as int), dts_points_y(points, axis_b as int));
+            let eval2 = dts_add(dts_add(dts_mul(la, mx2), dts_mul(lb, my2)), dts_mul(two, lc));
+            let on_line = dts_eqv(eval2, dts_zero());
+            perp && on_line
+        }
+        RuntimeConstraint::FixedPoint { point, x, y, .. } => {
+            dts_eqv(dts_points_x(points, point as int), DynTowerSpec::Rat(x@))
+            && dts_eqv(dts_points_y(points, point as int), DynTowerSpec::Rat(y@))
+        }
+        RuntimeConstraint::Ratio { a1, a2, b1, b2, ratio_sq, .. } => {
+            dts_eqv(
+                dts_sq_dist(
+                    dts_points_x(points, a1 as int), dts_points_y(points, a1 as int),
+                    dts_points_x(points, a2 as int), dts_points_y(points, a2 as int)),
+                dts_mul(
+                    DynTowerSpec::Rat(ratio_sq@),
+                    dts_sq_dist(
+                        dts_points_x(points, b1 as int), dts_points_y(points, b1 as int),
+                        dts_points_x(points, b2 as int), dts_points_y(points, b2 as int))))
+        }
+        RuntimeConstraint::Tangent { line_a, line_b, center, radius_point, .. } => {
+            let (a, b, c) = dts_line_from_points(
+                dts_points_x(points, line_a as int), dts_points_y(points, line_a as int),
+                dts_points_x(points, line_b as int), dts_points_y(points, line_b as int));
+            let eval = dts_line_eval(a, b, c,
+                dts_points_x(points, center as int), dts_points_y(points, center as int));
+            let norm_sq = dts_add(dts_mul(a, a), dts_mul(b, b));
+            let r_sq = dts_sq_dist(
+                dts_points_x(points, center as int), dts_points_y(points, center as int),
+                dts_points_x(points, radius_point as int), dts_points_y(points, radius_point as int));
+            dts_eqv(dts_mul(eval, eval), dts_mul(norm_sq, r_sq))
+        }
+        RuntimeConstraint::CircleTangent { c1, rp1, c2, rp2, .. } => {
+            let d = dts_sq_dist(
+                dts_points_x(points, c1 as int), dts_points_y(points, c1 as int),
+                dts_points_x(points, c2 as int), dts_points_y(points, c2 as int));
+            let r1 = dts_sq_dist(
+                dts_points_x(points, c1 as int), dts_points_y(points, c1 as int),
+                dts_points_x(points, rp1 as int), dts_points_y(points, rp1 as int));
+            let r2 = dts_sq_dist(
+                dts_points_x(points, c2 as int), dts_points_y(points, c2 as int),
+                dts_points_x(points, rp2 as int), dts_points_y(points, rp2 as int));
+            let four = dts_mul(dts_add(dts_one(), dts_one()), dts_add(dts_one(), dts_one()));
+            let diff = dts_sub(dts_sub(d, r1), r2);
+            dts_eqv(dts_mul(diff, diff), dts_mul(dts_mul(four, r1), r2))
+        }
+        RuntimeConstraint::Angle { a1, a2, b1, b2, cos_sq, .. } => {
+            let d1x = dts_sub(dts_points_x(points, a2 as int), dts_points_x(points, a1 as int));
+            let d1y = dts_sub(dts_points_y(points, a2 as int), dts_points_y(points, a1 as int));
+            let d2x = dts_sub(dts_points_x(points, b2 as int), dts_points_x(points, b1 as int));
+            let d2y = dts_sub(dts_points_y(points, b2 as int), dts_points_y(points, b1 as int));
+            let dp = dts_add(dts_mul(d1x, d2x), dts_mul(d1y, d2y));
+            let n1 = dts_add(dts_mul(d1x, d1x), dts_mul(d1y, d1y));
+            let n2 = dts_add(dts_mul(d2x, d2x), dts_mul(d2y, d2y));
+            dts_eqv(
+                dts_mul(dp, dp),
+                dts_mul(dts_mul(DynTowerSpec::Rat(cos_sq@), n1), n2))
+        }
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════
 //  DynRtPoint2 — 2D point with DynFieldElem coordinates
@@ -87,7 +297,12 @@ fn dyn_line_from_points(
     q: &DynRtPoint2,
 ) -> (out: (DynFieldElem, DynFieldElem, DynFieldElem))
     requires p.wf_spec(), q.wf_spec()
-    ensures out.0.dyn_wf(), out.1.dyn_wf(), out.2.dyn_wf(),
+    ensures
+        out.0.dyn_wf(), out.1.dyn_wf(), out.2.dyn_wf(),
+        (dts_model(out.0), dts_model(out.1), dts_model(out.2))
+            == dts_line_from_points(
+                dts_model(p.x), dts_model(p.y),
+                dts_model(q.x), dts_model(q.y)),
 {
     let dy = q.y.dyn_sub(&p.y);
     let a = dy.dyn_neg();
@@ -104,7 +319,10 @@ fn dyn_sq_dist(
     q: &DynRtPoint2,
 ) -> (out: DynFieldElem)
     requires p.wf_spec(), q.wf_spec()
-    ensures out.dyn_wf()
+    ensures out.dyn_wf(),
+        dts_model(out) == dts_sq_dist(
+            dts_model(p.x), dts_model(p.y),
+            dts_model(q.x), dts_model(q.y)),
 {
     let dx = p.x.dyn_sub(&q.x);
     let dy = p.y.dyn_sub(&q.y);
@@ -543,12 +761,15 @@ pub fn intersect_loci_dyn(
 
 fn d_eqv(a: &DynFieldElem, b: &DynFieldElem) -> (out: bool)
     requires a.dyn_wf(), b.dyn_wf()
+    ensures out == dts_eqv(dts_model(*a), dts_model(*b))
 {
     a.dyn_eq(b)
 }
 
 fn d_point_eqv(a: &DynRtPoint2, b: &DynRtPoint2) -> (out: bool)
     requires a.wf_spec(), b.wf_spec()
+    ensures out == (dts_eqv(dts_model(a.x), dts_model(b.x))
+                 && dts_eqv(dts_model(a.y), dts_model(b.y)))
 {
     a.x.dyn_eq(&b.x) && a.y.dyn_eq(&b.y)
 }
@@ -556,7 +777,10 @@ fn d_point_eqv(a: &DynRtPoint2, b: &DynRtPoint2) -> (out: bool)
 fn d_line_eval(la: &DynFieldElem, lb: &DynFieldElem, lc: &DynFieldElem,
                px: &DynFieldElem, py: &DynFieldElem) -> (out: DynFieldElem)
     requires la.dyn_wf(), lb.dyn_wf(), lc.dyn_wf(), px.dyn_wf(), py.dyn_wf()
-    ensures out.dyn_wf()
+    ensures out.dyn_wf(),
+        dts_model(out) == dts_line_eval(
+            dts_model(*la), dts_model(*lb), dts_model(*lc),
+            dts_model(*px), dts_model(*py))
 {
     la.dyn_mul(px).dyn_add(&lb.dyn_mul(py)).dyn_add(lc)
 }
@@ -565,6 +789,8 @@ fn check_coincident_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (o
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Coincident { a, b, .. } => d_point_eqv(&points[*a], &points[*b]),
@@ -622,6 +848,8 @@ fn check_same_x_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: 
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::SameX { a, b, .. } => d_eqv(&points[*a].x, &points[*b].x),
@@ -633,6 +861,8 @@ fn check_same_y_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: 
     requires
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::SameY { a, b, .. } => d_eqv(&points[*a].y, &points[*b].y),
@@ -909,6 +1139,8 @@ pub fn check_constraint_satisfied_dyn(
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
         points@.len() > 0,
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Coincident { .. } => check_coincident_dyn(rc, points),
@@ -944,6 +1176,9 @@ pub fn check_all_constraints_dyn(
         points@.len() > 0,
         forall|i: int| 0 <= i < constraints@.len() ==>
             runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
+    ensures
+        out ==> forall|ci: int| 0 <= ci < constraints@.len() ==>
+            constraint_satisfied_dts(#[trigger] constraints@[ci], points@),
 {
     let mut i: usize = 0;
     while i < constraints.len()
@@ -953,6 +1188,8 @@ pub fn check_all_constraints_dyn(
             points@.len() > 0,
             forall|j: int| 0 <= j < constraints@.len() ==>
                 runtime_constraint_wf(#[trigger] constraints@[j], points@.len() as nat),
+            forall|j: int| 0 <= j < i ==>
+                constraint_satisfied_dts(#[trigger] constraints@[j], points@),
         decreases constraints@.len() - i,
     {
         let ok = check_constraint_satisfied_dyn(&constraints[i], points);
