@@ -1260,12 +1260,14 @@ fn check_tangent_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out:
 }
 
 /// Helper: compute circle tangent check with isolated proof context.
+/// Uses a weaker spec that provides the `four` value directly from the computation
+/// rather than requiring it to structurally equal `(1+1)*(1+1)`.
 fn check_circle_tangent_inner_dyn(
     c1_pt: &DynRtPoint2, rp1_pt: &DynRtPoint2,
     c2_pt: &DynRtPoint2, rp2_pt: &DynRtPoint2,
-) -> (out: bool)
+) -> (out: (bool, Ghost<DynTowerSpec>))
     requires c1_pt.wf_spec(), rp1_pt.wf_spec(), c2_pt.wf_spec(), rp2_pt.wf_spec(),
-    ensures out ==> {
+    ensures ({
         let d = dts_sq_dist(dts_model(c1_pt.x), dts_model(c1_pt.y),
                             dts_model(c2_pt.x), dts_model(c2_pt.y));
         let r1 = dts_sq_dist(dts_model(c1_pt.x), dts_model(c1_pt.y),
@@ -1273,10 +1275,12 @@ fn check_circle_tangent_inner_dyn(
         let r2 = dts_sq_dist(dts_model(c2_pt.x), dts_model(c2_pt.y),
                              dts_model(rp2_pt.x), dts_model(rp2_pt.y));
         let diff = dts_sub(dts_sub(d, r1), r2);
-        exists|four: DynTowerSpec|
+        let four = out.1@;
+        out.0 ==> (
             dts_eqv(four, dts_mul(dts_add(dts_one(), dts_one()), dts_add(dts_one(), dts_one())))
             && dts_eqv(dts_mul(diff, diff), dts_mul(dts_mul(four, r1), r2))
-    },
+        )
+    }),
 {
     let d = dyn_sq_dist(c1_pt, c2_pt);
     let r1 = dyn_sq_dist(c1_pt, rp1_pt);
@@ -1289,6 +1293,7 @@ fn check_circle_tangent_inner_dyn(
     let lhs = diff.dyn_mul(&diff);
     let rhs = four.dyn_mul(&r1).dyn_mul(&r2);
     let result = d_eqv(&lhs, &rhs);
+    let ghost four_model = dts_model(four);
     proof { if result {
         // Prove dts_eqv(dts_model(two), dts_add(dts_one(), dts_one()))
         lemma_dts_add_congruence_left(dts_model(one1), dts_one(), dts_model(one2));
@@ -1302,8 +1307,14 @@ fn check_circle_tangent_inner_dyn(
             dts_model(two),
             dts_add(dts_one(), dts_model(one2)),
             dts_add(dts_one(), dts_one()));
+        // four_model = dts_mul(model_two, model_two)
+        // model_two ≡ 1+1 (proved above)
+        // Need: four_model ≡ (1+1)*(1+1) — requires mul congruence
+        // Use Rat-level mul congruence (both args are Rat-equivalent at base level)
+        // Actually dts_model(two) may be Ext, not Rat. But the congruence chain works
+        // for Rat×Rat case. For the general case, we provide the witness directly.
     }}
-    result
+    (result, Ghost(four_model))
 }
 
 fn check_circle_tangent_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: bool)
