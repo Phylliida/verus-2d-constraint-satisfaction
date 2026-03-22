@@ -803,12 +803,28 @@ fn check_distance_sq_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
         points@.len() > 0,
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::DistanceSq { a, b, dist_sq, .. } => {
             let d = dyn_sq_dist(&points[*a], &points[*b]);
             let target = points[0].x.dyn_embed_rational(dist_sq);
-            d_eqv(&d, &target)
+            let result = d_eqv(&d, &target);
+            proof {
+                if result {
+                    // d_eqv gives: dts_eqv(dts_model(d), dts_model(target))
+                    // dyn_sq_dist gives: dts_model(d) == dts_sq_dist(...)
+                    // dyn_embed gives: dts_eqv(dts_model(target), Rat(dist_sq@))
+                    // By transitivity: dts_eqv(dts_sq_dist(...), Rat(dist_sq@))
+                    lemma_dts_eqv_transitive(
+                        dts_sq_dist(dts_model(points@[*a as int].x), dts_model(points@[*a as int].y),
+                                    dts_model(points@[*b as int].x), dts_model(points@[*b as int].y)),
+                        dts_model(target),
+                        DynTowerSpec::Rat(dist_sq@));
+                }
+            }
+            result
         }
         _ => false,
     }
@@ -819,11 +835,22 @@ fn check_fixed_x_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out:
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
         points@.len() > 0,
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::FixedX { point, x, .. } => {
             let target = points[0].x.dyn_embed_rational(x);
-            d_eqv(&points[*point].x, &target)
+            let result = d_eqv(&points[*point].x, &target);
+            proof {
+                if result {
+                    lemma_dts_eqv_transitive(
+                        dts_model(points@[*point as int].x),
+                        dts_model(target),
+                        DynTowerSpec::Rat(x@));
+                }
+            }
+            result
         }
         _ => false,
     }
@@ -834,11 +861,22 @@ fn check_fixed_y_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out:
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
         points@.len() > 0,
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::FixedY { point, y, .. } => {
             let target = points[0].x.dyn_embed_rational(y);
-            d_eqv(&points[*point].y, &target)
+            let result = d_eqv(&points[*point].y, &target);
+            proof {
+                if result {
+                    lemma_dts_eqv_transitive(
+                        dts_model(points@[*point as int].y),
+                        dts_model(target),
+                        DynTowerSpec::Rat(y@));
+                }
+            }
+            result
         }
         _ => false,
     }
