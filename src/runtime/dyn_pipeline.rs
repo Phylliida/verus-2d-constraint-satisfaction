@@ -1356,7 +1356,8 @@ pub fn check_constraint_satisfied_dyn(
         runtime_constraint_wf(*rc, points@.len() as nat),
         all_dyn_points_wf(points@),
         points@.len() > 0,
-    // ensures out ==> constraint_satisfied_dts(*rc, points@), // TODO: re-enable after rlimit fix
+    ensures
+        out ==> constraint_satisfied_dts(*rc, points@),
 {
     match rc {
         RuntimeConstraint::Coincident { .. } => check_coincident_dyn(rc, points),
@@ -1392,7 +1393,9 @@ pub fn check_all_constraints_dyn(
         points@.len() > 0,
         forall|i: int| 0 <= i < constraints@.len() ==>
             runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
-    // ensures out ==> forall|ci| constraint_satisfied_dts(constraints@[ci], points@), // TODO
+    ensures
+        out ==> forall|ci: int| 0 <= ci < constraints@.len() ==>
+            constraint_satisfied_dts(#[trigger] constraints@[ci], points@),
 {
     let mut i: usize = 0;
     while i < constraints.len()
@@ -1402,6 +1405,8 @@ pub fn check_all_constraints_dyn(
             points@.len() > 0,
             forall|j: int| 0 <= j < constraints@.len() ==>
                 runtime_constraint_wf(#[trigger] constraints@[j], points@.len() as nat),
+            forall|j: int| 0 <= j < i ==>
+                constraint_satisfied_dts(#[trigger] constraints@[j], points@),
         decreases constraints@.len() - i,
     {
         let ok = check_constraint_satisfied_dyn(&constraints[i], points);
