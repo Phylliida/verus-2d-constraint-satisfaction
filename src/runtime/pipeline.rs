@@ -22,7 +22,7 @@ use crate::runtime::solver::*;
 use crate::runtime::ext_constraint::*;
 use crate::runtime::pipeline_proofs::*;
 use crate::runtime::abstract_plan::{extract_abstract_plan, compute_step_levels, extract_constraint_pairs};
-use crate::runtime::dyn_pipeline::{execute_all_levels_dyn, check_all_constraints_dyn, extract_rational_points_dyn};
+use crate::runtime::dyn_pipeline::{execute_all_levels_dyn, check_all_constraints_dyn, extract_rational_points_dyn, constraint_satisfied_dts, all_dyn_points_wf, DynRtPoint2};
 
 type RationalModel = verus_rational::rational::Rational;
 
@@ -2447,6 +2447,11 @@ pub fn solve_and_verify_chain(
             let r = out.unwrap();
             &&& r@.len() == old(points)@.len()
             &&& all_points_wf(r@)
+            // All constraints satisfied at the DynTowerSpec level on some deep positions.
+            &&& exists|deep: Seq<DynRtPoint2>|
+                    all_dyn_points_wf(deep) && deep.len() > 0
+                    && forall|ci: int| 0 <= ci < constraints@.len() ==>
+                        constraint_satisfied_dts(#[trigger] constraints@[ci], deep)
         }),
 {
     // Run greedy solver (mutates points/resolved_flags)
@@ -2488,8 +2493,20 @@ pub fn solve_and_verify_chain(
         return None;
     }
 
+    // Capture deep positions as ghost witness for the ensures
+    let ghost deep_witness = deep_positions@;
+
     // Extract rational approximations (innermost re.re.re...)
     let rational_pts = extract_rational_points_dyn(&deep_positions);
+
+    proof {
+        // Provide the existential witness: deep_positions@ satisfies all constraints
+        assert(all_dyn_points_wf(deep_witness));
+        assert(deep_witness.len() > 0);
+        assert(forall|ci: int| 0 <= ci < constraints@.len() ==>
+            constraint_satisfied_dts(#[trigger] constraints@[ci], deep_witness));
+    }
+
     Some(rational_pts)
 }
 
