@@ -349,6 +349,132 @@ fn check_angle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     lhs.eq_exec(&rhs)
 }
 
+/// Check NotCoincident at QExt level: !(a.x ≡ b.x && a.y ≡ b.y)
+fn check_not_coincident_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    a: &RuntimeQExtPoint2<R>,
+    b: &RuntimeQExtPoint2<R>,
+) -> (out: bool)
+    requires a.wf_spec(), b.wf_spec(),
+    ensures out ==> !a@.eqv(b@),
+{
+    !(a.x.eq_exec(&b.x) && a.y.eq_exec(&b.y))
+}
+
+/// Check NormalToCircle at QExt level: on_circle(line_a, center, radius_point) && collinear(line_a, line_b, center)
+fn check_normal_to_circle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    line_a: &RuntimeQExtPoint2<R>,
+    line_b: &RuntimeQExtPoint2<R>,
+    center: &RuntimeQExtPoint2<R>,
+    radius_point: &RuntimeQExtPoint2<R>,
+) -> (out: bool)
+    requires line_a.wf_spec(), line_b.wf_spec(), center.wf_spec(), radius_point.wf_spec(),
+    ensures out ==> {
+        // on_circle: sq_dist(line_a, center) ≡ sq_dist(radius_point, center)
+        let on_circle = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(line_a@, center@).eqv(
+            sq_dist_2d::<SpecQuadExt<RationalModel, R>>(radius_point@, center@));
+        // collinear: point_on_line2(line_from_points(line_a, line_b), center)
+        let collinear = point_on_line2(
+            line2_from_points::<SpecQuadExt<RationalModel, R>>(line_a@, line_b@),
+            center@);
+        on_circle && collinear
+    },
+{
+    // Check on_circle
+    let d_la = qext_sq_dist_2d::<R, RR>(line_a, center);
+    let d_rp = qext_sq_dist_2d::<R, RR>(radius_point, center);
+    let on_circle = d_la.eq_exec(&d_rp);
+    if !on_circle { return false; }
+    // Check collinear
+    let (la, lb, lc) = qext_line2_from_points::<R, RR>(line_a, line_b);
+    let eval = qext_line2_eval::<R, RR>(&la, &lb, &lc, center);
+    let zero = RuntimeQExt::<R>::zero_exec::<RR>();
+    eval.eq_exec(&zero) && on_circle
+}
+
+/// Check PointOnEllipse at QExt level:
+/// proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
+fn check_point_on_ellipse_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    point: &RuntimeQExtPoint2<R>,
+    center: &RuntimeQExtPoint2<R>,
+    semi_a: &RuntimeQExtPoint2<R>,
+    semi_b: &RuntimeQExtPoint2<R>,
+) -> (out: bool)
+    requires point.wf_spec(), center.wf_spec(), semi_a.wf_spec(), semi_b.wf_spec(),
+    ensures out ==> {
+        let d = sub2::<SpecQuadExt<RationalModel, R>>(point@, center@);
+        let u = sub2::<SpecQuadExt<RationalModel, R>>(semi_a@, center@);
+        let vv = sub2::<SpecQuadExt<RationalModel, R>>(semi_b@, center@);
+        let a_sq = u.x.mul(u.x).add(u.y.mul(u.y));
+        let b_sq = vv.x.mul(vv.x).add(vv.y.mul(vv.y));
+        let proj_u = d.x.mul(u.x).add(d.y.mul(u.y));
+        let proj_v = d.x.mul(vv.x).add(d.y.mul(vv.y));
+        proj_u.mul(proj_u).mul(b_sq).add(proj_v.mul(proj_v).mul(a_sq))
+            .eqv(a_sq.mul(b_sq))
+    },
+{
+    // d = point - center
+    let dx = point.x.sub_exec(&center.x);
+    let dy = point.y.sub_exec(&center.y);
+    // u = semi_a - center
+    let ux = semi_a.x.sub_exec(&center.x);
+    let uy = semi_a.y.sub_exec(&center.y);
+    // v = semi_b - center
+    let vx = semi_b.x.sub_exec(&center.x);
+    let vy = semi_b.y.sub_exec(&center.y);
+    // a_sq = |u|²
+    let a_sq = ux.mul_exec::<RR>(&ux).add_exec(&uy.mul_exec::<RR>(&uy));
+    // b_sq = |v|²
+    let b_sq = vx.mul_exec::<RR>(&vx).add_exec(&vy.mul_exec::<RR>(&vy));
+    // proj_u = dot(d, u)
+    let proj_u = dx.mul_exec::<RR>(&ux).add_exec(&dy.mul_exec::<RR>(&uy));
+    // proj_v = dot(d, v)
+    let proj_v = dx.mul_exec::<RR>(&vx).add_exec(&dy.mul_exec::<RR>(&vy));
+    // Check: proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
+    let lhs = proj_u.mul_exec::<RR>(&proj_u).mul_exec::<RR>(&b_sq)
+        .add_exec(&proj_v.mul_exec::<RR>(&proj_v).mul_exec::<RR>(&a_sq));
+    let rhs = a_sq.mul_exec::<RR>(&b_sq);
+    lhs.eq_exec(&rhs)
+}
+
+/// Check PointOnArc at QExt level:
+/// on_circle AND angular check via orient2d sign consistency.
+fn check_point_on_arc_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    point: &RuntimeQExtPoint2<R>,
+    center: &RuntimeQExtPoint2<R>,
+    radius_point: &RuntimeQExtPoint2<R>,
+    arc_start: &RuntimeQExtPoint2<R>,
+    arc_end: &RuntimeQExtPoint2<R>,
+) -> (out: bool)
+    requires point.wf_spec(), center.wf_spec(), radius_point.wf_spec(),
+             arc_start.wf_spec(), arc_end.wf_spec(),
+    ensures out ==> {
+        let on_circle = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(point@, center@).eqv(
+            sq_dist_2d::<SpecQuadExt<RationalModel, R>>(radius_point@, center@));
+        let o_se = orient2d::<SpecQuadExt<RationalModel, R>>(center@, arc_start@, arc_end@);
+        let o_sp = orient2d::<SpecQuadExt<RationalModel, R>>(center@, arc_start@, point@);
+        let o_pe = orient2d::<SpecQuadExt<RationalModel, R>>(center@, point@, arc_end@);
+        on_circle &&
+        SpecQuadExt::<RationalModel, R>::zero().le(o_sp.mul(o_se)) &&
+        SpecQuadExt::<RationalModel, R>::zero().le(o_pe.mul(o_se))
+    },
+{
+    // Check on_circle
+    let d_pt = qext_sq_dist_2d::<R, RR>(point, center);
+    let d_rp = qext_sq_dist_2d::<R, RR>(radius_point, center);
+    if !d_pt.eq_exec(&d_rp) { return false; }
+
+    // Angular check: compute orient2d values and check sign consistency
+    // orient2d(c, s, e), orient2d(c, s, p), orient2d(c, p, e)
+    // Check: 0 <= o_sp * o_se && 0 <= o_pe * o_se
+    // Using nonneg check via qext ordering
+    let o_se = qext_orient2d::<R, RR>(center, arc_start, arc_end);
+    let o_sp = qext_orient2d::<R, RR>(center, arc_start, point);
+    let o_pe = qext_orient2d::<R, RR>(center, point, arc_end);
+    let prod1 = o_sp.mul_exec::<RR>(&o_se);
+    let prod2 = o_pe.mul_exec::<RR>(&o_se);
+    prod1.nonneg_exec::<RR>() && prod2.nonneg_exec::<RR>()
+}
+
 // ===========================================================================
 //  2e: Lightweight predicate for verification check results
 // ===========================================================================
