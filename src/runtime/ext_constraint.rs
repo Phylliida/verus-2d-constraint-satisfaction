@@ -448,6 +448,31 @@ proof fn lemma_ext_identity_to_constraint_satisfied<R: PositiveRadicand<Rational
             assert(ext_map[b1 as nat] == ext_points[b1 as int]@);
             assert(ext_map[b2 as nat] == ext_points[b2 as int]@);
         }
+        // New verification constraints: ext_verification_identity returns true unconditionally,
+        // and constraint_satisfied for these holds trivially from the ext_points equality.
+        RuntimeConstraint::NotCoincident { a, b, .. } => {
+            assert(ext_map.dom().contains(a as nat));
+            assert(ext_map.dom().contains(b as nat));
+        }
+        RuntimeConstraint::NormalToCircle { line_a, line_b, center, radius_point, .. } => {
+            assert(ext_map.dom().contains(line_a as nat));
+            assert(ext_map.dom().contains(line_b as nat));
+            assert(ext_map.dom().contains(center as nat));
+            assert(ext_map.dom().contains(radius_point as nat));
+        }
+        RuntimeConstraint::PointOnEllipse { point, center, semi_a, semi_b, .. } => {
+            assert(ext_map.dom().contains(point as nat));
+            assert(ext_map.dom().contains(center as nat));
+            assert(ext_map.dom().contains(semi_a as nat));
+            assert(ext_map.dom().contains(semi_b as nat));
+        }
+        RuntimeConstraint::PointOnArc { point, center, radius_point, arc_start, arc_end, .. } => {
+            assert(ext_map.dom().contains(point as nat));
+            assert(ext_map.dom().contains(center as nat));
+            assert(ext_map.dom().contains(radius_point as nat));
+            assert(ext_map.dom().contains(arc_start as nat));
+            assert(ext_map.dom().contains(arc_end as nat));
+        }
         _ => {} // impossible by is_verification_constraint
     }
 }

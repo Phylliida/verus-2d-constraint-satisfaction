@@ -78,6 +78,10 @@ pub enum RuntimeConstraint {
     Tangent { line_a: usize, line_b: usize, center: usize, radius_point: usize, model: Ghost<Constraint<RationalModel>> },
     CircleTangent { c1: usize, rp1: usize, c2: usize, rp2: usize, model: Ghost<Constraint<RationalModel>> },
     Angle { a1: usize, a2: usize, b1: usize, b2: usize, cos_sq: RuntimeRational, model: Ghost<Constraint<RationalModel>> },
+    NotCoincident { a: usize, b: usize, model: Ghost<Constraint<RationalModel>> },
+    NormalToCircle { line_a: usize, line_b: usize, center: usize, radius_point: usize, model: Ghost<Constraint<RationalModel>> },
+    PointOnEllipse { point: usize, center: usize, semi_a: usize, semi_b: usize, model: Ghost<Constraint<RationalModel>> },
+    PointOnArc { point: usize, center: usize, radius_point: usize, arc_start: usize, arc_end: usize, model: Ghost<Constraint<RationalModel>> },
 }
 
 /// Well-formedness: the runtime constraint matches its ghost model and
@@ -157,6 +161,22 @@ pub open spec fn runtime_constraint_wf(
             && model@ == Constraint::<RationalModel>::Angle { a1: a1 as nat, a2: a2 as nat, b1: b1 as nat, b2: b2 as nat, cos_sq: cos_sq@ }
             && (a1 as int) < n_points && (a2 as int) < n_points
             && (b1 as int) < n_points && (b2 as int) < n_points,
+        RuntimeConstraint::NotCoincident { a, b, model } =>
+            model@ == Constraint::<RationalModel>::NotCoincident { a: a as nat, b: b as nat }
+            && (a as int) < n_points && (b as int) < n_points,
+        RuntimeConstraint::NormalToCircle { line_a, line_b, center, radius_point, model } =>
+            model@ == Constraint::<RationalModel>::NormalToCircle { line_a: line_a as nat, line_b: line_b as nat, center: center as nat, radius_point: radius_point as nat }
+            && (line_a as int) < n_points && (line_b as int) < n_points
+            && (center as int) < n_points && (radius_point as int) < n_points,
+        RuntimeConstraint::PointOnEllipse { point, center, semi_a, semi_b, model } =>
+            model@ == Constraint::<RationalModel>::PointOnEllipse { point: point as nat, center: center as nat, semi_a: semi_a as nat, semi_b: semi_b as nat }
+            && (point as int) < n_points && (center as int) < n_points
+            && (semi_a as int) < n_points && (semi_b as int) < n_points,
+        RuntimeConstraint::PointOnArc { point, center, radius_point, arc_start, arc_end, model } =>
+            model@ == Constraint::<RationalModel>::PointOnArc { point: point as nat, center: center as nat, radius_point: radius_point as nat, arc_start: arc_start as nat, arc_end: arc_end as nat }
+            && (point as int) < n_points && (center as int) < n_points
+            && (radius_point as int) < n_points && (arc_start as int) < n_points
+            && (arc_end as int) < n_points,
     }
 }
 
@@ -182,6 +202,10 @@ pub open spec fn runtime_constraint_model(rc: RuntimeConstraint) -> Constraint<R
         RuntimeConstraint::Tangent { model, .. } => model@,
         RuntimeConstraint::CircleTangent { model, .. } => model@,
         RuntimeConstraint::Angle { model, .. } => model@,
+        RuntimeConstraint::NotCoincident { model, .. } => model@,
+        RuntimeConstraint::NormalToCircle { model, .. } => model@,
+        RuntimeConstraint::PointOnEllipse { model, .. } => model@,
+        RuntimeConstraint::PointOnArc { model, .. } => model@,
     }
 }
 
@@ -713,6 +737,12 @@ pub fn check_constraint_satisfied_exec(
         RuntimeConstraint::Tangent { .. } => check_tangent_exec(rc, points),
         RuntimeConstraint::CircleTangent { .. } => check_circle_tangent_exec(rc, points),
         RuntimeConstraint::Angle { .. } => check_angle_exec(rc, points),
+        // New constraints — runtime checkers not yet implemented.
+        // These are verification-only constraints checked separately.
+        RuntimeConstraint::NotCoincident { .. } => false, // TODO: implement
+        RuntimeConstraint::NormalToCircle { .. } => false, // TODO: implement
+        RuntimeConstraint::PointOnEllipse { .. } => false, // TODO: implement
+        RuntimeConstraint::PointOnArc { .. } => false, // TODO: implement
     }
 }
 

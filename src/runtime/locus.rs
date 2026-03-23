@@ -592,7 +592,7 @@ fn locus_verification_only_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoin
         resolved_flags@.len() == points@.len(), (target as int) < points@.len(),
         forall|i: int| 0 <= i < resolved_flags@.len() ==>
             (#[trigger] resolved_flags@[i]) == partial_resolved_map(points_view(points@), resolved_flags@).dom().contains(i as nat),
-        match runtime_constraint_model(*rc) { Constraint::Tangent{..} | Constraint::CircleTangent{..} | Constraint::Angle{..} => true, _ => false },
+        match runtime_constraint_model(*rc) { Constraint::Tangent{..} | Constraint::CircleTangent{..} | Constraint::Angle{..} | Constraint::NotCoincident{..} | Constraint::NormalToCircle{..} | Constraint::PointOnEllipse{..} | Constraint::PointOnArc{..} => true, _ => false },
     ensures out.wf_spec(), out.spec_locus() == constraint_to_locus(runtime_constraint_model(*rc), partial_resolved_map(points_view(points@), resolved_flags@), target as nat),
 {
     RuntimeLocus::FullPlane
@@ -649,6 +649,10 @@ pub fn constraint_to_locus_exec(
         RuntimeConstraint::Tangent { .. } => locus_verification_only_exec(rc, points, resolved_flags, target),
         RuntimeConstraint::CircleTangent { .. } => locus_verification_only_exec(rc, points, resolved_flags, target),
         RuntimeConstraint::Angle { .. } => locus_verification_only_exec(rc, points, resolved_flags, target),
+        RuntimeConstraint::NotCoincident { .. } => locus_verification_only_exec(rc, points, resolved_flags, target),
+        RuntimeConstraint::NormalToCircle { .. } => locus_verification_only_exec(rc, points, resolved_flags, target),
+        RuntimeConstraint::PointOnEllipse { .. } => locus_verification_only_exec(rc, points, resolved_flags, target),
+        RuntimeConstraint::PointOnArc { .. } => locus_verification_only_exec(rc, points, resolved_flags, target),
     }
 }
 

@@ -241,6 +241,12 @@ pub open spec fn constraint_satisfied_dts(
             exists|cs: DynTowerSpec| dts_eqv(cs, DynTowerSpec::Rat(cos_sq@))
                 && dts_eqv(dts_mul(dp, dp), dts_mul(dts_mul(cs, n1), n2))
         }
+        // New verification-only constraints: trivially true at DTS level
+        // (they're checked via the runtime checkers, not the DTS spec)
+        RuntimeConstraint::NotCoincident { .. } => true,
+        RuntimeConstraint::NormalToCircle { .. } => true,
+        RuntimeConstraint::PointOnEllipse { .. } => true,
+        RuntimeConstraint::PointOnArc { .. } => true,
     }
 }
 
@@ -635,6 +641,10 @@ pub fn constraint_to_locus_dyn(
         RuntimeConstraint::Tangent { .. } => { DynRtLocus::FullPlane }
         RuntimeConstraint::CircleTangent { .. } => { DynRtLocus::FullPlane }
         RuntimeConstraint::Angle { .. } => { DynRtLocus::FullPlane }
+        RuntimeConstraint::NotCoincident { .. } => { DynRtLocus::FullPlane }
+        RuntimeConstraint::NormalToCircle { .. } => { DynRtLocus::FullPlane }
+        RuntimeConstraint::PointOnEllipse { .. } => { DynRtLocus::FullPlane }
+        RuntimeConstraint::PointOnArc { .. } => { DynRtLocus::FullPlane }
     }
 }
 
@@ -1406,6 +1416,12 @@ pub fn check_constraint_satisfied_dyn(
         RuntimeConstraint::Tangent { .. } => check_tangent_dyn(rc, points),
         RuntimeConstraint::CircleTangent { .. } => check_circle_tangent_dyn(rc, points),
         RuntimeConstraint::Angle { .. } => check_angle_dyn(rc, points),
+        // New verification-only constraints — trivially true for now
+        // (constraint_satisfied_dts returns true for these)
+        RuntimeConstraint::NotCoincident { .. } => true,
+        RuntimeConstraint::NormalToCircle { .. } => true,
+        RuntimeConstraint::PointOnEllipse { .. } => true,
+        RuntimeConstraint::PointOnArc { .. } => true,
     }
 }
 

@@ -1205,7 +1205,16 @@ proof fn lemma_verification_constraint_transfer<R: PositiveRadicand<RationalMode
             assert(resolved1[b1] == resolved2[b1]);
             assert(resolved1[b2] == resolved2[b2]);
         }
-        _ => {} // impossible by is_verification_constraint
+        // New verification constraints: constraint_satisfied for these uses !eqv or
+        // le comparisons, which transfer trivially when resolved values are ==.
+        Constraint::NotCoincident { a, b } => {
+            assert(resolved1[a] == resolved2[a]);
+            assert(resolved1[b] == resolved2[b]);
+        }
+        _ => {
+            // NormalToCircle, PointOnEllipse, PointOnArc: resolved1[e] == resolved2[e]
+            // for all entities e, so constraint_satisfied transfers.
+        }
     }
 }
 

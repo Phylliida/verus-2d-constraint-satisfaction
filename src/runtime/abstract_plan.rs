@@ -124,6 +124,14 @@ pub fn constraint_references_entity(rc: &RuntimeConstraint, entity_id: usize) ->
             *c1 == entity_id || *rp1 == entity_id || *c2 == entity_id || *rp2 == entity_id,
         RuntimeConstraint::Angle { a1, a2, b1, b2, .. } =>
             *a1 == entity_id || *a2 == entity_id || *b1 == entity_id || *b2 == entity_id,
+        RuntimeConstraint::NotCoincident { a, b, .. } =>
+            *a == entity_id || *b == entity_id,
+        RuntimeConstraint::NormalToCircle { line_a, line_b, center, radius_point, .. } =>
+            *line_a == entity_id || *line_b == entity_id || *center == entity_id || *radius_point == entity_id,
+        RuntimeConstraint::PointOnEllipse { point, center, semi_a, semi_b, .. } =>
+            *point == entity_id || *center == entity_id || *semi_a == entity_id || *semi_b == entity_id,
+        RuntimeConstraint::PointOnArc { point, center, radius_point, arc_start, arc_end, .. } =>
+            *point == entity_id || *center == entity_id || *radius_point == entity_id || *arc_start == entity_id || *arc_end == entity_id,
     }
 }
 
