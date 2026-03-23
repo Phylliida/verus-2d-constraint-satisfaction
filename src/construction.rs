@@ -687,6 +687,18 @@ proof fn lemma_constraint_entities_nonempty<T: OrderedField>(c: Constraint<T>)
         Constraint::Angle { a1, .. } => {
             assert(constraint_entities(c).contains(a1));
         }
+        Constraint::NotCoincident { a, .. } => {
+            assert(constraint_entities(c).contains(a));
+        }
+        Constraint::NormalToCircle { line_a, .. } => {
+            assert(constraint_entities(c).contains(line_a));
+        }
+        Constraint::PointOnEllipse { point, .. } => {
+            assert(constraint_entities(c).contains(point));
+        }
+        Constraint::PointOnArc { point, .. } => {
+            assert(constraint_entities(c).contains(point));
+        }
     }
 }
 
@@ -904,6 +916,10 @@ proof fn lemma_last_step_locus_nontrivial<T: OrderedField>(
             // Verification constraint: locus_entities = empty set.
             assert(false);
         }
+        Constraint::NotCoincident { .. } => { assert(false); }
+        Constraint::NormalToCircle { .. } => { assert(false); }
+        Constraint::PointOnEllipse { .. } => { assert(false); }
+        Constraint::PointOnArc { .. } => { assert(false); }
     }
 }
 

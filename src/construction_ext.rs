@@ -75,6 +75,14 @@ pub open spec fn lift_constraint<F: OrderedField, R: PositiveRadicand<F>>(
             Constraint::CircleTangent { c1, rp1, c2, rp2 },
         Constraint::Angle { a1, a2, b1, b2, cos_sq } =>
             Constraint::Angle { a1, a2, b1, b2, cos_sq: qext_from_rational(cos_sq) },
+        Constraint::NotCoincident { a, b } =>
+            Constraint::NotCoincident { a, b },
+        Constraint::NormalToCircle { line_a, line_b, center, radius_point } =>
+            Constraint::NormalToCircle { line_a, line_b, center, radius_point },
+        Constraint::PointOnEllipse { point, center, semi_a, semi_b } =>
+            Constraint::PointOnEllipse { point, center, semi_a, semi_b },
+        Constraint::PointOnArc { point, center, radius_point, arc_start, arc_end } =>
+            Constraint::PointOnArc { point, center, radius_point, arc_start, arc_end },
     }
 }
 
@@ -1936,9 +1944,11 @@ pub proof fn lemma_lift_constraint_to_locus<F: OrderedField, R: PositiveRadicand
         Constraint::CircleTangent { .. } => {
             // Both sides are FullPlane
         }
-        Constraint::Angle { .. } => {
-            // Both sides are FullPlane
-        }
+        Constraint::Angle { .. } => {}
+        Constraint::NotCoincident { .. } => {}
+        Constraint::NormalToCircle { .. } => {}
+        Constraint::PointOnEllipse { .. } => {}
+        Constraint::PointOnArc { .. } => {}
     }
 }
 
@@ -2807,6 +2817,10 @@ pub proof fn lemma_constraint_to_locus_resolved_congruence<T: OrderedField>(
         Constraint::Tangent { .. } => {}
         Constraint::CircleTangent { .. } => {}
         Constraint::Angle { .. } => {}
+        Constraint::NotCoincident { .. } => {}
+        Constraint::NormalToCircle { .. } => {}
+        Constraint::PointOnEllipse { .. } => {}
+        Constraint::PointOnArc { .. } => {}
     }
 }
 
@@ -3009,6 +3023,10 @@ proof fn lemma_nontrivial_implies_entity_coverage<T: OrderedField>(
         Constraint::Tangent { .. } => {}
         Constraint::CircleTangent { .. } => {}
         Constraint::Angle { .. } => {}
+        Constraint::NotCoincident { .. } => {}
+        Constraint::NormalToCircle { .. } => {}
+        Constraint::PointOnEllipse { .. } => {}
+        Constraint::PointOnArc { .. } => {}
     }
 }
 
@@ -3049,6 +3067,10 @@ proof fn lemma_lift_preserves_nontriviality<F: OrderedField, R: PositiveRadicand
         Constraint::Tangent { .. } => {}
         Constraint::CircleTangent { .. } => {}
         Constraint::Angle { .. } => {}
+        Constraint::NotCoincident { .. } => {}
+        Constraint::NormalToCircle { .. } => {}
+        Constraint::PointOnEllipse { .. } => {}
+        Constraint::PointOnArc { .. } => {}
     }
 }
 
@@ -3687,6 +3709,10 @@ pub open spec fn is_nontrivial_for_target<T: OrderedField>(
         Constraint::Tangent { .. } => false,
         Constraint::CircleTangent { .. } => false,
         Constraint::Angle { .. } => false,
+        Constraint::NotCoincident { .. } => false,
+        Constraint::NormalToCircle { .. } => false,
+        Constraint::PointOnEllipse { .. } => false,
+        Constraint::PointOnArc { .. } => false,
     }
 }
 

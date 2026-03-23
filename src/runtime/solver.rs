@@ -1031,6 +1031,10 @@ fn is_verification_constraint_exec(rc: &RuntimeConstraint, n_points: usize) -> (
         RuntimeConstraint::Tangent { .. } => true,
         RuntimeConstraint::CircleTangent { .. } => true,
         RuntimeConstraint::Angle { .. } => true,
+        RuntimeConstraint::NotCoincident { .. } => true,
+        RuntimeConstraint::NormalToCircle { .. } => true,
+        RuntimeConstraint::PointOnEllipse { .. } => true,
+        RuntimeConstraint::PointOnArc { .. } => true,
         _ => false,
     }
 }
@@ -1254,6 +1258,10 @@ fn is_nontrivial_for_target_exec(
         RuntimeConstraint::Angle { .. } => {
             false
         }
+        RuntimeConstraint::NotCoincident { .. } => { false }
+        RuntimeConstraint::NormalToCircle { .. } => { false }
+        RuntimeConstraint::PointOnEllipse { .. } => { false }
+        RuntimeConstraint::PointOnArc { .. } => { false }
     }
 }
 
@@ -1533,6 +1541,22 @@ pub fn constraint_entity_ids(rc: &RuntimeConstraint, n_points: usize) -> (out: V
         RuntimeConstraint::Angle { a1, a2, b1, b2, .. } => {
             let mut v = Vec::new(); v.push(*a1); v.push(*a2); v.push(*b1); v.push(*b2);
             proof { assert(v@[0] == *a1); assert(v@[1] == *a2); assert(v@[2] == *b1); assert(v@[3] == *b2); } v
+        }
+        RuntimeConstraint::NotCoincident { a, b, .. } => {
+            let mut v = Vec::new(); v.push(*a); v.push(*b);
+            proof { assert(v@[0] == *a); assert(v@[1] == *b); } v
+        }
+        RuntimeConstraint::NormalToCircle { line_a, line_b, center, radius_point, .. } => {
+            let mut v = Vec::new(); v.push(*line_a); v.push(*line_b); v.push(*center); v.push(*radius_point);
+            proof { assert(v@[0] == *line_a); assert(v@[1] == *line_b); assert(v@[2] == *center); assert(v@[3] == *radius_point); } v
+        }
+        RuntimeConstraint::PointOnEllipse { point, center, semi_a, semi_b, .. } => {
+            let mut v = Vec::new(); v.push(*point); v.push(*center); v.push(*semi_a); v.push(*semi_b);
+            proof { assert(v@[0] == *point); assert(v@[1] == *center); assert(v@[2] == *semi_a); assert(v@[3] == *semi_b); } v
+        }
+        RuntimeConstraint::PointOnArc { point, center, radius_point, arc_start, arc_end, .. } => {
+            let mut v = Vec::new(); v.push(*point); v.push(*center); v.push(*radius_point); v.push(*arc_start); v.push(*arc_end);
+            proof { assert(v@[0] == *point); assert(v@[1] == *center); assert(v@[2] == *radius_point); assert(v@[3] == *arc_start); assert(v@[4] == *arc_end); } v
         }
     }
 }
@@ -1981,6 +2005,16 @@ fn check_constraint_well_formed_exec(
                 *c1 != *rp1 && *c2 != *rp2 && *c1 != *c2,
             RuntimeConstraint::Angle { a1, a2, b1, b2, .. } =>
                 *a1 != *a2 && *b1 != *b2 && *a1 != *b1 && *a1 != *b2 && *a2 != *b1 && *a2 != *b2,
+            RuntimeConstraint::NotCoincident { a, b, .. } => *a != *b,
+            RuntimeConstraint::NormalToCircle { line_a, line_b, center, radius_point, .. } =>
+                *line_a != *line_b && *line_a != *center && *line_a != *radius_point
+                && *line_b != *center && *line_b != *radius_point && *center != *radius_point,
+            RuntimeConstraint::PointOnEllipse { point, center, semi_a, semi_b, .. } =>
+                *point != *center && *point != *semi_a && *point != *semi_b
+                && *center != *semi_a && *center != *semi_b && *semi_a != *semi_b,
+            RuntimeConstraint::PointOnArc { point, center, radius_point, arc_start, arc_end, .. } =>
+                *point != *center && *center != *radius_point
+                && *arc_start != *arc_end && *arc_start != *center && *arc_end != *center,
         };
         if !ok {
             return false;
@@ -2112,6 +2146,10 @@ fn is_locus_entity_exec(rc: &RuntimeConstraint, target: usize, n_points: usize) 
         RuntimeConstraint::Tangent { .. } => false,
         RuntimeConstraint::CircleTangent { .. } => false,
         RuntimeConstraint::Angle { .. } => false,
+        RuntimeConstraint::NotCoincident { .. } => false,
+        RuntimeConstraint::NormalToCircle { .. } => false,
+        RuntimeConstraint::PointOnEllipse { .. } => false,
+        RuntimeConstraint::PointOnArc { .. } => false,
     }
 }
 
@@ -2158,6 +2196,14 @@ fn is_entity_of_constraint_exec(rc: &RuntimeConstraint, target: usize, n_points:
             *c1 == target || *rp1 == target || *c2 == target || *rp2 == target,
         RuntimeConstraint::Angle { a1, a2, b1, b2, .. } =>
             *a1 == target || *a2 == target || *b1 == target || *b2 == target,
+        RuntimeConstraint::NotCoincident { a, b, .. } =>
+            *a == target || *b == target,
+        RuntimeConstraint::NormalToCircle { line_a, line_b, center, radius_point, .. } =>
+            *line_a == target || *line_b == target || *center == target || *radius_point == target,
+        RuntimeConstraint::PointOnEllipse { point, center, semi_a, semi_b, .. } =>
+            *point == target || *center == target || *semi_a == target || *semi_b == target,
+        RuntimeConstraint::PointOnArc { point, center, radius_point, arc_start, arc_end, .. } =>
+            *point == target || *center == target || *radius_point == target || *arc_start == target || *arc_end == target,
     }
 }
 
