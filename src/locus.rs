@@ -272,6 +272,25 @@ pub open spec fn constraint_to_locus<T: OrderedField>(
         Constraint::Angle { .. } => {
             Locus2d::FullPlane
         }
+
+        Constraint::NotCoincident { .. } => {
+            Locus2d::FullPlane
+        }
+
+        Constraint::NormalToCircle { .. } => {
+            // NormalToCircle requires both on_circle AND collinear.
+            // A single locus can only capture one condition (circle or line),
+            // so this is verification-only.
+            Locus2d::FullPlane
+        }
+
+        Constraint::PointOnEllipse { .. } => {
+            Locus2d::FullPlane
+        }
+
+        Constraint::PointOnArc { .. } => {
+            Locus2d::FullPlane
+        }
     }
 }
 
@@ -770,6 +789,34 @@ pub proof fn lemma_constraint_frame<T: OrderedField>(
             assert(resolved.insert(key, p)[a2] == resolved[a2]);
             assert(resolved.insert(key, p)[b1] == resolved[b1]);
             assert(resolved.insert(key, p)[b2] == resolved[b2]);
+        }
+        Constraint::NotCoincident { a, b } => {
+            assert(key != a && key != b);
+            assert(resolved.insert(key, p)[a] == resolved[a]);
+            assert(resolved.insert(key, p)[b] == resolved[b]);
+        }
+        Constraint::NormalToCircle { line_a, line_b, center, radius_point } => {
+            assert(key != line_a && key != line_b && key != center && key != radius_point);
+            assert(resolved.insert(key, p)[line_a] == resolved[line_a]);
+            assert(resolved.insert(key, p)[line_b] == resolved[line_b]);
+            assert(resolved.insert(key, p)[center] == resolved[center]);
+            assert(resolved.insert(key, p)[radius_point] == resolved[radius_point]);
+        }
+        Constraint::PointOnEllipse { point, center, semi_a, semi_b } => {
+            assert(key != point && key != center && key != semi_a && key != semi_b);
+            assert(resolved.insert(key, p)[point] == resolved[point]);
+            assert(resolved.insert(key, p)[center] == resolved[center]);
+            assert(resolved.insert(key, p)[semi_a] == resolved[semi_a]);
+            assert(resolved.insert(key, p)[semi_b] == resolved[semi_b]);
+        }
+        Constraint::PointOnArc { point, center, radius_point, arc_start, arc_end } => {
+            assert(key != point && key != center && key != radius_point
+                && key != arc_start && key != arc_end);
+            assert(resolved.insert(key, p)[point] == resolved[point]);
+            assert(resolved.insert(key, p)[center] == resolved[center]);
+            assert(resolved.insert(key, p)[radius_point] == resolved[radius_point]);
+            assert(resolved.insert(key, p)[arc_start] == resolved[arc_start]);
+            assert(resolved.insert(key, p)[arc_end] == resolved[arc_end]);
         }
     }
 }
@@ -1283,6 +1330,18 @@ pub proof fn lemma_locus_sound<T: OrderedField>(
         Constraint::Angle { .. } => {
             assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
         }
+        Constraint::NotCoincident { .. } => {
+            assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+        }
+        Constraint::NormalToCircle { .. } => {
+            assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+        }
+        Constraint::PointOnEllipse { .. } => {
+            assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+        }
+        Constraint::PointOnArc { .. } => {
+            assert(!locus_is_nontrivial(constraint_to_locus(c, resolved, target)));
+        }
     }
 }
 
@@ -1322,6 +1381,10 @@ pub proof fn lemma_locus_nontrivial_depends_on_domain<T: OrderedField>(
         Constraint::Tangent { .. } => {}
         Constraint::CircleTangent { .. } => {}
         Constraint::Angle { .. } => {}
+        Constraint::NotCoincident { .. } => {}
+        Constraint::NormalToCircle { .. } => {}
+        Constraint::PointOnEllipse { .. } => {}
+        Constraint::PointOnArc { .. } => {}
     }
 }
 

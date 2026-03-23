@@ -431,6 +431,7 @@ pub open spec fn is_verification_constraint<T: OrderedField>(c: Constraint<T>) -
         Constraint::CircleTangent { .. } => true,
         Constraint::Angle { .. } => true,
         Constraint::NotCoincident { .. } => true,
+        Constraint::NormalToCircle { .. } => true,
         Constraint::PointOnEllipse { .. } => true,
         Constraint::PointOnArc { .. } => true,
         _ => false,
@@ -495,9 +496,7 @@ pub proof fn lemma_verification_constraint_iff_empty_locus<T: OrderedField>(c: C
         Constraint::CircleTangent { .. } => {}
         Constraint::Angle { .. } => {}
         Constraint::NotCoincident { .. } => {}
-        Constraint::NormalToCircle { line_a, .. } => {
-            assert(constraint_locus_entities(c).contains(line_a));
-        }
+        Constraint::NormalToCircle { .. } => {}
         Constraint::PointOnEllipse { .. } => {}
         Constraint::PointOnArc { .. } => {}
     }
@@ -528,7 +527,7 @@ pub open spec fn constraint_locus_entities<T: OrderedField>(c: Constraint<T>) ->
         Constraint::CircleTangent { .. } => set![],
         Constraint::Angle { .. } => set![],
         Constraint::NotCoincident { .. } => set![],
-        Constraint::NormalToCircle { line_a, .. } => set![line_a],
+        Constraint::NormalToCircle { .. } => set![],
         Constraint::PointOnEllipse { .. } => set![],
         Constraint::PointOnArc { .. } => set![],
     }
