@@ -10,6 +10,7 @@ use verus_rational::runtime_rational::RuntimeRational;
 use verus_linalg::runtime::copy_rational;
 use verus_quadratic_extension::radicand::*;
 use verus_quadratic_extension::spec::*;
+use verus_quadratic_extension::ordered::{qe_nonneg, qe_le};
 use verus_quadratic_extension::runtime::{RuntimeQExtRat, RuntimeRadicand};
 use crate::entities::*;
 use crate::constraints::*;
@@ -21,6 +22,45 @@ use crate::runtime::construction::*;
 type RationalModel = verus_rational::rational::Rational;
 
 verus! {
+
+// ===========================================================================
+//  Helper: qe_nonneg(x) ==> zero().le(x)
+// ===========================================================================
+
+/// Bridge from qe_nonneg to the PartialOrder::le formulation.
+/// zero().le(x) == qe_nonneg(qe_sub(x, zero())) == qe_nonneg(qext(x.re - 0, x.im - 0)).
+/// Since a - 0 ≡ a for ordered fields, nonneg_congruence gives the result.
+proof fn lemma_nonneg_implies_zero_le<F: OrderedField, R: PositiveRadicand<F>>(
+    x: SpecQuadExt<F, R>,
+)
+    requires qe_nonneg::<F, R>(x),
+    ensures SpecQuadExt::<F, R>::zero().le(x),
+{
+    // zero().le(x) = qe_nonneg(qe_sub(x, zero()))
+    // qe_sub(x, zero()) = qext(x.re.sub(F::zero()), x.im.sub(F::zero()))
+    // Since a.sub(zero) = a.add(zero.neg()) ≡ a.add(zero) ≡ a,
+    // we use nonneg_congruence to transfer from x to qe_sub(x, zero()).
+    use verus_algebra::lemmas::additive_group_lemmas::{lemma_neg_zero, lemma_add_congruence_right};
+
+    // Show x.re.sub(zero) ≡ x.re
+    lemma_neg_zero::<F>();  // zero.neg() ≡ zero
+    lemma_add_congruence_right::<F>(x.re, F::zero().neg(), F::zero());
+    F::axiom_add_zero_right(x.re); // x.re.add(zero) ≡ x.re
+    F::axiom_eqv_transitive(x.re.sub(F::zero()), x.re.add(F::zero()), x.re);
+
+    // Show x.im.sub(zero) ≡ x.im
+    lemma_add_congruence_right::<F>(x.im, F::zero().neg(), F::zero());
+    F::axiom_add_zero_right(x.im);
+    F::axiom_eqv_transitive(x.im.sub(F::zero()), x.im.add(F::zero()), x.im);
+
+    // Symmetric: x.re ≡ x.re.sub(zero) (nonneg_congruence needs this direction)
+    F::axiom_eqv_symmetric(x.re.sub(F::zero()), x.re);
+    F::axiom_eqv_symmetric(x.im.sub(F::zero()), x.im);
+
+    // nonneg_congruence: qe_nonneg(x) && x.re ≡ sub.re && x.im ≡ sub.im ==> qe_nonneg(sub)
+    verus_quadratic_extension::ordered::lemma_nonneg_congruence::<F, R>(x,
+        qe_sub::<F, R>(x, qe_zero::<F, R>()));
+}
 
 // ===========================================================================
 //  2a: QExt embedding helpers
@@ -490,7 +530,17 @@ fn check_point_on_arc_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadican
     let o_pe = qext_orient2d::<R, RR>(center, point, arc_end);
     let prod1 = o_sp.mul_exec::<RR>(&o_se);
     let prod2 = o_pe.mul_exec::<RR>(&o_se);
-    prod1.nonneg_exec::<RR>() && prod2.nonneg_exec::<RR>()
+    let nn1 = prod1.nonneg_exec::<RR>();
+    let nn2 = prod2.nonneg_exec::<RR>();
+    proof {
+        if nn1 {
+            lemma_nonneg_implies_zero_le::<RationalModel, R>(prod1@);
+        }
+        if nn2 {
+            lemma_nonneg_implies_zero_le::<RationalModel, R>(prod2@);
+        }
+    }
+    nn1 && nn2
 }
 
 // ===========================================================================
