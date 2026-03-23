@@ -43,14 +43,22 @@ proof fn lemma_nonneg_implies_zero_le<F: OrderedField, R: PositiveRadicand<F>>(
     use verus_algebra::lemmas::additive_group_lemmas::{lemma_neg_zero, lemma_add_congruence_right};
 
     // Show x.re.sub(zero) ≡ x.re
-    lemma_neg_zero::<F>();  // zero.neg() ≡ zero
+    // Step 1: sub(a, b) ≡ add(a, neg(b))
+    F::axiom_sub_is_add_neg(x.re, F::zero());
+    // Step 2: add(x.re, neg(zero)) ≡ add(x.re, zero)  [since neg(zero) ≡ zero]
+    lemma_neg_zero::<F>();
     lemma_add_congruence_right::<F>(x.re, F::zero().neg(), F::zero());
-    F::axiom_add_zero_right(x.re); // x.re.add(zero) ≡ x.re
+    // Step 3: add(x.re, zero) ≡ x.re
+    F::axiom_add_zero_right(x.re);
+    // Chain: sub ≡ add(neg) ≡ add(zero) ≡ x.re
+    F::axiom_eqv_transitive(x.re.sub(F::zero()), x.re.add(F::zero().neg()), x.re.add(F::zero()));
     F::axiom_eqv_transitive(x.re.sub(F::zero()), x.re.add(F::zero()), x.re);
 
-    // Show x.im.sub(zero) ≡ x.im
+    // Show x.im.sub(zero) ≡ x.im (same chain)
+    F::axiom_sub_is_add_neg(x.im, F::zero());
     lemma_add_congruence_right::<F>(x.im, F::zero().neg(), F::zero());
     F::axiom_add_zero_right(x.im);
+    F::axiom_eqv_transitive(x.im.sub(F::zero()), x.im.add(F::zero().neg()), x.im.add(F::zero()));
     F::axiom_eqv_transitive(x.im.sub(F::zero()), x.im.add(F::zero()), x.im);
 
     // Symmetric: x.re ≡ x.re.sub(zero) (nonneg_congruence needs this direction)

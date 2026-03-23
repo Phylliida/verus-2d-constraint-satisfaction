@@ -1170,6 +1170,132 @@ proof fn lemma_full_plan_independent(
     }
 }
 
+/// Transfer constraint_satisfied for a Tangent constraint.
+proof fn lemma_transfer_tangent<R: PositiveRadicand<RationalModel>>(
+    line_a: EntityId, line_b: EntityId, center: EntityId, radius_point: EntityId,
+    resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+    resolved2: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+)
+    requires
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::Tangent { line_a, line_b, center, radius_point }), resolved1),
+        resolved2.dom().contains(line_a) && resolved1[line_a] == resolved2[line_a],
+        resolved2.dom().contains(line_b) && resolved1[line_b] == resolved2[line_b],
+        resolved2.dom().contains(center) && resolved1[center] == resolved2[center],
+        resolved2.dom().contains(radius_point) && resolved1[radius_point] == resolved2[radius_point],
+    ensures
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::Tangent { line_a, line_b, center, radius_point }), resolved2),
+{}
+
+/// Transfer constraint_satisfied for a CircleTangent constraint.
+proof fn lemma_transfer_circle_tangent<R: PositiveRadicand<RationalModel>>(
+    c1: EntityId, rp1: EntityId, c2: EntityId, rp2: EntityId,
+    resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+    resolved2: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+)
+    requires
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::CircleTangent { c1, rp1, c2, rp2 }), resolved1),
+        resolved2.dom().contains(c1) && resolved1[c1] == resolved2[c1],
+        resolved2.dom().contains(rp1) && resolved1[rp1] == resolved2[rp1],
+        resolved2.dom().contains(c2) && resolved1[c2] == resolved2[c2],
+        resolved2.dom().contains(rp2) && resolved1[rp2] == resolved2[rp2],
+    ensures
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::CircleTangent { c1, rp1, c2, rp2 }), resolved2),
+{}
+
+/// Transfer constraint_satisfied for an Angle constraint.
+proof fn lemma_transfer_angle<R: PositiveRadicand<RationalModel>>(
+    a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId, cos_sq: RationalModel,
+    resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+    resolved2: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+)
+    requires
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::Angle { a1, a2, b1, b2, cos_sq }), resolved1),
+        resolved2.dom().contains(a1) && resolved1[a1] == resolved2[a1],
+        resolved2.dom().contains(a2) && resolved1[a2] == resolved2[a2],
+        resolved2.dom().contains(b1) && resolved1[b1] == resolved2[b1],
+        resolved2.dom().contains(b2) && resolved1[b2] == resolved2[b2],
+    ensures
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::Angle { a1, a2, b1, b2, cos_sq }), resolved2),
+{}
+
+/// Transfer constraint_satisfied for a NotCoincident constraint.
+proof fn lemma_transfer_not_coincident<R: PositiveRadicand<RationalModel>>(
+    a: EntityId, b: EntityId,
+    resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+    resolved2: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+)
+    requires
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::NotCoincident { a, b }), resolved1),
+        resolved2.dom().contains(a) && resolved1[a] == resolved2[a],
+        resolved2.dom().contains(b) && resolved1[b] == resolved2[b],
+    ensures
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::NotCoincident { a, b }), resolved2),
+{}
+
+/// Transfer constraint_satisfied for a NormalToCircle constraint.
+proof fn lemma_transfer_normal_to_circle<R: PositiveRadicand<RationalModel>>(
+    line_a: EntityId, line_b: EntityId, center: EntityId, radius_point: EntityId,
+    resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+    resolved2: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+)
+    requires
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::NormalToCircle { line_a, line_b, center, radius_point }), resolved1),
+        resolved2.dom().contains(line_a) && resolved1[line_a] == resolved2[line_a],
+        resolved2.dom().contains(line_b) && resolved1[line_b] == resolved2[line_b],
+        resolved2.dom().contains(center) && resolved1[center] == resolved2[center],
+        resolved2.dom().contains(radius_point) && resolved1[radius_point] == resolved2[radius_point],
+    ensures
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::NormalToCircle { line_a, line_b, center, radius_point }), resolved2),
+{}
+
+/// Transfer constraint_satisfied for a PointOnEllipse constraint.
+proof fn lemma_transfer_point_on_ellipse<R: PositiveRadicand<RationalModel>>(
+    point: EntityId, center: EntityId, semi_a: EntityId, semi_b: EntityId,
+    resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+    resolved2: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+)
+    requires
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::PointOnEllipse { point, center, semi_a, semi_b }), resolved1),
+        resolved2.dom().contains(point) && resolved1[point] == resolved2[point],
+        resolved2.dom().contains(center) && resolved1[center] == resolved2[center],
+        resolved2.dom().contains(semi_a) && resolved1[semi_a] == resolved2[semi_a],
+        resolved2.dom().contains(semi_b) && resolved1[semi_b] == resolved2[semi_b],
+    ensures
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::PointOnEllipse { point, center, semi_a, semi_b }), resolved2),
+{}
+
+/// Transfer constraint_satisfied for a PointOnArc constraint.
+proof fn lemma_transfer_point_on_arc<R: PositiveRadicand<RationalModel>>(
+    point: EntityId, center: EntityId, radius_point: EntityId,
+    arc_start: EntityId, arc_end: EntityId,
+    resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+    resolved2: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
+)
+    requires
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::PointOnArc { point, center, radius_point, arc_start, arc_end }), resolved1),
+        resolved2.dom().contains(point) && resolved1[point] == resolved2[point],
+        resolved2.dom().contains(center) && resolved1[center] == resolved2[center],
+        resolved2.dom().contains(radius_point) && resolved1[radius_point] == resolved2[radius_point],
+        resolved2.dom().contains(arc_start) && resolved1[arc_start] == resolved2[arc_start],
+        resolved2.dom().contains(arc_end) && resolved1[arc_end] == resolved2[arc_end],
+    ensures
+        constraint_satisfied(lift_constraint::<RationalModel, R>(
+            Constraint::PointOnArc { point, center, radius_point, arc_start, arc_end }), resolved2),
+{}
+
 /// Transfer constraint_satisfied for verification constraints between
 /// two resolved maps that agree on all constraint entity IDs.
 proof fn lemma_verification_constraint_transfer<R: PositiveRadicand<RationalModel>>(
@@ -1185,35 +1311,30 @@ proof fn lemma_verification_constraint_transfer<R: PositiveRadicand<RationalMode
     ensures
         constraint_satisfied(lift_constraint::<RationalModel, R>(c), resolved2),
 {
-    // Explicitly match to guide Z3 through only 3 arms.
     match c {
         Constraint::Tangent { line_a, line_b, center, radius_point } => {
-            assert(resolved1[line_a] == resolved2[line_a]);
-            assert(resolved1[line_b] == resolved2[line_b]);
-            assert(resolved1[center] == resolved2[center]);
-            assert(resolved1[radius_point] == resolved2[radius_point]);
+            lemma_transfer_tangent::<R>(line_a, line_b, center, radius_point, resolved1, resolved2);
         }
         Constraint::CircleTangent { c1, rp1, c2, rp2 } => {
-            assert(resolved1[c1] == resolved2[c1]);
-            assert(resolved1[rp1] == resolved2[rp1]);
-            assert(resolved1[c2] == resolved2[c2]);
-            assert(resolved1[rp2] == resolved2[rp2]);
+            lemma_transfer_circle_tangent::<R>(c1, rp1, c2, rp2, resolved1, resolved2);
         }
         Constraint::Angle { a1, a2, b1, b2, cos_sq } => {
-            assert(resolved1[a1] == resolved2[a1]);
-            assert(resolved1[a2] == resolved2[a2]);
-            assert(resolved1[b1] == resolved2[b1]);
-            assert(resolved1[b2] == resolved2[b2]);
+            lemma_transfer_angle::<R>(a1, a2, b1, b2, cos_sq, resolved1, resolved2);
         }
-        // New verification constraints: constraint_satisfied for these uses !eqv or
-        // le comparisons, which transfer trivially when resolved values are ==.
         Constraint::NotCoincident { a, b } => {
-            assert(resolved1[a] == resolved2[a]);
-            assert(resolved1[b] == resolved2[b]);
+            lemma_transfer_not_coincident::<R>(a, b, resolved1, resolved2);
+        }
+        Constraint::NormalToCircle { line_a, line_b, center, radius_point } => {
+            lemma_transfer_normal_to_circle::<R>(line_a, line_b, center, radius_point, resolved1, resolved2);
+        }
+        Constraint::PointOnEllipse { point, center, semi_a, semi_b } => {
+            lemma_transfer_point_on_ellipse::<R>(point, center, semi_a, semi_b, resolved1, resolved2);
+        }
+        Constraint::PointOnArc { point, center, radius_point, arc_start, arc_end } => {
+            lemma_transfer_point_on_arc::<R>(point, center, radius_point, arc_start, arc_end, resolved1, resolved2);
         }
         _ => {
-            // NormalToCircle, PointOnEllipse, PointOnArc: resolved1[e] == resolved2[e]
-            // for all entities e, so constraint_satisfied transfers.
+            assert(!is_verification_constraint(c));
         }
     }
 }
