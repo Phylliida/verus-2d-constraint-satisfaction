@@ -355,6 +355,33 @@ pub open spec fn all_dyn_points_wf(points: Seq<DynRtPoint2>) -> bool {
     forall|i: int| 0 <= i < points.len() ==> (#[trigger] points[i]).wf_spec()
 }
 
+/// Wrap a Vec of rational RuntimePoint2 values as DynRtPoint2 (at tower depth 0).
+pub fn wrap_rationals_as_dyn(points: &Vec<RuntimePoint2>) -> (out: Vec<DynRtPoint2>)
+    requires
+        all_points_wf(points@),
+        points@.len() > 0,
+    ensures
+        out@.len() == points@.len(),
+        all_dyn_points_wf(out@),
+{
+    let mut result: Vec<DynRtPoint2> = Vec::new();
+    let mut i: usize = 0;
+    while i < points.len()
+        invariant
+            i <= points@.len(),
+            result@.len() == i,
+            all_points_wf(points@),
+            forall|j: int| 0 <= j < result@.len() ==> (#[trigger] result@[j]).wf_spec(),
+        decreases points@.len() - i,
+    {
+        let x = DynFieldElem::Rational(verus_linalg::runtime::copy_rational(&points[i].x));
+        let y = DynFieldElem::Rational(verus_linalg::runtime::copy_rational(&points[i].y));
+        result.push(DynRtPoint2::new(x, y));
+        i = i + 1;
+    }
+    result
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  constraint_to_locus_dyn — 19-arm constraint → locus
 // ═══════════════════════════════════════════════════════════════════

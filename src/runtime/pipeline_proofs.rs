@@ -984,9 +984,19 @@ fn check_dynamic_conjuncts_recursive(
     if !r.0 {
         return false;
     }
-    check_dynamic_conjuncts_recursive(
+    let rest = check_dynamic_conjuncts_recursive(
         full_plan, constraints, new_points, new_flags,
-        si + 1, n_points, Ghost(ps), Ghost(cs))
+        si + 1, n_points, Ghost(ps), Ghost(cs));
+    proof {
+        if rest {
+            // Step si's conjuncts come from process_single_step.
+            // Steps si+1..len come from the recursive call.
+            // Z3 hint: the recursive call covers si+1..len, and process_single_step covers si.
+            assert(at_most_two_nontrivial_loci(step_target(ps[si as int]), cs,
+                execute_plan(ps.take(si as int)).dom()));
+        }
+    }
+    rest
 }
 
 /// Replay the full plan at runtime, checking conjuncts 9-12 at each step.

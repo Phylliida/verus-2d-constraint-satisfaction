@@ -22,7 +22,7 @@ use crate::runtime::solver::*;
 use crate::runtime::ext_constraint::*;
 use crate::runtime::pipeline_proofs::*;
 use crate::runtime::abstract_plan::{extract_abstract_plan, compute_step_levels, extract_constraint_pairs};
-use crate::runtime::dyn_pipeline::{execute_all_levels_dyn, check_all_constraints_dyn, extract_rational_points_dyn, constraint_satisfied_dts, all_dyn_points_wf, DynRtPoint2};
+use crate::runtime::dyn_pipeline::{execute_all_levels_dyn, check_all_constraints_dyn, extract_rational_points_dyn, constraint_satisfied_dts, all_dyn_points_wf, DynRtPoint2, wrap_rationals_as_dyn};
 
 type RationalModel = verus_rational::rational::Rational;
 
@@ -2468,16 +2468,19 @@ pub fn solve_and_verify_chain(
     let depth = crate::runtime::abstract_plan::max_depth(&levels);
 
     // If no circle steps, all positions are rational — return directly.
-    // In this case, constraint_satisfied_dts is vacuously satisfied by providing
-    // the rational points wrapped as DynRtPoint2 (but we skip this for simplicity
-    // and return early without the deep witness).
+    // Wrap rational points as DynRtPoint2 and check constraints at DynTowerSpec level.
     if depth == 0 {
         let result = copy_points_vec(points);
-        // For the ensures: need to provide an existential witness.
-        // We use check_all_constraints_exec on the rational points.
-        // If that passes, we can construct DynRtPoint2 from them.
-        // For now, just return — the existential is harder to satisfy here.
-        // TODO: construct DynRtPoint2 wrapper for rational points
+        let dyn_pts = wrap_rationals_as_dyn(points);
+        let dyn_ok = check_all_constraints_dyn(constraints, &dyn_pts);
+        if !dyn_ok {
+            return None;
+        }
+        proof {
+            let deep = dyn_pts@;
+            assert(all_dyn_points_wf(deep));
+            assert(deep.len() > 0);
+        }
         return Some(result);
     }
 
