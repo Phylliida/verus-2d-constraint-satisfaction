@@ -3,6 +3,7 @@ use verus_algebra::traits::*;
 use verus_geometry::point2::*;
 use verus_geometry::line2::*;
 use verus_geometry::voronoi::sq_dist_2d;
+use verus_geometry::orient2d::orient2d;
 use verus_geometry::constructed_scalar::{qext_from_rational, lift_point2};
 use verus_geometry::runtime::point2::*;
 use verus_rational::runtime_rational::RuntimeRational;
@@ -349,6 +350,23 @@ fn check_angle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     lhs.eq_exec(&rhs)
 }
 
+/// QExt orient2d: (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x)
+fn qext_orient2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    a: &RuntimeQExtPoint2<R>,
+    b: &RuntimeQExtPoint2<R>,
+    c: &RuntimeQExtPoint2<R>,
+) -> (out: RuntimeQExtRat<R>)
+    requires a.wf_spec(), b.wf_spec(), c.wf_spec(),
+    ensures out.wf_spec(),
+        out@ == verus_geometry::orient2d::orient2d::<SpecQuadExt<RationalModel, R>>(a@, b@, c@),
+{
+    let bx_ax = b.x.sub_exec(&a.x);
+    let by_ay = b.y.sub_exec(&a.y);
+    let cx_ax = c.x.sub_exec(&a.x);
+    let cy_ay = c.y.sub_exec(&a.y);
+    bx_ax.mul_exec::<RR>(&cy_ay).sub_exec(&by_ay.mul_exec::<RR>(&cx_ax))
+}
+
 /// Check NotCoincident at QExt level: !(a.x ≡ b.x && a.y ≡ b.y)
 fn check_not_coincident_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     a: &RuntimeQExtPoint2<R>,
@@ -387,7 +405,7 @@ fn check_normal_to_circle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
     // Check collinear
     let (la, lb, lc) = qext_line2_from_points::<R, RR>(line_a, line_b);
     let eval = qext_line2_eval::<R, RR>(&la, &lb, &lc, center);
-    let zero = RuntimeQExt::<R>::zero_exec::<RR>();
+    let zero = RuntimeQExtRat::<R>::zero_exec();
     eval.eq_exec(&zero) && on_circle
 }
 
@@ -520,6 +538,45 @@ pub open spec fn ext_verification_identity<R: PositiveRadicand<RationalModel>>(
             let cos_sq_ext = qext_from_rational::<RationalModel, R>(cos_sq@);
             dp.mul(dp).eqv(cos_sq_ext.mul(n1).mul(n2))
         }
+        RuntimeConstraint::NotCoincident { a, b, .. } => {
+            !ext_points[a as int]@.eqv(ext_points[b as int]@)
+        }
+        RuntimeConstraint::NormalToCircle { line_a, line_b, center, radius_point, .. } => {
+            sq_dist_2d::<SpecQuadExt<RationalModel, R>>(
+                ext_points[line_a as int]@, ext_points[center as int]@).eqv(
+                sq_dist_2d::<SpecQuadExt<RationalModel, R>>(
+                    ext_points[radius_point as int]@, ext_points[center as int]@))
+            && point_on_line2(
+                line2_from_points::<SpecQuadExt<RationalModel, R>>(
+                    ext_points[line_a as int]@, ext_points[line_b as int]@),
+                ext_points[center as int]@)
+        }
+        RuntimeConstraint::PointOnEllipse { point, center, semi_a, semi_b, .. } => {
+            let d = sub2::<SpecQuadExt<RationalModel, R>>(ext_points[point as int]@, ext_points[center as int]@);
+            let u = sub2::<SpecQuadExt<RationalModel, R>>(ext_points[semi_a as int]@, ext_points[center as int]@);
+            let vv = sub2::<SpecQuadExt<RationalModel, R>>(ext_points[semi_b as int]@, ext_points[center as int]@);
+            let a_sq = u.x.mul(u.x).add(u.y.mul(u.y));
+            let b_sq = vv.x.mul(vv.x).add(vv.y.mul(vv.y));
+            let proj_u = d.x.mul(u.x).add(d.y.mul(u.y));
+            let proj_v = d.x.mul(vv.x).add(d.y.mul(vv.y));
+            proj_u.mul(proj_u).mul(b_sq).add(proj_v.mul(proj_v).mul(a_sq))
+                .eqv(a_sq.mul(b_sq))
+        }
+        RuntimeConstraint::PointOnArc { point, center, radius_point, arc_start, arc_end, .. } => {
+            let on_circle = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(
+                ext_points[point as int]@, ext_points[center as int]@).eqv(
+                sq_dist_2d::<SpecQuadExt<RationalModel, R>>(
+                    ext_points[radius_point as int]@, ext_points[center as int]@));
+            let o_se = orient2d::<SpecQuadExt<RationalModel, R>>(
+                ext_points[center as int]@, ext_points[arc_start as int]@, ext_points[arc_end as int]@);
+            let o_sp = orient2d::<SpecQuadExt<RationalModel, R>>(
+                ext_points[center as int]@, ext_points[arc_start as int]@, ext_points[point as int]@);
+            let o_pe = orient2d::<SpecQuadExt<RationalModel, R>>(
+                ext_points[center as int]@, ext_points[point as int]@, ext_points[arc_end as int]@);
+            on_circle &&
+            SpecQuadExt::<RationalModel, R>::zero().le(o_sp.mul(o_se)) &&
+            SpecQuadExt::<RationalModel, R>::zero().le(o_pe.mul(o_se))
+        }
         _ => true,
     }
 }
@@ -644,6 +701,24 @@ fn check_single_verification_constraint_ext<
                 &ext_points[*b1], &ext_points[*b2],
                 cos_sq,
             )
+        }
+        RuntimeConstraint::NotCoincident { a, b, .. } => {
+            check_not_coincident_ext::<R, RR>(&ext_points[*a], &ext_points[*b])
+        }
+        RuntimeConstraint::NormalToCircle { line_a, line_b, center, radius_point, .. } => {
+            check_normal_to_circle_ext::<R, RR>(
+                &ext_points[*line_a], &ext_points[*line_b],
+                &ext_points[*center], &ext_points[*radius_point])
+        }
+        RuntimeConstraint::PointOnEllipse { point, center, semi_a, semi_b, .. } => {
+            check_point_on_ellipse_ext::<R, RR>(
+                &ext_points[*point], &ext_points[*center],
+                &ext_points[*semi_a], &ext_points[*semi_b])
+        }
+        RuntimeConstraint::PointOnArc { point, center, radius_point, arc_start, arc_end, .. } => {
+            check_point_on_arc_ext::<R, RR>(
+                &ext_points[*point], &ext_points[*center],
+                &ext_points[*radius_point], &ext_points[*arc_start], &ext_points[*arc_end])
         }
         _ => true, // Non-verification constraints: skip
     }
