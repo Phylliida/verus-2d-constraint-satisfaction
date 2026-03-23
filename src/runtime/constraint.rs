@@ -3,9 +3,11 @@ use verus_algebra::traits::*;
 use verus_geometry::point2::*;
 use verus_geometry::line2::*;
 use verus_geometry::voronoi::sq_dist_2d;
+use verus_geometry::orient2d::orient2d;
 use verus_geometry::runtime::point2::*;
 use verus_geometry::runtime::line2::*;
 use verus_geometry::runtime::voronoi::sq_dist_2d_exec;
+use verus_geometry::runtime::orient::orient2d_exec;
 use verus_rational::runtime_rational::RuntimeRational;
 use verus_linalg::runtime::copy_rational;
 use crate::entities::*;
@@ -698,6 +700,133 @@ fn check_angle_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out
     }
 }
 
+fn check_not_coincident_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
+        RuntimeConstraint::NotCoincident { a, b, .. } => {
+            proof {
+                assert(resolved.dom().contains(*a as nat));
+                assert(resolved.dom().contains(*b as nat));
+                assert(resolved[*a as nat] == points@[*a as int]@);
+                assert(resolved[*b as nat] == points@[*b as int]@);
+            }
+            !point2_eqv(&points[*a], &points[*b])
+        }
+        _ => { false }
+    }
+}
+
+fn check_normal_to_circle_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
+        RuntimeConstraint::NormalToCircle { line_a, line_b, center, radius_point, .. } => {
+            proof {
+                assert(resolved.dom().contains(*line_a as nat));
+                assert(resolved.dom().contains(*line_b as nat));
+                assert(resolved.dom().contains(*center as nat));
+                assert(resolved.dom().contains(*radius_point as nat));
+                assert(resolved[*line_a as nat] == points@[*line_a as int]@);
+                assert(resolved[*line_b as nat] == points@[*line_b as int]@);
+                assert(resolved[*center as nat] == points@[*center as int]@);
+                assert(resolved[*radius_point as nat] == points@[*radius_point as int]@);
+            }
+            // on_circle: sq_dist(line_a, center) ≡ sq_dist(radius_point, center)
+            let d_la = sq_dist_2d_exec(&points[*line_a], &points[*center]);
+            let d_rp = sq_dist_2d_exec(&points[*radius_point], &points[*center]);
+            if !rational_eqv(&d_la, &d_rp) { return false; }
+            // collinear: center on line through line_a, line_b
+            let line = line2_from_points_exec(&points[*line_a], &points[*line_b]);
+            let eval = line2_eval_exec(&line, &points[*center]);
+            eval.is_zero()
+        }
+        _ => { false }
+    }
+}
+
+fn check_point_on_ellipse_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
+        RuntimeConstraint::PointOnEllipse { point, center, semi_a, semi_b, .. } => {
+            proof {
+                assert(resolved.dom().contains(*point as nat));
+                assert(resolved.dom().contains(*center as nat));
+                assert(resolved.dom().contains(*semi_a as nat));
+                assert(resolved.dom().contains(*semi_b as nat));
+                assert(resolved[*point as nat] == points@[*point as int]@);
+                assert(resolved[*center as nat] == points@[*center as int]@);
+                assert(resolved[*semi_a as nat] == points@[*semi_a as int]@);
+                assert(resolved[*semi_b as nat] == points@[*semi_b as int]@);
+            }
+            // d = point - center
+            let dx = points[*point].x.sub(&points[*center].x);
+            let dy = points[*point].y.sub(&points[*center].y);
+            // u = semi_a - center
+            let ux = points[*semi_a].x.sub(&points[*center].x);
+            let uy = points[*semi_a].y.sub(&points[*center].y);
+            // v = semi_b - center
+            let vx = points[*semi_b].x.sub(&points[*center].x);
+            let vy = points[*semi_b].y.sub(&points[*center].y);
+            // a_sq = |u|², b_sq = |v|²
+            let a_sq = ux.mul(&ux).add(&uy.mul(&uy));
+            let b_sq = vx.mul(&vx).add(&vy.mul(&vy));
+            // proj_u = dot(d, u), proj_v = dot(d, v)
+            let proj_u = dx.mul(&ux).add(&dy.mul(&uy));
+            let proj_v = dx.mul(&vx).add(&dy.mul(&vy));
+            // Ellipse equation: proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
+            let lhs = proj_u.mul(&proj_u).mul(&b_sq).add(&proj_v.mul(&proj_v).mul(&a_sq));
+            let rhs = a_sq.mul(&b_sq);
+            rational_eqv(&lhs, &rhs)
+        }
+        _ => { false }
+    }
+}
+
+fn check_point_on_arc_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
+    requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
+    ensures out ==> constraint_satisfied(runtime_constraint_model(*rc), vec_to_resolved_map(points_view(points@))),
+{
+    let ghost resolved = vec_to_resolved_map(points_view(points@));
+    match rc {
+        RuntimeConstraint::PointOnArc { point, center, radius_point, arc_start, arc_end, .. } => {
+            proof {
+                assert(resolved.dom().contains(*point as nat));
+                assert(resolved.dom().contains(*center as nat));
+                assert(resolved.dom().contains(*radius_point as nat));
+                assert(resolved.dom().contains(*arc_start as nat));
+                assert(resolved.dom().contains(*arc_end as nat));
+                assert(resolved[*point as nat] == points@[*point as int]@);
+                assert(resolved[*center as nat] == points@[*center as int]@);
+                assert(resolved[*radius_point as nat] == points@[*radius_point as int]@);
+                assert(resolved[*arc_start as nat] == points@[*arc_start as int]@);
+                assert(resolved[*arc_end as nat] == points@[*arc_end as int]@);
+            }
+            // on_circle
+            let d_pt = sq_dist_2d_exec(&points[*point], &points[*center]);
+            let d_rp = sq_dist_2d_exec(&points[*radius_point], &points[*center]);
+            if !rational_eqv(&d_pt, &d_rp) { return false; }
+            // orient2d values
+            let o_se = orient2d_exec(&points[*center], &points[*arc_start], &points[*arc_end]);
+            let o_sp = orient2d_exec(&points[*center], &points[*arc_start], &points[*point]);
+            let o_pe = orient2d_exec(&points[*center], &points[*point], &points[*arc_end]);
+            // Check: 0 <= o_sp * o_se && 0 <= o_pe * o_se
+            let zero = RuntimeRational::from_int(0);
+            let prod1 = o_sp.mul(&o_se);
+            let prod2 = o_pe.mul(&o_se);
+            zero.le(&prod1) && zero.le(&prod2)
+        }
+        _ => { false }
+    }
+}
+
 // ===========================================================================
 //  Main checker (dispatcher)
 // ===========================================================================
@@ -737,12 +866,10 @@ pub fn check_constraint_satisfied_exec(
         RuntimeConstraint::Tangent { .. } => check_tangent_exec(rc, points),
         RuntimeConstraint::CircleTangent { .. } => check_circle_tangent_exec(rc, points),
         RuntimeConstraint::Angle { .. } => check_angle_exec(rc, points),
-        // New constraints — runtime checkers not yet implemented.
-        // These are verification-only constraints checked separately.
-        RuntimeConstraint::NotCoincident { .. } => false, // TODO: implement
-        RuntimeConstraint::NormalToCircle { .. } => false, // TODO: implement
-        RuntimeConstraint::PointOnEllipse { .. } => false, // TODO: implement
-        RuntimeConstraint::PointOnArc { .. } => false, // TODO: implement
+        RuntimeConstraint::NotCoincident { .. } => check_not_coincident_exec(rc, points),
+        RuntimeConstraint::NormalToCircle { .. } => check_normal_to_circle_exec(rc, points),
+        RuntimeConstraint::PointOnEllipse { .. } => check_point_on_ellipse_exec(rc, points),
+        RuntimeConstraint::PointOnArc { .. } => check_point_on_arc_exec(rc, points),
     }
 }
 

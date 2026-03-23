@@ -1298,6 +1298,7 @@ proof fn lemma_transfer_point_on_arc<R: PositiveRadicand<RationalModel>>(
 
 /// Transfer constraint_satisfied for verification constraints between
 /// two resolved maps that agree on all constraint entity IDs.
+#[verifier::rlimit(40)]
 proof fn lemma_verification_constraint_transfer<R: PositiveRadicand<RationalModel>>(
     c: Constraint<RationalModel>,
     resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
@@ -1313,24 +1314,51 @@ proof fn lemma_verification_constraint_transfer<R: PositiveRadicand<RationalMode
 {
     match c {
         Constraint::Tangent { line_a, line_b, center, radius_point } => {
+            assert(constraint_entities(c).contains(line_a));
+            assert(constraint_entities(c).contains(line_b));
+            assert(constraint_entities(c).contains(center));
+            assert(constraint_entities(c).contains(radius_point));
             lemma_transfer_tangent::<R>(line_a, line_b, center, radius_point, resolved1, resolved2);
         }
         Constraint::CircleTangent { c1, rp1, c2, rp2 } => {
+            assert(constraint_entities(c).contains(c1));
+            assert(constraint_entities(c).contains(rp1));
+            assert(constraint_entities(c).contains(c2));
+            assert(constraint_entities(c).contains(rp2));
             lemma_transfer_circle_tangent::<R>(c1, rp1, c2, rp2, resolved1, resolved2);
         }
         Constraint::Angle { a1, a2, b1, b2, cos_sq } => {
+            assert(constraint_entities(c).contains(a1));
+            assert(constraint_entities(c).contains(a2));
+            assert(constraint_entities(c).contains(b1));
+            assert(constraint_entities(c).contains(b2));
             lemma_transfer_angle::<R>(a1, a2, b1, b2, cos_sq, resolved1, resolved2);
         }
         Constraint::NotCoincident { a, b } => {
+            assert(constraint_entities(c).contains(a));
+            assert(constraint_entities(c).contains(b));
             lemma_transfer_not_coincident::<R>(a, b, resolved1, resolved2);
         }
         Constraint::NormalToCircle { line_a, line_b, center, radius_point } => {
+            assert(constraint_entities(c).contains(line_a));
+            assert(constraint_entities(c).contains(line_b));
+            assert(constraint_entities(c).contains(center));
+            assert(constraint_entities(c).contains(radius_point));
             lemma_transfer_normal_to_circle::<R>(line_a, line_b, center, radius_point, resolved1, resolved2);
         }
         Constraint::PointOnEllipse { point, center, semi_a, semi_b } => {
+            assert(constraint_entities(c).contains(point));
+            assert(constraint_entities(c).contains(center));
+            assert(constraint_entities(c).contains(semi_a));
+            assert(constraint_entities(c).contains(semi_b));
             lemma_transfer_point_on_ellipse::<R>(point, center, semi_a, semi_b, resolved1, resolved2);
         }
         Constraint::PointOnArc { point, center, radius_point, arc_start, arc_end } => {
+            assert(constraint_entities(c).contains(point));
+            assert(constraint_entities(c).contains(center));
+            assert(constraint_entities(c).contains(radius_point));
+            assert(constraint_entities(c).contains(arc_start));
+            assert(constraint_entities(c).contains(arc_end));
             lemma_transfer_point_on_arc::<R>(point, center, radius_point, arc_start, arc_end, resolved1, resolved2);
         }
         _ => {
