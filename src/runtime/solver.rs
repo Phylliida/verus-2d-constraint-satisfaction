@@ -553,9 +553,7 @@ pub fn greedy_solve_exec(
         invariant
             0 <= iter <= n,
             n == free_ids@.len(),
-        invariant_except_break
-            plan@.len() == iter,
-        invariant
+            plan@.len() <= iter,
             points@.len() == old(points)@.len(),
             resolved_flags@.len() == old(resolved_flags)@.len(),
             resolved_flags@.len() == points@.len(),
@@ -585,12 +583,15 @@ pub fn greedy_solve_exec(
         let mut found = false;
         let mut fi: usize = 0;
         assert(resolved_flags@.len() == points@.len());
+        let ghost plan_len_before = plan@.len();
         while fi < n
             invariant_except_break
                 !found,
+                plan@.len() == plan_len_before,
             invariant
                 0 <= fi <= n,
                 n == free_ids@.len(),
+                plan@.len() <= plan_len_before + 1,
                 points@.len() == old(points)@.len(),
                 resolved_flags@.len() == old(resolved_flags)@.len(),
                 resolved_flags@.len() == points@.len(),
@@ -613,6 +614,8 @@ pub fn greedy_solve_exec(
                 forall|j: int| 0 <= j < plan@.len() ==>
                     (step_target(#[trigger] plan@[j].spec_step()) as int) < points@.len(),
             ensures
+                plan@.len() <= plan_len_before + 1,
+                !found ==> plan@.len() == plan_len_before,
                 points@.len() == old(points)@.len(),
                 resolved_flags@.len() == old(resolved_flags)@.len(),
                 resolved_flags@.len() == points@.len(),
