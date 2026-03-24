@@ -573,22 +573,27 @@ pub proof fn lemma_well_constrained_covers_all<T: OrderedField>(
 
 /// Pigeonhole lemma: if plan has n distinct targets all drawn from n distinct
 /// free_ids, then every free_id is covered.
+/// Pigeonhole: an injection from {0..n} to {0..n} is a surjection.
+/// If plan has n distinct targets all from n distinct free_ids,
+/// every free_id is covered.
+///
+/// Proof by induction: consider plan[n-1]'s target. Remove it and
+/// the corresponding free_id. By induction, the prefix covers
+/// the remaining ids. The removed id is covered by plan[n-1].
+#[verifier::rlimit(30)]
 proof fn lemma_pigeonhole_covers<T: OrderedField>(
     free_ids: Seq<EntityId>,
     plan: Seq<ConstructionStep<T>>,
 )
     requires
         plan.len() == free_ids.len(),
-        // Distinct targets
         forall|i: int, j: int|
             0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
             step_target(plan[i]) != step_target(plan[j]),
-        // All targets from free_ids
         forall|k: int| #![trigger plan[k]]
             0 <= k < plan.len() ==>
             exists|fi: int| 0 <= fi < free_ids.len()
                 && step_target(plan[k]) == free_ids[fi],
-        // Distinct free_ids
         forall|i: int, j: int|
             0 <= i < free_ids.len() && 0 <= j < free_ids.len() && i != j ==>
             free_ids[i] != free_ids[j],
@@ -601,64 +606,20 @@ proof fn lemma_pigeonhole_covers<T: OrderedField>(
 {
     let n = plan.len();
     if n == 0 {
-        // free_ids.len() == 0, so the ensures is vacuously true
     } else {
         // plan[n-1] maps to some free_ids[fi_last]
         let fi_last = choose|fi: int| 0 <= fi < free_ids.len()
             && step_target(plan[n as int - 1]) == free_ids[fi];
 
-        // Remove plan[n-1] and free_ids[fi_last], apply induction
         let plan_prefix = plan.take(n as int - 1);
         let ids_reduced = remove_id(free_ids, fi_last);
-
-        // plan_prefix has n-1 distinct targets
-        assert forall|i: int, j: int|
-            0 <= i < plan_prefix.len() && 0 <= j < plan_prefix.len() && i != j
-        implies step_target(plan_prefix[i]) != step_target(plan_prefix[j])
-        by {
-            assert(plan_prefix[i] == plan[i]);
-            assert(plan_prefix[j] == plan[j]);
-        };
-
-        // plan_prefix targets are all != free_ids[fi_last] (since plan targets are distinct)
-        assert forall|k: int| 0 <= k < plan_prefix.len()
-        implies step_target(plan_prefix[k]) != free_ids[fi_last]
-        by {
-            assert(plan_prefix[k] == plan[k]);
-            // plan[k] != plan[n-1] since k != n-1
-        };
-
-        // ids_reduced has n-1 distinct elements
         lemma_remove_id_preserves_distinct(free_ids, fi_last);
 
-        // All plan_prefix targets are in ids_reduced
-        assert forall|k: int| #![trigger plan_prefix[k]]
-            0 <= k < plan_prefix.len()
-        implies exists|fi: int| 0 <= fi < ids_reduced.len()
-            && step_target(plan_prefix[k]) == ids_reduced[fi]
-        by {
-            assert(plan_prefix[k] == plan[k]);
-            // plan[k] target is in free_ids (from precondition)
-            let fi_orig = choose|fi: int| 0 <= fi < free_ids.len()
-                && step_target(plan[k]) == free_ids[fi];
-            // fi_orig != fi_last: plan[k] target != plan[n-1] target (distinct)
-            assert(step_target(plan[k]) != step_target(plan[n as int - 1]));
-            assert(step_target(plan[k]) != free_ids[fi_last]);
-            assert(free_ids[fi_orig] != free_ids[fi_last]);
-            assert(fi_orig != fi_last);
-            // Use helper: free_ids[fi_orig] appears in ids_reduced
-            lemma_remove_id_contains_others(free_ids, fi_last, fi_orig);
-        };
+        // Establish all 4 preconditions for the recursive call
+        // and call a helper that wraps the recursive call
+        lemma_pigeonhole_step::<T>(free_ids, plan, fi_last, ids_reduced, plan_prefix);
 
-        // Verify recursive call preconditions explicitly
-        assert(plan_prefix.len() == ids_reduced.len());
-
-        // Apply induction
-        lemma_pigeonhole_covers::<T>(ids_reduced, plan_prefix);
-
-        // Now lift: every ids_reduced element is covered by plan_prefix
-        // Every free_ids[i] with i != fi_last is in ids_reduced, so covered
-        // And free_ids[fi_last] is covered by plan[n-1]
+        // Lift back: every free_ids[i] is covered
         assert forall|i: int| #![trigger free_ids[i]]
             0 <= i < free_ids.len()
         implies exists|k: int| 0 <= k < plan.len()
@@ -667,16 +628,90 @@ proof fn lemma_pigeonhole_covers<T: OrderedField>(
             if i == fi_last {
                 assert(step_target(plan[n as int - 1]) == free_ids[fi_last]);
             } else {
-                // free_ids[i] is in ids_reduced (via helper)
                 lemma_remove_id_contains_others(free_ids, fi_last, i);
                 let i_red: int = if i < fi_last { i } else { i - 1 };
-                // By induction, some plan_prefix[k] targets ids_reduced[i_red]
                 let k_red = choose|k: int| 0 <= k < plan_prefix.len()
                     && step_target(plan_prefix[k]) == ids_reduced[i_red];
                 assert(plan_prefix[k_red] == plan[k_red]);
             }
         };
     }
+}
+
+/// Helper: establish preconditions and make the recursive pigeonhole call.
+/// Isolated to avoid Z3 context pollution between setup and the call.
+#[verifier::rlimit(30)]
+#[verifier::rlimit(30)]
+proof fn lemma_pigeonhole_step<T: OrderedField>(
+    free_ids: Seq<EntityId>,
+    plan: Seq<ConstructionStep<T>>,
+    fi_last: int,
+    ids_reduced: Seq<EntityId>,
+    plan_prefix: Seq<ConstructionStep<T>>,
+)
+    requires
+        plan.len() == free_ids.len(),
+        plan.len() > 0,
+        0 <= fi_last < free_ids.len(),
+        plan_prefix == plan.take(plan.len() as int - 1),
+        ids_reduced == remove_id(free_ids, fi_last),
+        step_target(plan[plan.len() as int - 1]) == free_ids[fi_last],
+        forall|i: int, j: int|
+            0 <= i < plan.len() && 0 <= j < plan.len() && i != j ==>
+            step_target(plan[i]) != step_target(plan[j]),
+        forall|k: int| #![trigger plan[k]]
+            0 <= k < plan.len() ==>
+            exists|fi: int| 0 <= fi < free_ids.len()
+                && step_target(plan[k]) == free_ids[fi],
+        forall|i: int, j: int|
+            0 <= i < free_ids.len() && 0 <= j < free_ids.len() && i != j ==>
+            free_ids[i] != free_ids[j],
+        ids_reduced.len() == free_ids.len() - 1,
+        forall|i: int, j: int|
+            0 <= i < ids_reduced.len() && 0 <= j < ids_reduced.len() && i != j ==>
+            ids_reduced[i] != ids_reduced[j],
+    ensures
+        forall|i: int| #![trigger ids_reduced[i]]
+            0 <= i < ids_reduced.len() ==>
+            exists|k: int| 0 <= k < plan_prefix.len()
+                && step_target(#[trigger] plan_prefix[k]) == ids_reduced[i],
+    decreases plan.len(),
+{
+    let n = plan.len();
+
+    // Precond 1: plan_prefix.len() == ids_reduced.len()
+    assert(plan_prefix.len() == n - 1);
+    assert(plan_prefix.len() == ids_reduced.len());
+
+    // Precond 2: distinct targets in plan_prefix
+    assert forall|i: int, j: int|
+        0 <= i < plan_prefix.len() && 0 <= j < plan_prefix.len() && i != j
+    implies step_target(plan_prefix[i]) != step_target(plan_prefix[j])
+    by {
+        assert(plan_prefix[i] == plan[i]);
+        assert(plan_prefix[j] == plan[j]);
+    };
+
+    // Precond 3: all plan_prefix targets are in ids_reduced
+    assert forall|k: int| #![trigger plan_prefix[k]]
+        0 <= k < plan_prefix.len()
+    implies exists|fi: int| 0 <= fi < ids_reduced.len()
+        && step_target(plan_prefix[k]) == ids_reduced[fi]
+    by {
+        assert(plan_prefix[k] == plan[k]);
+        assert(0 <= k < n);
+        let fi_orig = choose|fi: int| 0 <= fi < free_ids.len()
+            && step_target(plan[k]) == free_ids[fi];
+        assert(step_target(plan[k]) != step_target(plan[n as int - 1]));
+        assert(step_target(plan[k]) != free_ids[fi_last]);
+        assert(fi_orig != fi_last);
+        lemma_remove_id_contains_others(free_ids, fi_last, fi_orig);
+    };
+
+    // Precond 4: distinct ids_reduced — already in requires
+
+    // Recursive call
+    lemma_pigeonhole_covers::<T>(ids_reduced, plan_prefix);
 }
 
 } // verus!
