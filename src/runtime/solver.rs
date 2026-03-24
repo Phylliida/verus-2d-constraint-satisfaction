@@ -2557,8 +2557,13 @@ pub fn check_well_constrained(
             }
             i = i + 1;
         }
-        // Loop exited with i == free_ids.len(), so invariant gives fi < free_ids.len()
-        assert(i == free_ids.len());
+        // Loop exited: i == free_ids.len(), so fi < i becomes fi < free_ids@.len()
+        assert(i as int == free_ids@.len());
+        assert forall|k: int| #![trigger unresolved_ids@[k]]
+            0 <= k < unresolved_ids@.len()
+        implies exists|fi: int| 0 <= fi < free_ids@.len()
+            && unresolved_ids@[k] == free_ids@[fi]
+        by {};
         WellConstrainedResult::Stuck { n_resolved, n_free, unresolved_ids }
     }
 }
