@@ -2618,10 +2618,11 @@ pub fn compute_greedy_mask(
             let sign_val = term1.sub(&term2);
             let s = sign_val.signum();
 
-            // If sign_val > 0: P_plus is closer → keep plus=true → no flip
-            // If sign_val < 0: P_minus is closer → flip → set bit
-            // If sign_val = 0: equidistant → no flip
-            if s < 0 {
+            // sq_dist(P_plus,Q) - sq_dist(P_minus,Q) = qext(0, 4·sign_val/A)
+            // sign_val > 0 → P_plus farther → prefer P_minus → flip
+            // sign_val < 0 → P_minus farther → prefer P_plus → no flip
+            // sign_val = 0 → equidistant → no flip
+            if s > 0 {
                 mask = mask | (1u64 << circle_idx);
             }
 
@@ -2998,6 +2999,24 @@ fn build_entity_to_circle_step(
     map
 }
 
+/// Build the global entity → circle step index map.
+/// Returns a Vec of length n_points. entity_map[e] = circle_step_idx if entity e
+/// is the target of a circle step, or usize::MAX otherwise.
+/// Extracted so it can be built once and shared across component graph builds.
+pub fn build_global_entity_map(
+    plan: &Vec<RuntimeStepData>,
+    n_points: usize,
+) -> (out: Vec<usize>)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
+    ensures
+        out@.len() == n_points,
+{
+    build_entity_to_circle_step(plan, n_points)
+}
+
 /// Build coupling components from verification constraints.
 ///
 /// Two circle steps are coupled if their targets both appear in the same
@@ -3144,6 +3163,7 @@ pub fn build_component_graph(
     plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
     n_points: usize,
+    global_entity_map: &Vec<usize>,
 ) -> (out: ComponentGraph)
     requires
         forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
@@ -3153,6 +3173,7 @@ pub fn build_component_graph(
             runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
         coupling.step_to_component@.len() == coupling.n_circle_steps,
         coupling.n_circle_steps <= plan@.len(),
+        global_entity_map@.len() == n_points,
     ensures
         out.n_nodes == out.step_indices@.len(),
 {
