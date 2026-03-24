@@ -83,6 +83,19 @@ pub open spec fn step_has_positive_discriminant<T: OrderedField>(step: Construct
 //  Runtime locus intersection
 // ===========================================================================
 
+/// Whether the exec-level locus intersection will succeed whenever
+/// the spec-level intersection succeeds. False for degenerate cases:
+/// - Circle-line with degenerate line (a=0, b=0)
+/// - Circle-circle with coincident centers
+pub open spec fn loci_exec_compatible(l1: Locus2d<RationalModel>, l2: Locus2d<RationalModel>) -> bool {
+    match (l1, l2) {
+        (Locus2d::OnCircle(_), Locus2d::OnLine(line)) => line2_nondegenerate(line),
+        (Locus2d::OnLine(line), Locus2d::OnCircle(_)) => line2_nondegenerate(line),
+        (Locus2d::OnCircle(c1), Locus2d::OnCircle(c2)) => !c1.center.eqv(c2.center),
+        _ => true,
+    }
+}
+
 /// Check if a RuntimeLine2 is non-degenerate (normal vector is nonzero).
 fn line2_nondegenerate_exec(line: &RuntimeLine2) -> (out: bool)
     requires line.wf_spec(),
@@ -142,7 +155,8 @@ pub fn intersect_loci_exec(
                     id as nat, l1.spec_locus(), l2.spec_locus(),
                 ).unwrap()
                 && step_target(step.spec_step()) == id as nat,
-            None => true,
+            None => intersect_loci(id as nat, l1.spec_locus(), l2.spec_locus()).is_none()
+                || !loci_exec_compatible(l1.spec_locus(), l2.spec_locus()),
         },
 {
     match (l1, l2) {
@@ -2492,8 +2506,14 @@ pub fn check_well_constrained(
                         step_target(#[trigger] plan@[i].spec_step())
                             != step_target(#[trigger] plan@[j].spec_step())
             }
-            WellConstrainedResult::Stuck { n_resolved, n_free, .. } => {
-                n_resolved != n_free
+            WellConstrainedResult::Stuck { n_resolved, n_free, unresolved_ids } => {
+                &&& n_resolved != n_free
+                // Each unresolved_id is in free_ids
+                &&& forall|k: int| 0 <= k < unresolved_ids@.len() ==>
+                    exists|fi: int| 0 <= fi < free_ids@.len()
+                        && (#[trigger] unresolved_ids@[k]) == free_ids@[fi]
+                // At least one unresolved entity
+                &&& unresolved_ids@.len() > 0
             }
         },
 {
