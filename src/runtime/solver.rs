@@ -2467,6 +2467,13 @@ pub fn verify_plan_soundness_exec<R: PositiveRadicand<RationalModel>, RR: Runtim
 //  System well-constrained runtime diagnostic
 // ===========================================================================
 
+/// Every element of `ids` appears in `source`.
+pub open spec fn all_ids_from_source(ids: Seq<usize>, source: Seq<usize>) -> bool {
+    forall|k: int| #![trigger ids[k]]
+        0 <= k < ids.len() ==>
+        exists|fi: int| 0 <= fi < source.len() && ids[k] == source[fi]
+}
+
 /// Result of a well-constrained check.
 pub enum WellConstrainedResult {
     /// All free entities resolved. Contains the construction plan.
@@ -2510,10 +2517,7 @@ pub fn check_well_constrained(
                 &&& n_resolved != n_free
                 &&& n_free == free_ids@.len()
                 // Each unresolved_id came from free_ids
-                &&& forall|k: int| #![trigger unresolved_ids@[k]]
-                    0 <= k < unresolved_ids@.len() ==>
-                    exists|fi: int| 0 <= fi < free_ids@.len()
-                        && unresolved_ids@[k] == free_ids@[fi]
+                &&& all_ids_from_source(unresolved_ids@, free_ids@)
             }
         },
 {
@@ -2536,10 +2540,7 @@ pub fn check_well_constrained(
             n_resolved != n_free,
             forall|k: int| 0 <= k < plan@.len() ==> (#[trigger] plan@[k]).wf_spec(),
             // All unresolved_ids come from free_ids
-            forall|k: int| #![trigger unresolved_ids@[k]]
-                0 <= k < unresolved_ids@.len() ==>
-                exists|fi: int| 0 <= fi < free_ids@.len()
-                    && unresolved_ids@[k] == free_ids@[fi],
+            all_ids_from_source(unresolved_ids@, free_ids@),
         decreases free_ids@.len() - i,
     {
         let id = free_ids[i];
