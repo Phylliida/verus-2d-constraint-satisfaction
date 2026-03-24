@@ -9,6 +9,7 @@ use verus_geometry::line_intersection::*;
 use verus_geometry::runtime::point2::*;
 use verus_geometry::runtime::line2::{RuntimeLine2, line2_eval_exec};
 use verus_geometry::runtime::circle2::*;
+use verus_geometry::runtime::circle_circle::radical_axis_exec;
 use verus_geometry::runtime::line_intersection::*;
 use verus_rational::runtime_rational::RuntimeRational;
 use verus_linalg::runtime::copy_rational;
@@ -2834,6 +2835,183 @@ pub fn uf_union(parent: &mut Vec<usize>, x: usize, y: usize)
             assert(uf_root(parent@, x) == uf_root(parent@, small));
             assert(uf_root(parent@, small) == small);
         }
+    }
+}
+
+// ===========================================================================
+//  Coupling Component Decomposition
+// ===========================================================================
+//
+// Two circle steps are "coupled" if they share a verification constraint
+// (both targets appear in the same Tangent, Angle, etc.). The coupling
+// components partition circle steps into groups where sign choices interact.
+
+/// Result of coupling analysis: which circle steps are grouped together.
+pub struct CouplingComponents {
+    /// For each circle step index: its component ID (or usize::MAX if uncoupled).
+    pub step_to_component: Vec<usize>,
+    /// Number of components found.
+    pub n_components: usize,
+    /// Number of circle steps.
+    pub n_circle_steps: usize,
+}
+
+/// Build a mapping from entity ID → circle step index.
+/// Returns a Vec of length n_points where entity_to_step[e] = circle_step_idx
+/// if entity e is the target of a circle step, or usize::MAX otherwise.
+fn build_entity_to_circle_step(
+    plan: &Vec<RuntimeStepData>,
+    n_points: usize,
+) -> (out: Vec<usize>)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
+    ensures
+        out@.len() == n_points,
+{
+    let mut map: Vec<usize> = Vec::new();
+    let mut i: usize = 0;
+    while i < n_points
+        invariant 0 <= i <= n_points, map@.len() == i,
+        decreases n_points - i,
+    {
+        map.push(usize::MAX);
+        i = i + 1;
+    }
+
+    let mut circle_idx: usize = 0;
+    let mut si: usize = 0;
+    while si < plan.len()
+        invariant
+            0 <= si <= plan@.len(),
+            circle_idx <= si,
+            map@.len() == n_points,
+            forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+            forall|i: int| 0 <= i < plan@.len() ==>
+                (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
+        decreases plan@.len() - si,
+    {
+        if plan[si].is_circle_step() {
+            let target = plan[si].target_id();
+            map.set(target, circle_idx);
+            circle_idx = circle_idx + 1;
+        }
+        si = si + 1;
+    }
+    map
+}
+
+/// Build coupling components from verification constraints.
+///
+/// Two circle steps are coupled if their targets both appear in the same
+/// verification constraint. Uses union-find to compute connected components.
+pub fn build_coupling_components(
+    plan: &Vec<RuntimeStepData>,
+    constraints: &Vec<RuntimeConstraint>,
+    n_points: usize,
+) -> (out: CouplingComponents)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+    ensures
+        out.step_to_component@.len() == out.n_circle_steps,
+{
+    let k = count_circle_steps(plan);
+
+    // Phase 1: Map entity IDs to circle step indices
+    let entity_map = build_entity_to_circle_step(plan, n_points);
+
+    // Phase 2: Union-find over circle steps
+    let mut uf = uf_new(k);
+
+    let mut ci: usize = 0;
+    while ci < constraints.len()
+        invariant
+            0 <= ci <= constraints@.len(),
+            uf@.len() == k,
+            uf_wf(uf@),
+            entity_map@.len() == n_points,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+        decreases constraints@.len() - ci,
+    {
+        if is_verification_constraint_exec(&constraints[ci], n_points) {
+            let eids = constraint_entity_ids(&constraints[ci], n_points);
+            // Find all circle step indices referenced by this constraint
+            let mut first_circle: usize = usize::MAX;
+            let mut ei: usize = 0;
+            while ei < eids.len()
+                invariant
+                    0 <= ei <= eids@.len(),
+                    uf@.len() == k,
+                    uf_wf(uf@),
+                    entity_map@.len() == n_points,
+                    forall|j: int| 0 <= j < eids@.len() ==> (#[trigger] eids@[j] as int) < n_points,
+                    first_circle == usize::MAX || (first_circle as int) < k,
+                decreases eids@.len() - ei,
+            {
+                let eid = eids[ei];
+                let step_idx = entity_map[eid];
+                if step_idx != usize::MAX && step_idx < k {
+                    if first_circle == usize::MAX {
+                        first_circle = step_idx;
+                    } else {
+                        uf_union(&mut uf, first_circle, step_idx);
+                    }
+                }
+                ei = ei + 1;
+            }
+        }
+        ci = ci + 1;
+    }
+
+    // Phase 3: Extract components from union-find
+    // Assign component IDs: each root gets a unique component ID
+    let mut root_to_comp: Vec<usize> = Vec::new(); // root → component ID
+    let mut comp_ids: Vec<usize> = Vec::new(); // circle_step → component ID
+    let mut n_comps: usize = 0;
+
+    // Initialize root_to_comp with MAX
+    let mut i: usize = 0;
+    while i < k
+        invariant 0 <= i <= k, root_to_comp@.len() == i,
+        decreases k - i,
+    {
+        root_to_comp.push(usize::MAX);
+        i = i + 1;
+    }
+
+    // Assign component IDs
+    let mut si2: usize = 0;
+    while si2 < k
+        invariant
+            0 <= si2 <= k,
+            comp_ids@.len() == si2,
+            root_to_comp@.len() == k,
+            uf@.len() == k,
+            uf_wf(uf@),
+            n_comps <= si2,
+        decreases k - si2,
+    {
+        let root = uf_find(&uf, si2);
+        if root_to_comp[root] == usize::MAX {
+            root_to_comp.set(root, n_comps);
+            comp_ids.push(n_comps);
+            n_comps = n_comps + 1;
+        } else {
+            comp_ids.push(root_to_comp[root]);
+        }
+        si2 = si2 + 1;
+    }
+
+    CouplingComponents {
+        step_to_component: comp_ids,
+        n_components: n_comps,
+        n_circle_steps: k,
     }
 }
 
