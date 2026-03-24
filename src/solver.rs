@@ -709,6 +709,19 @@ proof fn lemma_pigeonhole_step<T: OrderedField>(
 
     // Precond 4: distinct ids_reduced — already in requires
 
+    // Re-assert in exact form needed by precondition
+    assert(plan_prefix.len() == ids_reduced.len());
+    assert(forall|i: int, j: int|
+        0 <= i < plan_prefix.len() && 0 <= j < plan_prefix.len() && i != j ==>
+        step_target(plan_prefix[i]) != step_target(plan_prefix[j]));
+    assert(forall|k: int| #![trigger plan_prefix[k]]
+        0 <= k < plan_prefix.len() ==>
+        exists|fi: int| 0 <= fi < ids_reduced.len()
+            && step_target(plan_prefix[k]) == ids_reduced[fi]);
+    assert(forall|i: int, j: int|
+        0 <= i < ids_reduced.len() && 0 <= j < ids_reduced.len() && i != j ==>
+        ids_reduced[i] != ids_reduced[j]);
+
     // Recursive call
     lemma_pigeonhole_covers::<T>(ids_reduced, plan_prefix);
 }
