@@ -2641,6 +2641,9 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
     let coupling = build_coupling_components(base_plan, constraints, n_points);
 
     // === Phase 3: Collect candidate masks ===
+    // Build global entity map once (shared across component graph builds)
+    let global_entity_map = build_global_entity_map(base_plan, n_points);
+
     // Use tree-aware exploration for each coupled component.
     let mut candidates: Vec<u64> = Vec::new();
     candidates.push(greedy_mask);
@@ -2652,6 +2655,7 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
             0 <= comp <= coupling.n_components,
             coupling.step_to_component@.len() == coupling.n_circle_steps,
             coupling.n_circle_steps <= base_plan@.len(),
+            global_entity_map@.len() == n_points,
             forall|j: int| 0 <= j < base_plan@.len() ==> (#[trigger] base_plan@[j]).wf_spec(),
             forall|j: int| 0 <= j < base_plan@.len() ==>
                 (step_target((#[trigger] base_plan@[j]).spec_step()) as int) < n_points,
@@ -2660,7 +2664,7 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         decreases coupling.n_components - comp,
     {
         let graph = build_component_graph(
-            &coupling, comp, base_plan, constraints, n_points);
+            &coupling, comp, base_plan, constraints, n_points, &global_entity_map);
         let comp_candidates = solve_component_dp(&graph, greedy_mask);
         // Append all component candidates
         let mut ci2: usize = 0;
@@ -2673,6 +2677,34 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         }
         comp = comp + 1;
     }
+
+    // === Phase 3b: Deduplicate candidates ===
+    // solve_component_dp includes greedy_mask for each component, and we added
+    // it explicitly + mask=0. Remove duplicates to avoid redundant verify calls.
+    let mut deduped: Vec<u64> = Vec::new();
+    let mut di: usize = 0;
+    while di < candidates.len()
+        invariant 0 <= di <= candidates@.len(),
+        decreases candidates@.len() - di,
+    {
+        let m = candidates[di];
+        let mut is_dup = false;
+        let mut dj: usize = 0;
+        while dj < deduped.len()
+            invariant 0 <= dj <= deduped@.len(),
+            decreases deduped@.len() - dj,
+        {
+            if deduped[dj] == m {
+                is_dup = true;
+            }
+            dj = dj + 1;
+        }
+        if !is_dup {
+            deduped.push(m);
+        }
+        di = di + 1;
+    }
+    let candidates = deduped;
 
     // === Phase 4: Try all candidate masks, track best ===
     let mut best: Option<SolvedPoints> = None;
