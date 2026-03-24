@@ -2563,7 +2563,11 @@ pub fn check_well_constrained(
             0 <= k < unresolved_ids@.len()
         implies exists|fi: int| 0 <= fi < free_ids@.len()
             && unresolved_ids@[k] == free_ids@[fi]
-        by {};
+        by {
+            let fi_old = choose|fi: int| 0 <= fi < (i as int)
+                && unresolved_ids@[k] == free_ids@[fi];
+            assert(0 <= fi_old < free_ids@.len());
+        };
         WellConstrainedResult::Stuck { n_resolved, n_free, unresolved_ids }
     }
 }
