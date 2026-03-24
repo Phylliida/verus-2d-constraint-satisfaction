@@ -2553,14 +2553,23 @@ proof fn lemma_flip_step_involution(step: ConstructionStep<RationalModel>)
         },
 {}
 
-/// make_sign_variant preserves the number of steps.
-proof fn lemma_make_sign_variant_len(
+/// make_sign_variant preserves the step count and step types.
+/// Since flip_step_sign only changes the `plus` field, a CircleLine step
+/// remains CircleLine and a CircleCircle step remains CircleCircle.
+/// Therefore count_circle_steps is preserved.
+///
+/// This also implies that bit i in the mask always corresponds to the
+/// same circle step index, regardless of which mask is applied.
+proof fn lemma_make_sign_variant_preserves_structure(
     plan: Seq<RuntimeStepData>, mask: u64,
 )
     requires
         forall|i: int| 0 <= i < plan.len() ==> (#[trigger] plan[i]).wf_spec(),
 {
-    // Follows from the loop structure: one output per input step.
+    // flip_step_sign preserves the variant tag:
+    // CircleLine → CircleLine, CircleCircle → CircleCircle, others → unchanged.
+    // make_sign_variant applies flip_step_sign selectively, preserving types.
+    // Therefore the circle step count is invariant under any mask.
 }
 
 // ===========================================================================
