@@ -2638,6 +2638,50 @@ proof fn lemma_uf_root_stable(
     }
 }
 
+/// If uf_root(old, z) == changed_idx (z's chain ends at changed_idx),
+/// and we redirect changed_idx to point to target (target < changed_idx),
+/// then uf_root(new, z) == uf_root(new, target).
+proof fn lemma_uf_root_redirected(
+    old_parent: Seq<usize>, new_parent: Seq<usize>,
+    z: usize, changed_idx: usize, target: usize,
+)
+    requires
+        uf_wf(old_parent),
+        uf_wf(new_parent),
+        old_parent.len() == new_parent.len(),
+        (z as int) < old_parent.len(),
+        (changed_idx as int) < old_parent.len(),
+        (target as int) < old_parent.len(),
+        old_parent[changed_idx as int] == changed_idx, // was a root
+        new_parent[changed_idx as int] == target, // now points to target
+        target < changed_idx,
+        // new_parent differs from old_parent only at changed_idx
+        forall|i: int| 0 <= i < old_parent.len() && i != changed_idx as int
+            ==> #[trigger] new_parent[i] == old_parent[i],
+        uf_root(old_parent, z) == changed_idx,
+    ensures
+        uf_root(new_parent, z) == uf_root(new_parent, target),
+    decreases z,
+{
+    if z >= old_parent.len() || old_parent[z as int] >= z {
+        // z is a root in old. Since uf_root(old, z) == z == changed_idx,
+        // z == changed_idx. In new: parent[z] == target < z, so recurse.
+        assert(z == changed_idx);
+        assert(new_parent[z as int] == target);
+        assert(new_parent[z as int] < z);
+        // uf_root(new, z) = uf_root(new, target) — by definition
+    } else {
+        // z is not a root in old. z != changed_idx (since changed_idx is a root).
+        assert(z != changed_idx);
+        assert(new_parent[z as int] == old_parent[z as int]);
+        // uf_root(old, z) = uf_root(old, parent[z]) = changed_idx
+        // So recurse: show uf_root(new, parent[z]) == uf_root(new, target)
+        lemma_uf_root_redirected(old_parent, new_parent, old_parent[z as int], changed_idx, target);
+        // uf_root(new, z) = uf_root(new, new_parent[z]) = uf_root(new, old_parent[z])
+        //                  = uf_root(new, target)   (by induction)
+    }
+}
+
 /// Create a new union-find with n elements, each its own root.
 pub fn uf_new(n: usize) -> (out: Vec<usize>)
     ensures
@@ -2709,44 +2753,86 @@ pub fn uf_union(parent: &mut Vec<usize>, x: usize, y: usize)
         return;
     }
     // Point larger root to smaller root (maintains parent[i] <= i)
-    if rx < ry {
-        parent.set(ry, rx);
-        // ry's parent was ry (self-root), now rx < ry, so parent[ry] = rx <= ry ✓
-        proof {
-            assert(uf_wf(parent@)) by {
-                assert forall|i: int| 0 <= i < parent@.len()
-                implies (#[trigger] parent@[i]) <= i as usize by {
-                    if i == ry as int {
-                        assert(parent@[i] == rx);
-                        assert(rx < ry);
-                    } else {
-                        assert(parent@[i] == old(parent)@[i]);
-                    }
+    // Always point larger root to smaller root
+    let (big, small) = if rx < ry { (ry, rx) } else { (rx, ry) };
+    let ghost old_p = parent@;
+    parent.set(big, small);
+
+    proof {
+        // Show uf_wf preserved
+        assert(uf_wf(parent@)) by {
+            assert forall|i: int| 0 <= i < parent@.len()
+            implies (#[trigger] parent@[i]) <= i as usize by {
+                if i == big as int {
+                    assert(parent@[i] == small);
+                    assert(small < big);
+                } else {
+                    assert(parent@[i] == old_p[i]);
                 }
             }
-            // Show x and y are connected in new parent
-            // uf_root(new, x) follows same chain as old until rx,
-            // and rx is still a self-root (we only changed ry's parent)
-            // uf_root(new, y) follows chain to ry, then ry's parent is rx, which is a root
-            // So both reach rx.
-            // This requires showing uf_root is preserved for elements not on ry's path.
-            // For now, admit the connection preservation — the structural argument
-            // is that only ry's parent changed, and ry was a root.
         }
-    } else {
-        parent.set(rx, ry);
-        proof {
-            assert(uf_wf(parent@)) by {
-                assert forall|i: int| 0 <= i < parent@.len()
-                implies (#[trigger] parent@[i]) <= i as usize by {
-                    if i == rx as int {
-                        assert(parent@[i] == ry);
-                        assert(ry < rx);
-                    } else {
-                        assert(parent@[i] == old(parent)@[i]);
-                    }
-                }
-            }
+
+        // Show uf_root(new, x) == uf_root(new, y)
+        // rx was x's root, ry was y's root.
+        // We set parent[big] = small, where {big, small} = {rx, ry}.
+        // small is still a self-root (we didn't change its parent).
+        // uf_root(new, big) = uf_root(new, small) = small (since parent[big]=small<big recurses, and parent[small]=small from old).
+        // uf_root(new, x) = small (x's chain leads to rx; if rx==small it's unchanged; if rx==big, it now goes to small)
+        // uf_root(new, y) = small (similarly)
+
+        // 1. small is still a root: parent[small] == small (unchanged)
+        assert(parent@[small as int] == old_p[small as int]);
+        assert(old_p[small as int] == small); // small was a root in old
+
+        // 2. uf_root(new, rx) == small
+        // If rx == small: uf_root(new, small) == small (self-root)
+        // If rx == big: uf_root(new, big) recurses to uf_root(new, small) == small
+        // 3. uf_root(new, ry) == small (same argument)
+
+        // 4. uf_root(new, x) == uf_root(new, rx) since x's chain to rx didn't change
+        //    (rx was x's root in old, and rx != big means the chain is unchanged;
+        //     or rx == big but then uf_root(new, x) follows to small)
+        // Actually this is complex. Let me just assert the key facts and let Z3 try.
+
+        // The root of x: uf_find returned rx, meaning uf_root(old, x) == rx.
+        // rx != ry (we checked). small < big.
+        // After setting parent[big] = small:
+        // - If rx == small: x's chain doesn't go through big (since rx==small is x's root,
+        //   and small != big). So uf_root(new, x) == uf_root(old, x) == rx == small.
+        //   y's chain goes to ry == big, then to small. uf_root(new, y) == small.
+        // - If rx == big: x's chain goes to rx==big, then to small.
+        //   y's chain doesn't go through big (ry==small, chain unchanged).
+        //   uf_root(new, y) == uf_root(old, y) == ry == small.
+
+        // uf_root(new, small) == small (small is still a self-root)
+        assert(parent@[small as int] == small);
+        assert(parent@[small as int] >= small); // triggers uf_root base case
+        assert(uf_root(parent@, small) == small);
+
+        // uf_root(new, big) == small (big now points to small, which is a root)
+        assert(parent@[big as int] == small);
+        assert(parent@[big as int] < big); // triggers uf_root recursive case
+        // uf_root(new, big) = uf_root(new, parent[big]) = uf_root(new, small) = small
+        assert(uf_root(parent@, big) == small);
+
+        // Use lemma_uf_root_stable for the unchanged chain,
+        // and lemma_uf_root_redirected for the redirected chain.
+        if rx < ry {
+            // big == ry, small == rx
+            // x: root was rx != big → chain stable → uf_root(new, x) == rx == small
+            lemma_uf_root_stable(old_p, parent@, x, big);
+            // y: root was ry == big → chain redirected → uf_root(new, y) == uf_root(new, small) == small
+            lemma_uf_root_redirected(old_p, parent@, y, big, small);
+            assert(uf_root(parent@, y) == uf_root(parent@, small));
+            assert(uf_root(parent@, small) == small);
+        } else {
+            // big == rx, small == ry
+            // y: root was ry != big → chain stable → uf_root(new, y) == ry == small
+            lemma_uf_root_stable(old_p, parent@, y, big);
+            // x: root was rx == big → chain redirected → uf_root(new, x) == uf_root(new, small) == small
+            lemma_uf_root_redirected(old_p, parent@, x, big, small);
+            assert(uf_root(parent@, x) == uf_root(parent@, small));
+            assert(uf_root(parent@, small) == small);
         }
     }
 }
