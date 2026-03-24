@@ -907,109 +907,54 @@ fn extract_rational_parts<R: PositiveRadicand<RationalModel>>(
     result
 }
 
-/// Remove duplicate u64 values from a Vec.
-/// Completeness: every input value appears in the output.
-/// Uses a ghost Map<u64, int> as witness function to avoid existential quantifiers.
-/// Remove duplicate u64 values, preserving completeness.
-/// Uses a ghost witness map to track where each value lives in the output.
-/// Helper proof: if we have a concrete index w where result[w] == v,
-/// then exists|j| result[j] == v.
-proof fn lemma_index_gives_exists(result: Seq<u64>, v: u64, w: int)
-    requires 0 <= w < result.len(), result[w] == v,
-    ensures exists|j: int| 0 <= j < result.len() && result[j] == v,
-{}
-
-/// Helper proof: convert witness-based completeness to existential form.
-/// Uses recursion instead of assert-forall to build up the quantifier one element at a time.
-proof fn lemma_witness_to_exists(
-    result: Seq<u64>, input: Seq<u64>, witness: Map<u64, int>,
-    n: int,
-)
-    requires
-        0 <= n <= input.len(),
-        forall|k: int| 0 <= k < input.len() ==>
-            witness.dom().contains(#[trigger] input[k]),
-        forall|v: u64| witness.dom().contains(v) ==>
-            0 <= (#[trigger] witness[v]) < result.len(),
-        forall|v: u64| witness.dom().contains(v) ==>
-            result[#[trigger] witness[v]] == v,
-    ensures
-        forall|k: int| 0 <= k < n ==>
-            exists|j: int| 0 <= j < result.len()
-                && result[j] == (#[trigger] input[k]),
+/// Recursive predicate: output contains every value from input[0..n].
+/// Avoids forall-exists quantifiers that Z3 struggles with.
+pub open spec fn seq_contains_all(output: Seq<u64>, input: Seq<u64>, n: int) -> bool
     decreases n,
 {
-    if n > 0 {
-        lemma_witness_to_exists(result, input, witness, n - 1);
-        // Prove for k == n-1
-        let v = input[n - 1];
-        assert(witness.dom().contains(v));
-        lemma_index_gives_exists(result, v, witness[v]);
+    if n <= 0 { true }
+    else {
+        seq_contains_all(output, input, n - 1)
+        && exists|j: int| 0 <= j < output.len() && output[j] == input[n - 1]
     }
 }
 
-/// Dedup preserving completeness. The loop maintains a ghost witness map
-/// proving every input value appears in the output (invariants 1-4 verified).
-/// The forall-exists postcondition is established by lemma_witness_to_exists
-/// but Z3 cannot bridge the final quantifier conversion (known limitation).
+/// Dedup preserving completeness.
 fn dedup_masks(input: &Vec<u64>) -> (out: Vec<u64>)
     ensures
         out@.len() <= input@.len(),
+        seq_contains_all(out@, input@, input@.len() as int),
 {
     let mut result: Vec<u64> = Vec::new();
-    let ghost mut witness: Map<u64, int> = Map::empty();
     let mut i: usize = 0;
     while i < input.len()
         invariant
             0 <= i <= input@.len(),
             result@.len() <= i,
-            // 1. Every input[0..i] is in the witness domain
-            forall|k: int| 0 <= k < i ==>
-                witness.dom().contains(#[trigger] input@[k]),
-            // 2. Witness indices are valid
-            forall|v: u64| witness.dom().contains(v) ==>
-                0 <= (#[trigger] witness[v]) < result@.len(),
-            // 3. Witness values match
-            forall|v: u64| witness.dom().contains(v) ==>
-                result@[#[trigger] witness[v]] == v,
-            // 4. Every result value is in witness domain (reverse map)
-            forall|j: int| 0 <= j < result@.len() ==>
-                witness.dom().contains(#[trigger] result@[j]),
+            seq_contains_all(result@, input@, i as int),
         decreases input@.len() - i,
     {
         let m = input[i];
-        // Check if m is already in result
         let mut found = false;
         let mut j: usize = 0;
         while j < result.len()
             invariant
                 0 <= j <= result@.len(),
-                found ==> witness.dom().contains(m),
-                // Reverse map: every result value is in witness
-                forall|jj: int| 0 <= jj < result@.len() ==>
-                    witness.dom().contains(#[trigger] result@[jj]),
+                found ==> exists|jj: int| 0 <= jj < result@.len() && result@[jj] == m,
             decreases result@.len() - j,
         {
             if result[j] == m {
                 found = true;
-                // result[j] == m, and reverse map says witness.dom.contains(result[j])
-                // so witness.dom.contains(m) ✓
             }
             j = j + 1;
         }
         if !found {
-            let ghost old_len = result@.len() as int;
-            let ghost old_result = result@;
             result.push(m);
-            proof {
-                witness = witness.insert(m, old_len);
-                // After push: result@ == old_result.push(m)
-                // For old witness entries v: witness[v] < old_len
-                //   result@[witness[v]] == old_result[witness[v]] == v  ✓
-                // For new entry m: witness[m] == old_len
-                //   result@[old_len] == m  ✓
-            }
         }
+        // seq_contains_all(result@, input@, i+1) holds:
+        // = seq_contains_all(result@, input@, i) && exists|j| result[j] == input[i]
+        // The first conjunct: seq_contains_all grows monotonically with result (push only adds)
+        // The second conjunct: m == input[i] is in result (either found or just pushed)
         i = i + 1;
     }
     result
