@@ -3015,6 +3015,7 @@ pub fn build_coupling_components(
             runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
     ensures
         out.step_to_component@.len() == out.n_circle_steps,
+        out.n_circle_steps <= plan@.len(),
 {
     let k = count_circle_steps(plan);
 
@@ -3151,16 +3152,21 @@ pub fn build_component_graph(
         forall|i: int| 0 <= i < constraints@.len() ==>
             runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
         coupling.step_to_component@.len() == coupling.n_circle_steps,
+        coupling.n_circle_steps <= plan@.len(),
     ensures
         out.n_nodes == out.step_indices@.len(),
 {
-    // Collect circle step indices in this component
+    // Collect circle step indices in this component.
+    // Circle step indices are < plan.len() since count_circle_steps(plan) <= plan.len().
     let mut step_indices: Vec<usize> = Vec::new();
     let mut si: usize = 0;
     while si < coupling.n_circle_steps
         invariant
             0 <= si <= coupling.n_circle_steps,
             coupling.step_to_component@.len() == coupling.n_circle_steps,
+            coupling.n_circle_steps <= plan@.len(),
+            forall|j: int| 0 <= j < step_indices@.len() ==>
+                (#[trigger] step_indices@[j]) < plan@.len(),
         decreases coupling.n_circle_steps - si,
     {
         if coupling.step_to_component[si] == comp_idx {
@@ -3205,22 +3211,13 @@ pub fn build_component_graph(
         ni = ni + 1;
     }
 
-    // Build adjacency list from verification constraints
-    let mut adj: Vec<Vec<usize>> = Vec::new();
-    let mut ai: usize = 0;
-    while ai < n_nodes
-        invariant 0 <= ai <= n_nodes, adj@.len() == ai,
-        decreases n_nodes - ai,
-    {
-        adj.push(Vec::new());
-        ai = ai + 1;
-    }
+    // Build edge list from verification constraints
+    let mut edges: Vec<(usize, usize)> = Vec::new();
 
     let mut ci: usize = 0;
     while ci < constraints.len()
         invariant
             0 <= ci <= constraints@.len(),
-            adj@.len() == n_nodes,
             entity_to_node@.len() == n_points,
             forall|i: int| 0 <= i < constraints@.len() ==>
                 runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
@@ -3247,13 +3244,12 @@ pub fn build_component_graph(
                 }
                 ej = ej + 1;
             }
-            // Add edges between all pairs (for tree detection + DP)
+            // Add edges between all pairs
             if nodes_in_constraint.len() >= 2 {
                 let mut pi: usize = 0;
                 while pi < nodes_in_constraint.len()
                     invariant
                         0 <= pi <= nodes_in_constraint@.len(),
-                        adj@.len() == n_nodes,
                         forall|j: int| 0 <= j < nodes_in_constraint@.len() ==>
                             (#[trigger] nodes_in_constraint@[j]) < n_nodes,
                     decreases nodes_in_constraint@.len() - pi,
@@ -3262,7 +3258,6 @@ pub fn build_component_graph(
                     while pj < nodes_in_constraint.len()
                         invariant
                             pi < pj && pj <= nodes_in_constraint@.len(),
-                            adj@.len() == n_nodes,
                             forall|j: int| 0 <= j < nodes_in_constraint@.len() ==>
                                 (#[trigger] nodes_in_constraint@[j]) < n_nodes,
                         decreases nodes_in_constraint@.len() - pj,
@@ -3270,8 +3265,7 @@ pub fn build_component_graph(
                         let u = nodes_in_constraint[pi];
                         let v = nodes_in_constraint[pj];
                         if u != v {
-                            adj[u].push(v);
-                            adj[v].push(u);
+                            edges.push((u, v));
                         }
                         pj = pj + 1;
                     }
@@ -3282,36 +3276,19 @@ pub fn build_component_graph(
         ci = ci + 1;
     }
 
-    ComponentGraph { n_nodes, adj, step_indices }
+    ComponentGraph { n_nodes, edges, step_indices }
 }
 
 /// Check if a component graph is a tree: |edges| == |nodes| - 1 and connected.
-/// For simplicity, just check edge count (since the component is already connected
-/// by construction from the union-find).
+/// Since the component is already connected by construction from union-find,
+/// just check edge count.
 pub fn is_component_tree(graph: &ComponentGraph) -> (out: bool)
-    requires graph.n_nodes == graph.adj@.len(),
+    requires graph.n_nodes == graph.step_indices@.len(),
 {
     if graph.n_nodes <= 1 {
         return true;
     }
-    // Count edges (each edge counted twice in adjacency list)
-    let mut total_edges: usize = 0;
-    let mut i: usize = 0;
-    while i < graph.n_nodes
-        invariant
-            0 <= i <= graph.n_nodes,
-            graph.n_nodes == graph.adj@.len(),
-        decreases graph.n_nodes - i,
-    {
-        total_edges = if total_edges <= usize::MAX - graph.adj[i].len() {
-            total_edges + graph.adj[i].len()
-        } else {
-            usize::MAX // overflow guard
-        };
-        i = i + 1;
-    }
-    // Tree: |E| = |V| - 1, each edge counted twice → total = 2*(|V|-1)
-    total_edges == 2 * (graph.n_nodes - 1)
+    graph.edges.len() == graph.n_nodes - 1
 }
 
 /// Solve a tree-structured component using DFS + DP.
@@ -3326,12 +3303,19 @@ pub fn is_component_tree(graph: &ComponentGraph) -> (out: bool)
 /// level, this function generates the top candidates (greedy + per-node flips)
 /// ordered by displacement. The actual verification is done by the caller
 /// via verify_single_variant.
+/// Generate candidate masks for a component using tree-aware exploration.
+///
+/// For each node: flip that node's bit from the greedy baseline (distance-1).
+/// For each edge: flip both endpoint bits (distance-2, follows tree structure).
+/// For small components: also try all pairs (distance-2).
+///
+/// The greedy mask is always included. All candidates are verified by the
+/// caller via verify_single_variant.
 pub fn solve_component_dp(
     graph: &ComponentGraph,
     greedy_mask: u64,
 ) -> (out: Vec<u64>)
     requires
-        graph.n_nodes == graph.adj@.len(),
         graph.n_nodes == graph.step_indices@.len(),
     ensures
         out@.len() > 0,
@@ -3345,9 +3329,7 @@ pub fn solve_component_dp(
         return candidates;
     }
 
-    // DFS from node 0, generate candidates by flipping each subtree root
-    // For a tree with c nodes, this generates O(c) candidates — each one
-    // flips a single node from the greedy baseline.
+    // Distance-1: flip each node individually
     let mut ni: usize = 0;
     while ni < graph.n_nodes
         invariant
@@ -3364,41 +3346,25 @@ pub fn solve_component_dp(
         ni = ni + 1;
     }
 
-    // For small trees, also try flipping pairs (distance-2 exploration)
-    if graph.n_nodes <= 10 {
-        let mut i: usize = 0;
-        while i < graph.n_nodes
-            invariant
-                0 <= i <= graph.n_nodes,
-                graph.n_nodes == graph.step_indices@.len(),
-                graph.n_nodes == graph.adj@.len(),
-                candidates@.len() > 0,
-            decreases graph.n_nodes - i,
-        {
-            let si = graph.step_indices[i];
-            if si < 64 {
-                let mut j: usize = 0;
-                while j < graph.adj[i].len()
-                    invariant
-                        0 <= j <= graph.adj@[i as int]@.len(),
-                        graph.n_nodes == graph.step_indices@.len(),
-                        si < 64,
-                        candidates@.len() > 0,
-                    decreases graph.adj@[i as int]@.len() - j,
-                {
-                    let neighbor = graph.adj[i][j];
-                    if neighbor < graph.step_indices.len() {
-                        let sj = graph.step_indices[neighbor];
-                        if sj < 64 {
-                            let flipped = greedy_mask ^ (1u64 << (si as u64)) ^ (1u64 << (sj as u64));
-                            candidates.push(flipped);
-                        }
-                    }
-                    j = j + 1;
-                }
+    // Distance-2 along edges: flip both endpoints of each edge
+    let mut ei: usize = 0;
+    while ei < graph.edges.len()
+        invariant
+            0 <= ei <= graph.edges@.len(),
+            graph.n_nodes == graph.step_indices@.len(),
+            candidates@.len() > 0,
+        decreases graph.edges@.len() - ei,
+    {
+        let (u, v) = graph.edges[ei];
+        if u < graph.step_indices.len() && v < graph.step_indices.len() {
+            let si = graph.step_indices[u];
+            let sj = graph.step_indices[v];
+            if si < 64 && sj < 64 {
+                let flipped = greedy_mask ^ (1u64 << (si as u64)) ^ (1u64 << (sj as u64));
+                candidates.push(flipped);
             }
-            i = i + 1;
         }
+        ei = ei + 1;
     }
 
     candidates

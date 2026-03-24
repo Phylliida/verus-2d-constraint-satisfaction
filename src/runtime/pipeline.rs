@@ -2641,96 +2641,38 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
     let coupling = build_coupling_components(base_plan, constraints, n_points);
 
     // === Phase 3: Collect candidate masks ===
-    // Start with greedy mask, then add variations for coupled components.
+    // Use tree-aware exploration for each coupled component.
     let mut candidates: Vec<u64> = Vec::new();
     candidates.push(greedy_mask);
+    candidates.push(0u64); // base plan as fallback
 
-    // For each coupled component, generate variations by flipping bits
-    // within the component from the greedy baseline.
-    // Small components (≤ 20 steps): exhaustive over component bits
-    // Large components: Hamming-distance-1 within component
     let mut comp: usize = 0;
     while comp < coupling.n_components
         invariant
             0 <= comp <= coupling.n_components,
             coupling.step_to_component@.len() == coupling.n_circle_steps,
+            coupling.n_circle_steps <= base_plan@.len(),
+            forall|j: int| 0 <= j < base_plan@.len() ==> (#[trigger] base_plan@[j]).wf_spec(),
+            forall|j: int| 0 <= j < base_plan@.len() ==>
+                (step_target((#[trigger] base_plan@[j]).spec_step()) as int) < n_points,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
         decreases coupling.n_components - comp,
     {
-        // Collect circle step indices in this component
-        let mut comp_steps: Vec<usize> = Vec::new();
-        let mut si: usize = 0;
-        while si < coupling.n_circle_steps
-            invariant
-                0 <= si <= coupling.n_circle_steps,
-                coupling.step_to_component@.len() == coupling.n_circle_steps,
-                forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
-            decreases coupling.n_circle_steps - si,
+        let graph = build_component_graph(
+            &coupling, comp, base_plan, constraints, n_points);
+        let comp_candidates = solve_component_dp(&graph, greedy_mask);
+        // Append all component candidates
+        let mut ci2: usize = 0;
+        while ci2 < comp_candidates.len()
+            invariant 0 <= ci2 <= comp_candidates@.len(),
+            decreases comp_candidates@.len() - ci2,
         {
-            if coupling.step_to_component[si] == comp && si < 63 {
-                comp_steps.push(si);
-            }
-            si = si + 1;
+            candidates.push(comp_candidates[ci2]);
+            ci2 = ci2 + 1;
         }
-
-        let comp_size = comp_steps.len();
-        if comp_size > 0 && comp_size <= 20 {
-            // Exhaustive: try all 2^comp_size sub-combinations
-            let n_combos: u64 = 1u64 << (comp_size as u64);
-            // n_combos >= 2 since comp_size >= 1 and 2^1 = 2
-            let mut combo: u64 = 1; // skip 0 (that's the greedy mask itself)
-            if n_combos <= 1 { return None; } // unreachable guard for verifier
-            while combo < n_combos
-                invariant
-                    1 <= combo <= n_combos,
-                    comp_size == comp_steps@.len(),
-                    comp_size >= 1,
-                    comp_size <= 20,
-                    n_combos == 1u64 << (comp_size as u64),
-                    forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
-                decreases n_combos - combo,
-            {
-                // XOR the component bits into the greedy mask
-                let mut m = greedy_mask;
-                let mut bi: usize = 0;
-                while bi < comp_size
-                    invariant
-                        0 <= bi <= comp_size,
-                        comp_size == comp_steps@.len(),
-                        comp_size <= 20,
-                        forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
-                    decreases comp_size - bi,
-                {
-                    let step_bit = comp_steps[bi];
-                    if (combo >> (bi as u64)) & 1 == 1 {
-                        m = m ^ (1u64 << (step_bit as u64));
-                    }
-                    bi = bi + 1;
-                }
-                candidates.push(m);
-                combo = combo + 1;
-            }
-        } else if comp_size > 20 {
-            // Large component: Hamming-distance-1 (flip one step at a time)
-            let mut hi: usize = 0;
-            while hi < comp_size
-                invariant
-                    0 <= hi <= comp_size,
-                    comp_size == comp_steps@.len(),
-                    forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
-                decreases comp_size - hi,
-            {
-                let step_bit = comp_steps[hi];
-                let m = greedy_mask ^ (1u64 << (step_bit as u64));
-                candidates.push(m);
-                hi = hi + 1;
-            }
-        }
-
         comp = comp + 1;
     }
-
-    // Also add the base plan mask (mask=0) as fallback
-    candidates.push(0u64);
 
     // === Phase 4: Try all candidate masks, track best ===
     let mut best: Option<SolvedPoints> = None;
