@@ -2537,6 +2537,102 @@ pub fn check_well_constrained(
 }
 
 // ===========================================================================
+//  Greedy Sign Mask Computation
+// ===========================================================================
+//
+// For each circle step, computes which sign (plus or minus) places the
+// intersection point closer to the target's current position. Uses the
+// exact rational sign test: sign(a*(cy-Qy) - b*(cx-Qx)).
+//
+// See lemma_cl_displacement_cancellation for the formal proof that this
+// rational expression determines which intersection is closer.
+
+/// Compute the greedy displacement-optimal sign mask.
+/// For each circle step, bit i is set iff the minus intersection is closer
+/// to the target's current position (i.e., flip from the base plan's plus=true).
+///
+/// Uses exact rational arithmetic: O(k) operations, ~6 muls/subs per step.
+pub fn compute_greedy_mask(
+    plan: &Vec<RuntimeStepData>,
+    initial_points: &Vec<RuntimePoint2>,
+) -> (out: u64)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (step_target((#[trigger] plan@[i]).spec_step()) as int) < initial_points@.len(),
+        all_points_wf(initial_points@),
+{
+    let mut mask: u64 = 0;
+    let mut circle_idx: u64 = 0;
+    let mut i: usize = 0;
+    while i < plan.len()
+        invariant
+            0 <= i <= plan@.len(),
+            circle_idx <= i as u64,
+            circle_idx <= 63,
+            forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
+            forall|j: int| 0 <= j < plan@.len() ==>
+                (step_target((#[trigger] plan@[j]).spec_step()) as int) < initial_points@.len(),
+            all_points_wf(initial_points@),
+        decreases plan@.len() - i,
+    {
+        if plan[i].is_circle_step() && circle_idx < 63 {
+            let target = plan[i].target_id();
+            let qx = &initial_points[target].x;
+            let qy = &initial_points[target].y;
+
+            // Get line coefficients (a, b) for the sign test
+            // CircleLine: directly from the line field
+            // CircleCircle: compute radical axis first
+            let (line_a, line_b, cx, cy) = match &plan[i] {
+                RuntimeStepData::CircleLine { circle, line, .. } => {
+                    let la = copy_rational(&line.a);
+                    let lb = copy_rational(&line.b);
+                    let ccx = copy_rational(&circle.center.x);
+                    let ccy = copy_rational(&circle.center.y);
+                    (la, lb, ccx, ccy)
+                }
+                RuntimeStepData::CircleCircle { c1, c2, .. } => {
+                    let ra = radical_axis_exec(c1, c2);
+                    let la = copy_rational(&ra.a);
+                    let lb = copy_rational(&ra.b);
+                    let ccx = copy_rational(&c1.center.x);
+                    let ccy = copy_rational(&c1.center.y);
+                    (la, lb, ccx, ccy)
+                }
+                _ => {
+                    // unreachable: is_circle_step() was true
+                    let z = RuntimeRational::from_int(0);
+                    let z2 = RuntimeRational::from_int(0);
+                    let z3 = RuntimeRational::from_int(0);
+                    let z4 = RuntimeRational::from_int(0);
+                    (z, z2, z3, z4)
+                }
+            };
+
+            // sign_val = a*(cy - Qy) - b*(cx - Qx)
+            let cy_qy = cy.sub(qy);
+            let cx_qx = cx.sub(qx);
+            let term1 = line_a.mul(&cy_qy);
+            let term2 = line_b.mul(&cx_qx);
+            let sign_val = term1.sub(&term2);
+            let s = sign_val.signum();
+
+            // If sign_val > 0: P_plus is closer → keep plus=true → no flip
+            // If sign_val < 0: P_minus is closer → flip → set bit
+            // If sign_val = 0: equidistant → no flip
+            if s < 0 {
+                mask = mask | (1u64 << circle_idx);
+            }
+
+            circle_idx = circle_idx + 1;
+        }
+        i = i + 1;
+    }
+    mask
+}
+
+// ===========================================================================
 //  Verified Union-Find
 // ===========================================================================
 //
