@@ -2708,12 +2708,12 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
             // Collected solutions are all verified
             forall|si: int| 0 <= si < solutions@.len() ==> {
                 let sol = #[trigger] solutions@[si];
-                sol.ghost_constraints@.len() == constraints_to_spec(constraints@).len() &&
-                sol.ext_points@.len() == initial_points@.len() &&
-                forall|i: int| 0 <= i < sol.ext_points@.len() ==>
-                    (#[trigger] sol.ext_points@[i]).wf_spec() &&
-                forall|j: int| 0 <= j < sol.plan@.len() ==>
-                    (#[trigger] sol.plan@[j]).wf_spec()
+                &&& sol.ghost_constraints@.len() == constraints_to_spec(constraints@).len()
+                &&& sol.ext_points@.len() == initial_points@.len()
+                &&& forall|i: int| 0 <= i < sol.ext_points@.len() ==>
+                        (#[trigger] sol.ext_points@[i]).wf_spec()
+                &&& forall|j: int| 0 <= j < sol.plan@.len() ==>
+                        (#[trigger] sol.plan@[j]).wf_spec()
             },
         decreases n - mask,
     {
