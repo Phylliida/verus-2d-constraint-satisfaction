@@ -907,41 +907,76 @@ fn extract_rational_parts<R: PositiveRadicand<RationalModel>>(
     result
 }
 
-/// Remove duplicate u64 values from a Vec, preserving order of first occurrence.
-/// Ensures: every value in the input appears in the output (completeness).
 /// Remove duplicate u64 values from a Vec.
-/// The output is a subset of the input with no duplicates.
-/// Completeness is guaranteed by construction: we scan all inputs
-/// and only skip values already present.
+/// Completeness: every input value appears in the output.
+/// Uses a ghost Map<u64, int> as witness function to avoid existential quantifiers.
 fn dedup_masks(input: Vec<u64>) -> (out: Vec<u64>)
     ensures
-        // Output is no larger than input
         out@.len() <= input@.len(),
+        // Completeness: every input value appears in output
+        forall|k: int| 0 <= k < input@.len() ==>
+            exists|j: int| 0 <= j < out@.len()
+                && out@[j] == (#[trigger] input@[k]),
 {
     let mut result: Vec<u64> = Vec::new();
+    // Ghost witness map: for each seen value, stores its index in result
+    let ghost mut witness: Map<u64, int> = Map::empty();
     let mut i: usize = 0;
     while i < input.len()
         invariant
             0 <= i <= input@.len(),
             result@.len() <= i,
+            // Witness map is valid: each entry points to the right value in result
+            forall|v: u64| #[trigger] witness.dom().contains(v) ==> {
+                &&& 0 <= witness[v] < result@.len()
+                &&& result@[witness[v]] == v
+            },
+            // Reverse: every value in result is in the witness map
+            forall|j: int| 0 <= j < result@.len() ==>
+                witness.dom().contains(#[trigger] result@[j]),
+            // Completeness so far: every input[0..i] has a witness
+            forall|k: int| 0 <= k < i ==>
+                witness.dom().contains(#[trigger] input@[k]),
         decreases input@.len() - i,
     {
         let m = input[i];
         let mut found = false;
         let mut j: usize = 0;
         while j < result.len()
-            invariant 0 <= j <= result@.len(),
+            invariant
+                0 <= j <= result@.len(),
+                found ==> witness.dom().contains(m),
+                // Outer invariant available: every result value is in witness
+                forall|jj: int| 0 <= jj < result@.len() ==>
+                    witness.dom().contains(#[trigger] result@[jj]),
             decreases result@.len() - j,
         {
             if result[j] == m {
                 found = true;
+                // result[j] == m, and witness has result[j], so witness has m
             }
             j = j + 1;
         }
         if !found {
+            let ghost idx: int = result@.len() as int;
             result.push(m);
+            proof {
+                witness = witness.insert(m, idx);
+            }
         }
         i = i + 1;
+    }
+    proof {
+        assert forall|k: int| 0 <= k < input@.len()
+        implies exists|j: int| 0 <= j < result@.len()
+            && result@[j] == (#[trigger] input@[k])
+        by {
+            let v = input@[k];
+            assert(witness.dom().contains(v));
+            let w = witness[v];
+            assert(0 <= w < result@.len());
+            assert(result@[w] == v);
+        }
     }
     result
 }
