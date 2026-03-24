@@ -2711,7 +2711,9 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
                 sol.ghost_constraints@.len() == constraints_to_spec(constraints@).len() &&
                 sol.ext_points@.len() == initial_points@.len() &&
                 forall|i: int| 0 <= i < sol.ext_points@.len() ==>
-                    (#[trigger] sol.ext_points@[i]).wf_spec()
+                    (#[trigger] sol.ext_points@[i]).wf_spec() &&
+                forall|j: int| 0 <= j < sol.plan@.len() ==>
+                    (#[trigger] sol.plan@[j]).wf_spec()
             },
         decreases n - mask,
     {
@@ -2751,7 +2753,9 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         );
         match result {
             Some(sol) => {
-                solutions.push(sol);
+                if sol.ext_points.len() == initial_points.len() {
+                    solutions.push(sol);
+                }
             }
             None => {}
         }
@@ -2764,6 +2768,15 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
 
     let best_idx = select_min_displacement::<R, RR>(
         &solutions, initial_points, initial_flags);
+    proof {
+        // Trigger the invariant for best_idx to establish to_solved_points preconditions
+        let best_sol = solutions@[best_idx as int];
+        assert(best_sol.ghost_constraints@.len() == constraints_to_spec(constraints@).len());
+        assert forall|i: int| 0 <= i < best_sol.ext_points@.len()
+        implies (#[trigger] best_sol.ext_points@[i]).wf_spec() by {}
+        assert forall|j: int| 0 <= j < best_sol.plan@.len()
+        implies (#[trigger] best_sol.plan@[j]).wf_spec() by {}
+    }
     Some(to_solved_points(&solutions[best_idx]))
 }
 
