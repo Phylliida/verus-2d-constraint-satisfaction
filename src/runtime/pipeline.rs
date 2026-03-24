@@ -2616,6 +2616,7 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
     }
 
     let k = count_circle_steps(base_plan);
+    let n_points = initial_points.len();
 
     if k > 63 {
         // Too many circle steps — try base plan only
@@ -2633,21 +2634,105 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         };
     }
 
-    let n: u64 = 1u64 << (k as u64);
-    let mut mask: u64 = 0;
+    // === Phase 1: Compute greedy mask (O(k) rational ops) ===
+    let greedy_mask = compute_greedy_mask(base_plan, initial_points);
+
+    // === Phase 2: Build coupling components ===
+    let coupling = build_coupling_components(base_plan, constraints, n_points);
+
+    // === Phase 3: Collect candidate masks ===
+    // Start with greedy mask, then add variations for coupled components.
+    let mut candidates: Vec<u64> = Vec::new();
+    candidates.push(greedy_mask);
+
+    // For each coupled component, generate variations by flipping bits
+    // within the component from the greedy baseline.
+    // Small components (≤ 20 steps): exhaustive over component bits
+    // Large components: Hamming-distance-1 within component
+    let mut comp: usize = 0;
+    while comp < coupling.n_components
+        invariant
+            0 <= comp <= coupling.n_components,
+            coupling.step_to_component@.len() == coupling.n_circle_steps,
+        decreases coupling.n_components - comp,
+    {
+        // Collect circle step indices in this component
+        let mut comp_steps: Vec<usize> = Vec::new();
+        let mut si: usize = 0;
+        while si < coupling.n_circle_steps
+            invariant
+                0 <= si <= coupling.n_circle_steps,
+                coupling.step_to_component@.len() == coupling.n_circle_steps,
+                forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
+            decreases coupling.n_circle_steps - si,
+        {
+            if coupling.step_to_component[si] == comp && si < 63 {
+                comp_steps.push(si);
+            }
+            si = si + 1;
+        }
+
+        let comp_size = comp_steps.len();
+        if comp_size <= 20 {
+            // Exhaustive: try all 2^comp_size sub-combinations
+            let n_combos: u64 = 1u64 << (comp_size as u64);
+            let mut combo: u64 = 1; // skip 0 (that's the greedy mask itself)
+            while combo < n_combos
+                invariant
+                    0 <= combo <= n_combos,
+                    n_combos == 1u64 << (comp_size as u64),
+                    comp_size <= 20,
+                    forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
+                decreases n_combos - combo,
+            {
+                // XOR the component bits into the greedy mask
+                let mut m = greedy_mask;
+                let mut bi: usize = 0;
+                while bi < comp_size
+                    invariant
+                        0 <= bi <= comp_size,
+                        forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
+                    decreases comp_size - bi,
+                {
+                    if (combo >> (bi as u64)) & 1 == 1 {
+                        let step_bit = comp_steps[bi];
+                        m = m ^ (1u64 << (step_bit as u64));
+                    }
+                    bi = bi + 1;
+                }
+                candidates.push(m);
+                combo = combo + 1;
+            }
+        } else {
+            // Large component: Hamming-distance-1 (flip one step at a time)
+            let mut hi: usize = 0;
+            while hi < comp_size
+                invariant
+                    0 <= hi <= comp_size,
+                    forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
+                decreases comp_size - hi,
+            {
+                let step_bit = comp_steps[hi];
+                let m = greedy_mask ^ (1u64 << (step_bit as u64));
+                candidates.push(m);
+                hi = hi + 1;
+            }
+        }
+
+        comp = comp + 1;
+    }
+
+    // Also add the base plan mask (mask=0) as fallback
+    candidates.push(0u64);
+
+    // === Phase 4: Try all candidate masks, track best ===
     let mut best: Option<SolvedPoints> = None;
     let mut best_disp: Option<RuntimeQExtRat<R>> = None;
 
-    // For k<=20: try all 2^k masks exhaustively (at most ~1M).
-    // For k>20: try only 1+k masks (base plan + Hamming-distance-1 neighbors).
-    let limit: u64 = if k <= 20 { n } else { 1 + k as u64 };
-
-    while mask < limit
+    let mut mi: usize = 0;
+    while mi < candidates.len()
         invariant
-            0 <= mask <= limit,
-            limit == n || limit == 1 + k as u64,
-            n == 1u64 << (k as u64),
-            k <= 63,
+            0 <= mi <= candidates@.len(),
             forall|j: int| 0 <= j < base_plan@.len() ==> (#[trigger] base_plan@[j]).wf_spec(),
             forall|i: int, j: int|
                 0 <= i < base_plan@.len() && 0 <= j < base_plan@.len() && i != j ==>
@@ -2670,22 +2755,9 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
                 best.unwrap().ghost_n_constraints_verified@ ==
                     constraints_to_spec(constraints@).len(),
             best_disp.is_some() ==> best_disp.unwrap().wf_spec(),
-        decreases limit - mask,
+        decreases candidates@.len() - mi,
     {
-        // For large k: only try mask=0 and single-bit masks (Hamming distance 1)
-        // mask 0 = base plan, masks 1..k = single bit flips
-        // For k<=20: try all masks exhaustively
-        let try_mask: u64 = if k <= 20 {
-            mask
-        } else if mask == 0 {
-            0u64
-        } else if mask - 1 < 64 {
-            // mask 1..k → single bit flip at position (mask-1)
-            1u64 << ((mask - 1) as u64)
-        } else {
-            0u64 // unreachable since k <= 63
-        };
-
+        let try_mask = candidates[mi];
         let variant = make_sign_variant(base_plan, try_mask);
         proof {
             assert forall|i: int, j: int|
@@ -2726,7 +2798,6 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
                     let disp = compute_total_displacement::<R, RR>(
                         &sol.ext_points, initial_points, initial_flags);
                     let sp = to_solved_points(&sol);
-                    // Compare with current best
                     let prev = best_disp;
                     match prev {
                         None => {
@@ -2746,7 +2817,7 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
             }
             None => {}
         }
-        mask = mask + 1;
+        mi = mi + 1;
     }
 
     best
