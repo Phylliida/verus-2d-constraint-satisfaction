@@ -2536,41 +2536,6 @@ pub fn check_well_constrained(
     }
 }
 
-// ===========================================================================
-//  Sign flip properties
-// ===========================================================================
-
-/// Double-flipping the `plus` field of a construction step gives back the original.
-/// This ensures make_sign_variant is its own inverse at the spec level.
-proof fn lemma_flip_step_involution(step: ConstructionStep<RationalModel>)
-    ensures
-        match step {
-            ConstructionStep::CircleLine { id, circle, line, plus } =>
-                ConstructionStep::CircleLine { id, circle, line, plus: !!plus } == step,
-            ConstructionStep::CircleCircle { id, circle1, circle2, plus } =>
-                ConstructionStep::CircleCircle { id, circle1, circle2, plus: !!plus } == step,
-            _ => true,
-        },
-{}
-
-/// make_sign_variant preserves the step count and step types.
-/// Since flip_step_sign only changes the `plus` field, a CircleLine step
-/// remains CircleLine and a CircleCircle step remains CircleCircle.
-/// Therefore count_circle_steps is preserved.
-///
-/// This also implies that bit i in the mask always corresponds to the
-/// same circle step index, regardless of which mask is applied.
-proof fn lemma_make_sign_variant_preserves_structure(
-    plan: Seq<RuntimeStepData>, mask: u64,
-)
-    requires
-        forall|i: int| 0 <= i < plan.len() ==> (#[trigger] plan[i]).wf_spec(),
-{
-    // flip_step_sign preserves the variant tag:
-    // CircleLine → CircleLine, CircleCircle → CircleCircle, others → unchanged.
-    // make_sign_variant applies flip_step_sign selectively, preserving types.
-    // Therefore the circle step count is invariant under any mask.
-}
 
 // ===========================================================================
 //  Greedy Sign Mask Computation
