@@ -1264,12 +1264,11 @@ fn check_ratio_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: b
             let result = d_eqv(&da, &rhs);
             proof {
                 if result {
-                    // dts_model(rhs) == dts_mul(dts_model(rsq), dts_sq_dist(...))
-                    // dts_eqv(dts_model(rsq), Rat(ratio_sq@))
-                    // Need: dts_eqv(dts_sq_dist(...), dts_mul(Rat(ratio_sq@), dts_sq_dist(...)))
-                    // Actually constraint_satisfied_dts uses dts_mul(Rat(ratio_sq@), ...) directly
-                    // but the runtime computes dts_mul(dts_model(rsq), ...) where dts_model(rsq) ≡ Rat(ratio_sq@)
-                    // This is a gap — we need mul congruence. Skip hint for now, Z3 may handle it.
+                    // Existential witness: r = dts_model(rsq)
+                    // 1. dts_eqv(dts_model(rsq), Rat(ratio_sq@)) — from dyn_embed_rational
+                    // 2. dts_eqv(da_spec, dts_mul(dts_model(rsq), db_spec)) — from d_eqv(da, rhs)
+                    // Both hold directly; provide witness to close the existential.
+                    assert(dts_eqv(dts_model(rsq), DynTowerSpec::Rat(ratio_sq@)));
                 }
             }
             result
