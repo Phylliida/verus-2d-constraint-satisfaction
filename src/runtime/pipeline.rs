@@ -2759,48 +2759,21 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         };
     }
 
-    let ghost clen = constraints_to_spec(constraints@).len();
+    let n: u64 = 1u64 << (k as u64);
+    let mut mask: u64 = 0;
     let mut best: Option<SolvedPoints> = None;
     let mut best_disp: Option<RuntimeQExtRat<R>> = None;
 
-    // Try a batch of masks: base plan (0), then Hamming-distance-1, then exhaustive for small k.
-    // Collect all candidate masks into a Vec for a single verified loop.
-    let mut masks: Vec<u64> = Vec::new();
+    // Search order: mask=0 first (base plan), then 1,2,3,...
+    // For k>20 we cap at 1+k masks (base + Hamming-distance-1 only).
+    let limit: u64 = if k <= 20 { n } else { 1 + k as u64 };
 
-    // Phase 1: base plan
-    masks.push(0);
-
-    // Phase 2: Hamming-distance-1 (single bit flips)
-    let mut bit: u64 = 0;
-    while bit < k as u64
-        invariant 0 <= bit <= k as u64, k <= 63,
-        decreases k as u64 - bit,
-    {
-        masks.push(1u64 << bit);
-        bit = bit + 1;
-    }
-
-    // Phase 3: remaining multi-bit masks for small k (need k >= 2 for multi-bit masks)
-    if k <= 20 && k >= 2 {
-        let n: u64 = 1u64 << (k as u64);
-        let mut m: u64 = 2;
-        while m < n
-            invariant 0 <= m <= n, k >= 2, k <= 20, k <= 63, n == 1u64 << (k as u64),
-            decreases n - m,
-        {
-            // Skip single-bit and zero masks (already added)
-            if m != 0 && (m & (m - 1)) != 0 {
-                masks.push(m);
-            }
-            m = m + 1;
-        }
-    }
-
-    // Single verified loop over all candidate masks
-    let mut mi: usize = 0;
-    while mi < masks.len()
+    while mask < limit
         invariant
-            0 <= mi <= masks@.len(),
+            0 <= mask <= limit,
+            limit <= n,
+            n == 1u64 << (k as u64),
+            k <= 63,
             forall|j: int| 0 <= j < base_plan@.len() ==> (#[trigger] base_plan@[j]).wf_spec(),
             forall|i: int, j: int|
                 0 <= i < base_plan@.len() && 0 <= j < base_plan@.len() && i != j ==>
@@ -2820,38 +2793,84 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
                     .dom().contains(i as nat),
             best.is_some() ==> best_disp.is_some(),
             best.is_some() ==>
-                best.unwrap().ghost_n_constraints_verified@ == clen,
+                best.unwrap().ghost_n_constraints_verified@ ==
+                    constraints_to_spec(constraints@).len(),
             best_disp.is_some() ==> best_disp.unwrap().wf_spec(),
-        decreases masks@.len() - mi,
+        decreases limit - mask,
     {
-        let candidate = try_variant::<R, RR>(
-            base_plan, masks[mi], constraints, initial_points, initial_flags);
-        match candidate {
-            Some((sp, disp)) => {
-                proof {
-                    assert(sp.ghost_n_constraints_verified@ == clen);
-                }
-                // Take ownership of best_disp to compare, then put back
-                let prev = best_disp;
-                match prev {
-                    None => {
-                        best = Some(sp);
-                        best_disp = Some(disp);
-                    }
-                    Some(bd) => {
-                        if disp.lt_exec::<RR>(&bd) {
+        // For large k: only try mask=0 and single-bit masks (Hamming distance 1)
+        // mask 0 = base plan, masks 1..k = single bit flips
+        // For k<=20: try all masks exhaustively
+        let try_mask = if k <= 20 {
+            mask
+        } else if mask == 0 {
+            0u64
+        } else {
+            // mask 1..k → single bit flip at position (mask-1)
+            1u64 << ((mask - 1) as u64)
+        };
+
+        let variant = make_sign_variant(base_plan, try_mask);
+        proof {
+            assert forall|i: int, j: int|
+                0 <= i < variant@.len() && 0 <= j < variant@.len() && i != j
+            implies
+                step_target(#[trigger] variant@[i].spec_step()) !=
+                step_target(#[trigger] variant@[j].spec_step())
+            by {
+                assert(step_target(variant@[i].spec_step()) == step_target(base_plan@[i].spec_step()));
+                assert(step_target(variant@[j].spec_step()) == step_target(base_plan@[j].spec_step()));
+            }
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                (step_target((#[trigger] variant@[j]).spec_step()) as int) < initial_points@.len()
+            by {
+                assert(step_target(variant@[j].spec_step()) == step_target(base_plan@[j].spec_step()));
+            }
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                step_has_positive_discriminant((#[trigger] variant@[j]).spec_step())
+            by {
+                assert(step_has_positive_discriminant(variant@[j].spec_step())
+                    == step_has_positive_discriminant(base_plan@[j].spec_step()));
+            }
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                step_geometrically_valid((#[trigger] variant@[j]).spec_step())
+            by {
+                assert(variant@[j].wf_spec());
+            }
+        }
+        let result = verify_single_variant::<R, RR>(
+            &variant, constraints, initial_points, initial_flags,
+        );
+        match result {
+            Some(sol) => {
+                if sol.ext_points.len() == initial_points.len() {
+                    let disp = compute_total_displacement::<R, RR>(
+                        &sol.ext_points, initial_points, initial_flags);
+                    let sp = to_solved_points(&sol);
+                    // Compare with current best
+                    let prev = best_disp;
+                    match prev {
+                        None => {
                             best = Some(sp);
                             best_disp = Some(disp);
-                        } else {
-                            // Keep old best, restore best_disp
-                            best_disp = Some(bd);
+                        }
+                        Some(bd) => {
+                            if disp.lt_exec::<RR>(&bd) {
+                                best = Some(sp);
+                                best_disp = Some(disp);
+                            } else {
+                                best_disp = Some(bd);
+                            }
                         }
                     }
                 }
             }
             None => {}
         }
-        mi = mi + 1;
+        mask = mask + 1;
     }
 
     best
