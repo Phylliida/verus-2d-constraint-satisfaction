@@ -538,6 +538,8 @@ pub fn greedy_solve_exec(
         // Each target is a valid entity
         forall|i: int| 0 <= i < out@.len() ==>
             (step_target(#[trigger] out@[i].spec_step()) as int) < old(points)@.len(),
+        // Plan length bounded by number of free entities
+        out@.len() <= free_ids@.len(),
         points@.len() == old(points)@.len(),
         resolved_flags@.len() == old(resolved_flags)@.len(),
         all_points_wf(points@),
@@ -551,6 +553,9 @@ pub fn greedy_solve_exec(
         invariant
             0 <= iter <= n,
             n == free_ids@.len(),
+        invariant_except_break
+            plan@.len() == iter,
+        invariant
             points@.len() == old(points)@.len(),
             resolved_flags@.len() == old(resolved_flags)@.len(),
             resolved_flags@.len() == points@.len(),
