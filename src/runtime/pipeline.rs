@@ -919,6 +919,33 @@ pub open spec fn seq_contains_all(output: Seq<u64>, input: Seq<u64>, n: int) -> 
     }
 }
 
+/// seq_contains_all is monotone in the output: extending the output preserves it.
+/// If output[w] == val, then output.push(v)[w] == val (push preserves existing elements).
+proof fn lemma_push_preserves_index(output: Seq<u64>, v: u64, w: int, val: u64)
+    requires 0 <= w < output.len(), output[w] == val,
+    ensures output.push(v)[w] == val,
+{}
+
+/// seq_contains_all is monotone: extending output preserves containment.
+proof fn lemma_seq_contains_all_push(output: Seq<u64>, input: Seq<u64>, n: int, v: u64)
+    requires
+        seq_contains_all(output, input, n),
+        0 <= n,
+    ensures
+        seq_contains_all(output.push(v), input, n),
+    decreases n,
+{
+    if n > 0 {
+        lemma_seq_contains_all_push(output, input, n - 1, v);
+        // For k == n-1: need exists|j| output.push(v)[j] == input[n-1]
+        // From seq_contains_all(output, input, n):
+        //   exists|w| output[w] == input[n-1]
+        // output.push(v)[w] == output[w] for w < output.len()
+        let w = choose|w: int| 0 <= w < output.len() && output[w] == input[n - 1];
+        lemma_push_preserves_index(output, v, w, input[n - 1]);
+    }
+}
+
 /// Dedup preserving completeness.
 fn dedup_masks(input: &Vec<u64>) -> (out: Vec<u64>)
     ensures
@@ -949,12 +976,22 @@ fn dedup_masks(input: &Vec<u64>) -> (out: Vec<u64>)
             j = j + 1;
         }
         if !found {
+            proof {
+                lemma_seq_contains_all_push(result@, input@, i as int, m);
+            }
             result.push(m);
+            // result@ is now old_result@.push(m), and the lemma gave us
+            // seq_contains_all(old_result@.push(m), input@, i) which is
+            // seq_contains_all(result@, input@, i) ✓
+            // Also: result@[result@.len()-1] == m == input@[i] ✓
+            proof {
+                assert(result@[result@.len() - 1] == m);
+                assert(m == input@[i as int]);
+            }
+        } else {
+            // result unchanged, so seq_contains_all(result@, input@, i) still holds
+            // and the inner loop proved exists|j| result@[j] == m == input@[i]
         }
-        // seq_contains_all(result@, input@, i+1) holds:
-        // = seq_contains_all(result@, input@, i) && exists|j| result[j] == input[i]
-        // The first conjunct: seq_contains_all grows monotonically with result (push only adds)
-        // The second conjunct: m == input[i] is in result (either found or just pushed)
         i = i + 1;
     }
     result
