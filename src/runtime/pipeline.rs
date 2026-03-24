@@ -7,7 +7,7 @@ use verus_linalg::runtime::copy_rational;
 use verus_quadratic_extension::radicand::PositiveRadicand;
 use verus_quadratic_extension::spec::SpecQuadExt;
 use verus_geometry::constructed_scalar::lift_point2;
-use verus_quadratic_extension::runtime::RuntimeRadicand;
+use verus_quadratic_extension::runtime::{RuntimeRadicand, RuntimeQExtRat};
 use verus_quadratic_extension::instances::{Sqrt2, Sqrt3, Sqrt5, Sqrt6, Sqrt7, Sqrt10, Sqrt11, Sqrt13};
 use verus_quadratic_extension::runtime::{RuntimeSqrt2, RuntimeSqrt3, RuntimeSqrt5, RuntimeSqrt6, RuntimeSqrt7, RuntimeSqrt10, RuntimeSqrt11, RuntimeSqrt13};
 use verus_geometry::runtime::circle_line::cl_discriminant_exec;
@@ -923,6 +923,60 @@ fn to_solved_points<R: PositiveRadicand<RationalModel>>(
     let points_re = extract_rational_parts(&solution.ext_points);
     let ghost n = solution.ghost_constraints@.len();
     SolvedPoints { plan, points_re, ghost_n_constraints_verified: Ghost(n) }
+}
+
+// ===========================================================================
+//  Minimum displacement selection
+// ===========================================================================
+
+/// Among a non-empty vec of verified solutions, return the index of the one
+/// with minimum total squared displacement from initial_points (free entities only).
+fn select_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    solutions: &Vec<VerifiedSolution<R>>,
+    initial_points: &Vec<RuntimePoint2>,
+    initial_flags: &Vec<bool>,
+) -> (out: usize)
+    requires
+        solutions@.len() > 0,
+        initial_points@.len() == initial_flags@.len(),
+        all_points_wf(initial_points@),
+        forall|si: int| 0 <= si < solutions@.len() ==> {
+            let sol = #[trigger] solutions@[si];
+            sol.ext_points@.len() == initial_points@.len() &&
+            forall|i: int| 0 <= i < sol.ext_points@.len() ==>
+                (#[trigger] sol.ext_points@[i]).wf_spec()
+        },
+    ensures
+        (out as int) < solutions@.len(),
+{
+    let mut best_disp = compute_total_displacement::<R, RR>(
+        &solutions[0].ext_points, initial_points, initial_flags);
+    let mut best_idx: usize = 0;
+    let mut i: usize = 1;
+    while i < solutions.len()
+        invariant
+            1 <= i <= solutions@.len(),
+            (best_idx as int) < solutions@.len(),
+            best_disp.wf_spec(),
+            initial_points@.len() == initial_flags@.len(),
+            all_points_wf(initial_points@),
+            forall|si: int| 0 <= si < solutions@.len() ==> {
+                let sol = #[trigger] solutions@[si];
+                sol.ext_points@.len() == initial_points@.len() &&
+                forall|i: int| 0 <= i < sol.ext_points@.len() ==>
+                    (#[trigger] sol.ext_points@[i]).wf_spec()
+            },
+        decreases solutions@.len() - i,
+    {
+        let disp_i = compute_total_displacement::<R, RR>(
+            &solutions[i].ext_points, initial_points, initial_flags);
+        if disp_i.lt_exec::<RR>(&best_disp) {
+            best_disp = disp_i;
+            best_idx = i;
+        }
+        i = i + 1;
+    }
+    best_idx
 }
 
 // ===========================================================================
@@ -2567,6 +2621,242 @@ pub fn solve_and_verify_first_auto(
             &base_plan, constraints, &initial_points, &initial_flags),
         _ => lazy_verify_first::<Sqrt2, RuntimeSqrt2>(
             &base_plan, constraints, &initial_points, &initial_flags),
+    }
+}
+
+// ===========================================================================
+//  Minimum-displacement solve-and-verify
+// ===========================================================================
+
+/// Like lazy_verify_first, but collects ALL passing variants and selects
+/// the one with minimum total squared displacement from initial_points.
+fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    base_plan: &Vec<RuntimeStepData>,
+    constraints: &Vec<RuntimeConstraint>,
+    initial_points: &Vec<RuntimePoint2>,
+    initial_flags: &Vec<bool>,
+) -> (out: Option<SolvedPoints>)
+    requires
+        initial_points@.len() == initial_flags@.len(),
+        all_points_wf(initial_points@),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], initial_points@.len() as nat),
+        forall|i: int| 0 <= i < initial_flags@.len() ==>
+            (#[trigger] initial_flags@[i]) ==
+            partial_resolved_map(points_view(initial_points@), initial_flags@)
+                .dom().contains(i as nat),
+        forall|j: int| 0 <= j < base_plan@.len() ==> (#[trigger] base_plan@[j]).wf_spec(),
+        forall|i: int, j: int|
+            0 <= i < base_plan@.len() && 0 <= j < base_plan@.len() && i != j ==>
+            step_target(#[trigger] base_plan@[i].spec_step()) !=
+            step_target(#[trigger] base_plan@[j].spec_step()),
+        forall|j: int| 0 <= j < base_plan@.len() ==>
+            (step_target((#[trigger] base_plan@[j]).spec_step()) as int) < initial_points@.len(),
+    ensures
+        out.is_some() ==>
+            out.unwrap().ghost_n_constraints_verified@
+                == constraints_to_spec(constraints@).len(),
+{
+    if !check_variant_feasible(base_plan) {
+        return None;
+    }
+
+    let k = count_circle_steps(base_plan);
+
+    if k > 63 {
+        // Too many circle steps — try base plan only
+        proof {
+            assert forall|j: int| 0 <= j < base_plan@.len()
+            implies step_geometrically_valid((#[trigger] base_plan@[j]).spec_step())
+            by { assert(base_plan@[j].wf_spec()); }
+        }
+        let result = verify_single_variant::<R, RR>(
+            base_plan, constraints, initial_points, initial_flags,
+        );
+        return match result {
+            Some(sol) => Some(to_solved_points(&sol)),
+            None => None,
+        };
+    }
+
+    let n: u64 = 1u64 << (k as u64);
+    let mut mask: u64 = 0;
+    let mut solutions: Vec<VerifiedSolution<R>> = Vec::new();
+
+    while mask < n
+        invariant
+            0 <= mask <= n,
+            n == 1u64 << (k as u64),
+            k <= 63,
+            forall|j: int| 0 <= j < base_plan@.len() ==> (#[trigger] base_plan@[j]).wf_spec(),
+            forall|i: int, j: int|
+                0 <= i < base_plan@.len() && 0 <= j < base_plan@.len() && i != j ==>
+                step_target(#[trigger] base_plan@[i].spec_step()) !=
+                step_target(#[trigger] base_plan@[j].spec_step()),
+            forall|j: int| 0 <= j < base_plan@.len() ==>
+                (step_target((#[trigger] base_plan@[j]).spec_step()) as int) < initial_points@.len(),
+            forall|j: int| 0 <= j < base_plan@.len() ==>
+                step_has_positive_discriminant((#[trigger] base_plan@[j]).spec_step()),
+            initial_points@.len() == initial_flags@.len(),
+            all_points_wf(initial_points@),
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], initial_points@.len() as nat),
+            forall|i: int| 0 <= i < initial_flags@.len() ==>
+                (#[trigger] initial_flags@[i]) ==
+                partial_resolved_map(points_view(initial_points@), initial_flags@)
+                    .dom().contains(i as nat),
+            // Collected solutions are all verified
+            forall|si: int| 0 <= si < solutions@.len() ==> {
+                let sol = #[trigger] solutions@[si];
+                sol.ghost_constraints@.len() == constraints_to_spec(constraints@).len() &&
+                sol.ext_points@.len() == initial_points@.len() &&
+                forall|i: int| 0 <= i < sol.ext_points@.len() ==>
+                    (#[trigger] sol.ext_points@[i]).wf_spec()
+            },
+        decreases n - mask,
+    {
+        let variant = make_sign_variant(base_plan, mask);
+        proof {
+            assert forall|i: int, j: int|
+                0 <= i < variant@.len() && 0 <= j < variant@.len() && i != j
+            implies
+                step_target(#[trigger] variant@[i].spec_step()) !=
+                step_target(#[trigger] variant@[j].spec_step())
+            by {
+                assert(step_target(variant@[i].spec_step()) == step_target(base_plan@[i].spec_step()));
+                assert(step_target(variant@[j].spec_step()) == step_target(base_plan@[j].spec_step()));
+            }
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                (step_target((#[trigger] variant@[j]).spec_step()) as int) < initial_points@.len()
+            by {
+                assert(step_target(variant@[j].spec_step()) == step_target(base_plan@[j].spec_step()));
+            }
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                step_has_positive_discriminant((#[trigger] variant@[j]).spec_step())
+            by {
+                assert(step_has_positive_discriminant(variant@[j].spec_step())
+                    == step_has_positive_discriminant(base_plan@[j].spec_step()));
+            }
+            assert forall|j: int| 0 <= j < variant@.len()
+            implies
+                step_geometrically_valid((#[trigger] variant@[j]).spec_step())
+            by {
+                assert(variant@[j].wf_spec());
+            }
+        }
+        let result = verify_single_variant::<R, RR>(
+            &variant, constraints, initial_points, initial_flags,
+        );
+        match result {
+            Some(sol) => {
+                solutions.push(sol);
+            }
+            None => {}
+        }
+        mask = mask + 1;
+    }
+
+    if solutions.len() == 0 {
+        return None;
+    }
+
+    let best_idx = select_min_displacement::<R, RR>(
+        &solutions, initial_points, initial_flags);
+    Some(to_solved_points(&solutions[best_idx]))
+}
+
+/// Solve constraints with minimum-displacement variant selection.
+///
+/// Returns a `SolveResult` distinguishing three outcomes:
+/// - `Solved`: verified solution with minimum displacement from initial positions
+/// - `NoConstruction`: greedy solver couldn't build a construction plan
+/// - `Unsatisfiable`: plan found but no sign variant satisfies all constraints
+pub fn solve_min_displacement_auto(
+    free_ids: &Vec<usize>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: &mut Vec<RuntimePoint2>,
+    resolved_flags: &mut Vec<bool>,
+) -> (out: SolveResult)
+    requires
+        old(points)@.len() == old(resolved_flags)@.len(),
+        all_points_wf(old(points)@),
+        forall|i: int| 0 <= i < free_ids@.len() ==>
+            (free_ids@[i] as int) < old(points)@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], old(points)@.len() as nat),
+        forall|i: int| 0 <= i < old(resolved_flags)@.len() ==>
+            (#[trigger] old(resolved_flags)@[i]) ==
+            partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
+                .dom().contains(i as nat),
+    ensures
+        match out {
+            SolveResult::Solved { solution } =>
+                solution.ghost_n_constraints_verified@
+                    == constraints_to_spec(constraints@).len(),
+            _ => true,
+        },
+{
+    // Save initial state before greedy_solve_exec mutates
+    let initial_points = copy_points_vec(points);
+    let initial_flags = copy_flags_vec(resolved_flags);
+
+    // Run greedy solver (mutates points/resolved_flags)
+    let base_plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
+
+    // Check well-constrained: if plan doesn't cover all free entities, solver got stuck
+    if base_plan.len() != free_ids.len() {
+        // Collect unresolved entity IDs: free entities whose flag is still false
+        let mut unresolved: Vec<usize> = Vec::new();
+        let mut fi: usize = 0;
+        while fi < free_ids.len()
+            invariant
+                0 <= fi <= free_ids@.len(),
+                forall|i: int| 0 <= i < free_ids@.len() ==>
+                    (free_ids@[i] as int) < resolved_flags@.len(),
+            decreases free_ids@.len() - fi,
+        {
+            let id = free_ids[fi];
+            if !resolved_flags[id] {
+                unresolved.push(id);
+            }
+            fi = fi + 1;
+        }
+        return SolveResult::NoConstruction {
+            n_resolved: base_plan.len(),
+            n_free: free_ids.len(),
+            unresolved_ids: unresolved,
+        };
+    }
+
+    // Detect discriminant and dispatch to appropriate generic instantiation
+    let disc = detect_discriminant_single(&base_plan);
+
+    let result = match disc {
+        2 => lazy_verify_min_displacement::<Sqrt2, RuntimeSqrt2>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        3 => lazy_verify_min_displacement::<Sqrt3, RuntimeSqrt3>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        5 => lazy_verify_min_displacement::<Sqrt5, RuntimeSqrt5>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        6 => lazy_verify_min_displacement::<Sqrt6, RuntimeSqrt6>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        7 => lazy_verify_min_displacement::<Sqrt7, RuntimeSqrt7>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        10 => lazy_verify_min_displacement::<Sqrt10, RuntimeSqrt10>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        11 => lazy_verify_min_displacement::<Sqrt11, RuntimeSqrt11>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        13 => lazy_verify_min_displacement::<Sqrt13, RuntimeSqrt13>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+        _ => lazy_verify_min_displacement::<Sqrt2, RuntimeSqrt2>(
+            &base_plan, constraints, &initial_points, &initial_flags),
+    };
+
+    match result {
+        Some(sp) => SolveResult::Solved { solution: sp },
+        None => SolveResult::Unsatisfiable { plan: base_plan },
     }
 }
 
