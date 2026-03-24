@@ -870,7 +870,13 @@ pub enum SolveResult {
     /// A verified solution with minimum displacement among all valid variants.
     Solved { solution: SolvedPoints },
     /// The greedy solver couldn't resolve all free entities (under/over-constrained).
-    NoConstruction { n_resolved: usize, n_free: usize, unresolved_ids: Vec<usize> },
+    /// Includes per-entity diagnostics explaining why each entity is stuck.
+    NoConstruction {
+        n_resolved: usize,
+        n_free: usize,
+        unresolved_ids: Vec<usize>,
+        diagnostics: Vec<(StuckEntityDiagnostic, StuckReason)>,
+    },
     /// A construction plan was found, but no sign variant satisfies all constraints.
     Unsatisfiable { plan: Vec<RuntimeStepData> },
 }
@@ -2917,6 +2923,11 @@ pub fn solve_min_displacement_auto(
                 0 <= fi <= free_ids@.len(),
                 forall|i: int| 0 <= i < free_ids@.len() ==>
                     (free_ids@[i] as int) < resolved_flags@.len(),
+                forall|j: int| 0 <= j < unresolved@.len() ==>
+                    (#[trigger] unresolved@[j] as int) < resolved_flags@.len(),
+                forall|i: int| 0 <= i < constraints@.len() ==>
+                    runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
+                resolved_flags@.len() == points@.len(),
             decreases free_ids@.len() - fi,
         {
             let id = free_ids[fi];
@@ -2925,10 +2936,13 @@ pub fn solve_min_displacement_auto(
             }
             fi = fi + 1;
         }
+        let diagnostics = diagnose_all_stuck(
+            &unresolved, constraints, resolved_flags, points.len());
         return SolveResult::NoConstruction {
             n_resolved: base_plan.len(),
             n_free: free_ids.len(),
             unresolved_ids: unresolved,
+            diagnostics,
         };
     }
 
