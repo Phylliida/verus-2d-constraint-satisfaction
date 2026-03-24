@@ -2520,56 +2520,53 @@ pub fn check_well_constrained(
     let plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
 
     if plan.len() == free_ids.len() {
-        WellConstrainedResult::Ok { plan }
-    } else {
-        // Plan is shorter than free_ids — collect unresolved entity IDs.
-        let n_resolved = plan.len();
-        let n_free = free_ids.len();
-        let mut unresolved_ids: Vec<usize> = Vec::new();
-        let mut i: usize = 0;
-        while i < free_ids.len()
+        // Use explicit return to isolate postcondition checking per branch
+        return WellConstrainedResult::Ok { plan };
+    }
+
+    // Plan is shorter than free_ids — collect unresolved entity IDs.
+    let n_resolved = plan.len();
+    let n_free = free_ids.len();
+    let mut unresolved_ids: Vec<usize> = Vec::new();
+    let mut i: usize = 0;
+    while i < free_ids.len()
+        invariant
+            i <= free_ids@.len(),
+            n_free == free_ids@.len(),
+            n_resolved != n_free,
+            forall|k: int| 0 <= k < plan@.len() ==> (#[trigger] plan@[k]).wf_spec(),
+            // All unresolved_ids come from free_ids
+            forall|k: int| #![trigger unresolved_ids@[k]]
+                0 <= k < unresolved_ids@.len() ==>
+                exists|fi: int| 0 <= fi < free_ids@.len()
+                    && unresolved_ids@[k] == free_ids@[fi],
+        decreases free_ids@.len() - i,
+    {
+        let id = free_ids[i];
+        let mut found = false;
+        let mut j: usize = 0;
+        while j < plan.len()
             invariant
-                i <= free_ids@.len(),
+                j <= plan@.len(),
                 forall|k: int| 0 <= k < plan@.len() ==> (#[trigger] plan@[k]).wf_spec(),
-                // Track: all unresolved_ids come from free_ids[0..i)
+                // Preserve outer invariant
                 forall|k: int| #![trigger unresolved_ids@[k]]
                     0 <= k < unresolved_ids@.len() ==>
-                    exists|fi: int| 0 <= fi < i
+                    exists|fi: int| 0 <= fi < free_ids@.len()
                         && unresolved_ids@[k] == free_ids@[fi],
-            decreases free_ids@.len() - i,
+            decreases plan@.len() - j,
         {
-            let id = free_ids[i];
-            let mut found = false;
-            let mut j: usize = 0;
-            while j < plan.len()
-                invariant
-                    j <= plan@.len(),
-                    forall|k: int| 0 <= k < plan@.len() ==> (#[trigger] plan@[k]).wf_spec(),
-                decreases plan@.len() - j,
-            {
-                if plan[j].target_id() == id {
-                    found = true;
-                }
-                j = j + 1;
+            if plan[j].target_id() == id {
+                found = true;
             }
-            if !found {
-                unresolved_ids.push(id);
-            }
-            i = i + 1;
+            j = j + 1;
         }
-        // Loop exited: i == free_ids.len(), so fi < i becomes fi < free_ids@.len()
-        assert(i as int == free_ids@.len());
-        assert forall|k: int| #![trigger unresolved_ids@[k]]
-            0 <= k < unresolved_ids@.len()
-        implies exists|fi: int| 0 <= fi < free_ids@.len()
-            && unresolved_ids@[k] == free_ids@[fi]
-        by {
-            let fi_old = choose|fi: int| 0 <= fi < (i as int)
-                && unresolved_ids@[k] == free_ids@[fi];
-            assert(0 <= fi_old < free_ids@.len());
-        };
-        WellConstrainedResult::Stuck { n_resolved, n_free, unresolved_ids }
+        if !found {
+            unresolved_ids.push(id);
+        }
+        i = i + 1;
     }
+    return WellConstrainedResult::Stuck { n_resolved, n_free, unresolved_ids };
 }
 
 
