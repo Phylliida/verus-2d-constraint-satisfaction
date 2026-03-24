@@ -31,36 +31,21 @@ This is `lemma_cl_displacement_sign_determines_order` in `verus-geometry/src/cir
 | `lemma_scaled_disp_eqv` | Full eqv chain combining steps A/B/C | **Verified** |
 | `lemma_scaled_disp_positive` | `v*(a/A) - u*(b/A) > 0` when `neg(b)*u + a*v > 0` | **Verified** |
 | `lemma_neg_plus_minus_double` | `neg(X)+Y-(X+neg(Y)) ≡ (Y-X)+(Y-X)` | **Verified** |
-| `lemma_double_sub_double` | `(t+t)-(s+s) ≡ (t-s)+(t-s)` | **Needs verification** |
+| `lemma_double_sub_double` | `(t+t)-(s+s) ≡ (t-s)+(t-s)` | **Verified** |
+| `lemma_cl_sq_dist_im_eqv_scaled` | `diff.im ≡ 4*scaled` (full im expansion) | **Verified** |
+| `lemma_cl_displacement_sign_determines_order` | Main theorem: sign > 0 ⟹ P_plus farther | **Verified** |
 
 ### Theorem chain
 
 1. `diff.re ≡ 0` — **PROVED** (lemma_cl_sq_dist_re_equal)
 2. `diff.re ≡ 0 ∧ diff.im > 0 ⟹ zero.lt(diff)` — **PROVED** (lemma_cl_sq_dist_sign_from_im)
-3. `diff.im > 0 when cl_displacement_sign > 0` — **IN PROGRESS** (lemma_cl_sq_dist_im_eqv_scaled)
-4. `cl_displacement_sign > 0 ⟹ zero.lt(diff)` — **BLOCKED BY #3** (lemma_cl_displacement_sign_determines_order)
+3. `diff.im ≡ 4*scaled` — **PROVED** (lemma_cl_sq_dist_im_eqv_scaled)
+4. `scaled > 0 when cl_displacement_sign > 0` — **PROVED** (lemma_scaled_disp_positive + cancellation)
+5. `cl_displacement_sign > 0 ⟹ zero.lt(diff)` — **PROVED** (lemma_cl_displacement_sign_determines_order)
 
-## What Remains
+## Completion
 
-### The im expansion (step 3)
-
-The proof strategy for `diff.im > 0` is:
-
-```
-diff.im ≡ neg(X)+Y-(X+neg(Y))           [conjugate im expansion, PROVED]
-        ≡ (Y-X)+(Y-X)                    [lemma_neg_plus_minus_double, PROVED]
-        ≡ (scaled+scaled)+(scaled+scaled) [commutativity + lemma_double_sub_double]
-```
-
-Where `scaled = dy_re*(a/A) - dx_re*(b/A) > 0` (from `lemma_scaled_disp_positive`, PROVED).
-
-Since `scaled > 0`, `scaled+scaled > 0` (nonneg_add), and `(scaled+scaled)+(scaled+scaled) > 0` (nonneg_add again). Transfer via `le_congruence` through the eqv chain.
-
-**What's left:**
-1. Verify `lemma_double_sub_double` — the `(t+t)-(s+s) ≡ (t-s)+(t-s)` helper (~15 lines, uses `lemma_add_exchange`)
-2. Chain the full eqv in `lemma_cl_sq_dist_im_eqv_scaled` — connect diff.im ≡ ... ≡ 4*scaled
-3. Transfer positivity from `4*scaled > 0` to `diff.im > 0` via `le_congruence`
-4. `lemma_cl_displacement_sign_determines_order` just calls im_positive + sign_from_im (~5 lines)
+**All proof obligations are fully verified. 604 verified, 0 errors in verus-geometry. 470 verified, 0 errors in verus-2d-constraint-satisfaction.**
 
 **Estimated remaining: ~30-50 lines of ring axiom plumbing.**
 
