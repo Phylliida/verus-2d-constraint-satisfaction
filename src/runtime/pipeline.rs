@@ -2684,14 +2684,21 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
     let mut deduped: Vec<u64> = Vec::new();
     let mut di: usize = 0;
     while di < candidates.len()
-        invariant 0 <= di <= candidates@.len(),
+        invariant
+            0 <= di <= candidates@.len(),
+            // Completeness: every value from candidates[0..di] is in deduped
+            forall|k: int| 0 <= k < di ==>
+                exists|j: int| 0 <= j < deduped@.len()
+                    && deduped@[j] == (#[trigger] candidates@[k]),
         decreases candidates@.len() - di,
     {
         let m = candidates[di];
         let mut is_dup = false;
         let mut dj: usize = 0;
         while dj < deduped.len()
-            invariant 0 <= dj <= deduped@.len(),
+            invariant
+                0 <= dj <= deduped@.len(),
+                is_dup ==> exists|j: int| 0 <= j < deduped@.len() && deduped@[j] == m,
             decreases deduped@.len() - dj,
         {
             if deduped[dj] == m {
@@ -2701,6 +2708,16 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         }
         if !is_dup {
             deduped.push(m);
+        }
+        // m == candidates[di] is now in deduped (either was already there, or just pushed)
+        proof {
+            assert(m == candidates@[di as int]);
+            if is_dup {
+                // inner loop ensured: exists j. deduped[j] == m — still holds (deduped unchanged)
+            } else {
+                // we pushed m, so deduped.last() == m
+                assert(deduped@[deduped@.len() - 1] == m);
+            }
         }
         di = di + 1;
     }

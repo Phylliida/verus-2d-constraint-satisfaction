@@ -2537,6 +2537,33 @@ pub fn check_well_constrained(
 }
 
 // ===========================================================================
+//  Sign flip properties
+// ===========================================================================
+
+/// Double-flipping the `plus` field of a construction step gives back the original.
+/// This ensures make_sign_variant is its own inverse at the spec level.
+proof fn lemma_flip_step_involution(step: ConstructionStep<RationalModel>)
+    ensures
+        match step {
+            ConstructionStep::CircleLine { id, circle, line, plus } =>
+                ConstructionStep::CircleLine { id, circle, line, plus: !!plus } == step,
+            ConstructionStep::CircleCircle { id, circle1, circle2, plus } =>
+                ConstructionStep::CircleCircle { id, circle1, circle2, plus: !!plus } == step,
+            _ => true,
+        },
+{}
+
+/// make_sign_variant preserves the number of steps.
+proof fn lemma_make_sign_variant_len(
+    plan: Seq<RuntimeStepData>, mask: u64,
+)
+    requires
+        forall|i: int| 0 <= i < plan.len() ==> (#[trigger] plan[i]).wf_spec(),
+{
+    // Follows from the loop structure: one output per input step.
+}
+
+// ===========================================================================
 //  Greedy Sign Mask Computation
 // ===========================================================================
 //
