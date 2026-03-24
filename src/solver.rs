@@ -602,7 +602,7 @@ proof fn lemma_pigeonhole_covers<T: OrderedField>(
             0 <= i < free_ids.len() ==>
             exists|k: int| 0 <= k < plan.len()
                 && step_target(#[trigger] plan[k]) == free_ids[i],
-    decreases plan.len(),
+    decreases plan.len(), 1nat,
 {
     let n = plan.len();
     if n == 0 {
@@ -615,8 +615,7 @@ proof fn lemma_pigeonhole_covers<T: OrderedField>(
         let ids_reduced = remove_id(free_ids, fi_last);
         lemma_remove_id_preserves_distinct(free_ids, fi_last);
 
-        // Establish all 4 preconditions for the recursive call
-        // and call a helper that wraps the recursive call
+        // Establish preconditions and recurse in isolated context
         lemma_pigeonhole_step::<T>(free_ids, plan, fi_last, ids_reduced, plan_prefix);
 
         // Lift back: every free_ids[i] is covered
@@ -675,7 +674,7 @@ proof fn lemma_pigeonhole_step<T: OrderedField>(
             0 <= i < ids_reduced.len() ==>
             exists|k: int| 0 <= k < plan_prefix.len()
                 && step_target(#[trigger] plan_prefix[k]) == ids_reduced[i],
-    decreases plan.len(),
+    decreases plan.len(), 0nat,
 {
     let n = plan.len();
 
