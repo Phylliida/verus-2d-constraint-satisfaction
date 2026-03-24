@@ -75,7 +75,7 @@ proof fn lemma_nonneg_implies_zero_le<F: OrderedField, R: PositiveRadicand<F>>(
 // ===========================================================================
 
 /// Embed a rational value into Q(√d): v ↦ v + 0·√d
-fn embed_rational<R: Radicand<RationalModel>>(
+pub fn embed_rational<R: Radicand<RationalModel>>(
     v: &RuntimeRational,
 ) -> (out: RuntimeQExtRat<R>)
     requires v.wf_spec(),
@@ -87,7 +87,7 @@ fn embed_rational<R: Radicand<RationalModel>>(
 }
 
 /// Embed a rational point into Q(√d): (x, y) ↦ (x + 0·√d, y + 0·√d)
-fn embed_rational_point<R: Radicand<RationalModel>>(
+pub fn embed_rational_point<R: Radicand<RationalModel>>(
     p: &RuntimePoint2,
 ) -> (out: RuntimeQExtPoint2<R>)
     requires p.wf_spec(),
@@ -103,7 +103,7 @@ fn embed_rational_point<R: Radicand<RationalModel>>(
 // ===========================================================================
 
 /// QExt squared distance: ||a - b||²
-fn qext_sq_dist_2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+pub fn qext_sq_dist_2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     a: &RuntimeQExtPoint2<R>,
     b: &RuntimeQExtPoint2<R>,
 ) -> (out: RuntimeQExtRat<R>)
@@ -414,6 +414,52 @@ fn qext_orient2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     let cy_ay = c.y.sub_exec(&a.y);
     bx_ax.mul_exec::<RR>(&cy_ay).sub_exec(&by_ay.mul_exec::<RR>(&cx_ax))
 }
+
+// ===========================================================================
+//  2d: Total displacement computation
+// ===========================================================================
+
+/// Compute total squared displacement of free entities from initial positions.
+/// Returns Σ_{i where !initial_flags[i]} sq_dist(ext_points[i], embed(initial_points[i]))
+/// in Q(√d). Used to select the minimum-displacement variant.
+pub fn compute_total_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
+    ext_points: &Vec<RuntimeQExtPoint2<R>>,
+    initial_points: &Vec<RuntimePoint2>,
+    initial_flags: &Vec<bool>,
+) -> (out: RuntimeQExtRat<R>)
+    requires
+        ext_points@.len() == initial_points@.len(),
+        ext_points@.len() == initial_flags@.len(),
+        forall|i: int| 0 <= i < ext_points@.len() ==> (#[trigger] ext_points@[i]).wf_spec(),
+        all_points_wf(initial_points@),
+    ensures
+        out.wf_spec(),
+{
+    let mut total = RuntimeQExtRat::<R>::zero_exec();
+    let mut idx: usize = 0;
+    while idx < ext_points.len()
+        invariant
+            0 <= idx <= ext_points@.len(),
+            ext_points@.len() == initial_points@.len(),
+            ext_points@.len() == initial_flags@.len(),
+            forall|i: int| 0 <= i < ext_points@.len() ==> (#[trigger] ext_points@[i]).wf_spec(),
+            all_points_wf(initial_points@),
+            total.wf_spec(),
+        decreases ext_points@.len() - idx,
+    {
+        if !initial_flags[idx] {
+            let embedded = embed_rational_point::<R>(&initial_points[idx]);
+            let dist = qext_sq_dist_2d::<R, RR>(&ext_points[idx], &embedded);
+            total = total.add_exec(&dist);
+        }
+        idx = idx + 1;
+    }
+    total
+}
+
+// ===========================================================================
+//  2e: Per-constraint QExt checkers
+// ===========================================================================
 
 /// Check NotCoincident at QExt level: !(a.x ≡ b.x && a.y ≡ b.y)
 fn check_not_coincident_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(

@@ -865,6 +865,16 @@ pub struct SolvedPoints {
     pub ghost_n_constraints_verified: Ghost<nat>,
 }
 
+/// Result of solving with minimum-displacement variant selection.
+pub enum SolveResult {
+    /// A verified solution with minimum displacement among all valid variants.
+    Solved { solution: SolvedPoints },
+    /// The greedy solver couldn't resolve all free entities (under/over-constrained).
+    NoConstruction { n_resolved: usize, n_free: usize, unresolved_ids: Vec<usize> },
+    /// A construction plan was found, but no sign variant satisfies all constraints.
+    Unsatisfiable { plan: Vec<RuntimeStepData> },
+}
+
 /// Extract rational parts from ext_points into a Vec<RuntimePoint2>.
 fn extract_rational_parts<R: PositiveRadicand<RationalModel>>(
     ext_points: &Vec<RuntimeQExtPoint2<R>>,
