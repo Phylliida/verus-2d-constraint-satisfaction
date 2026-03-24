@@ -2843,6 +2843,11 @@ pub fn uf_union(parent: &mut Vec<usize>, x: usize, y: usize)
         uf_wf(parent@),
         // x and y are now connected
         uf_root(parent@, x) == uf_root(parent@, y),
+        // All previously-connected pairs remain connected
+        forall|a: usize, b: usize|
+            (a as int) < old(parent)@.len() && (b as int) < old(parent)@.len()
+            && uf_root(old(parent)@, a) == uf_root(old(parent)@, b)
+            ==> #[trigger] uf_root(parent@, a) == #[trigger] uf_root(parent@, b),
 {
     let rx = uf_find(parent, x);
     let ry = uf_find(parent, y);
@@ -2916,21 +2921,35 @@ pub fn uf_union(parent: &mut Vec<usize>, x: usize, y: usize)
         // Use lemma_uf_root_stable for the unchanged chain,
         // and lemma_uf_root_redirected for the redirected chain.
         if rx < ry {
-            // big == ry, small == rx
-            // x: root was rx != big → chain stable → uf_root(new, x) == rx == small
             lemma_uf_root_stable(old_p, parent@, x, big);
-            // y: root was ry == big → chain redirected → uf_root(new, y) == uf_root(new, small) == small
             lemma_uf_root_redirected(old_p, parent@, y, big, small);
             assert(uf_root(parent@, y) == uf_root(parent@, small));
             assert(uf_root(parent@, small) == small);
         } else {
-            // big == rx, small == ry
-            // y: root was ry != big → chain stable → uf_root(new, y) == ry == small
             lemma_uf_root_stable(old_p, parent@, y, big);
-            // x: root was rx == big → chain redirected → uf_root(new, x) == uf_root(new, small) == small
             lemma_uf_root_redirected(old_p, parent@, x, big, small);
             assert(uf_root(parent@, x) == uf_root(parent@, small));
             assert(uf_root(parent@, small) == small);
+        }
+
+        // Prove connection preservation: for any (a,b) connected in old, still connected in new.
+        assert forall|a: usize, b: usize|
+            (a as int) < old_p.len() && (b as int) < old_p.len()
+            && uf_root(old_p, a) == uf_root(old_p, b)
+        implies #[trigger] uf_root(parent@, a) == #[trigger] uf_root(parent@, b)
+        by {
+            let r = uf_root(old_p, a); // == uf_root(old_p, b)
+            if r != big {
+                // Both roots were != big → both stable
+                lemma_uf_root_stable(old_p, parent@, a, big);
+                lemma_uf_root_stable(old_p, parent@, b, big);
+                // uf_root(new, a) == uf_root(old, a) == r == uf_root(old, b) == uf_root(new, b)
+            } else {
+                // Both roots were == big → both redirected to small
+                lemma_uf_root_redirected(old_p, parent@, a, big, small);
+                lemma_uf_root_redirected(old_p, parent@, b, big, small);
+                // uf_root(new, a) == uf_root(new, small) == uf_root(new, b)
+            }
         }
     }
 }
