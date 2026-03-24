@@ -3411,4 +3411,163 @@ pub fn solve_component_dp(
     candidates
 }
 
+// ===========================================================================
+//  Under-Constrained Diagnostics
+// ===========================================================================
+
+/// Per-entity diagnostic info when the solver gets stuck.
+pub struct StuckEntityDiagnostic {
+    /// The stuck entity's ID.
+    pub entity_id: usize,
+    /// Total constraints referencing this entity.
+    pub n_total_constraints: usize,
+    /// Of those, how many are verification-only (never produce loci).
+    pub n_verification_only: usize,
+    /// How many constraints produce non-trivial loci for this entity
+    /// given the current resolved state.
+    pub n_nontrivial_loci: usize,
+    /// Other entities referenced by this entity's constraints that are not yet resolved.
+    pub unresolved_dependencies: Vec<usize>,
+}
+
+/// Classification of why an entity is stuck.
+pub enum StuckReason {
+    /// No constructive constraints reference this entity at all.
+    NoConstraints,
+    /// Has constructive constraints but < 2 nontrivial loci, no unresolved deps.
+    InsufficientLoci { n_loci: usize },
+    /// Has constructive constraints but < 2 nontrivial loci because dependencies are unresolved.
+    /// See StuckEntityDiagnostic.unresolved_dependencies for which entities block this one.
+    DependencyCycle,
+    /// Has 2+ nontrivial loci but geometric intersection failed (parallel lines, etc.).
+    GeometricDegeneracy,
+}
+
+/// Diagnose why a single stuck entity cannot be resolved.
+pub fn diagnose_stuck_entity(
+    entity_id: usize,
+    constraints: &Vec<RuntimeConstraint>,
+    resolved_flags: &Vec<bool>,
+    n_points: usize,
+) -> (out: (StuckEntityDiagnostic, StuckReason))
+    requires
+        (entity_id as int) < n_points,
+        resolved_flags@.len() == n_points,
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+    ensures
+        out.0.entity_id == entity_id,
+{
+    let mut n_total: usize = 0;
+    let mut n_verif: usize = 0;
+    let mut n_loci: usize = 0;
+    let mut unresolved_deps: Vec<usize> = Vec::new();
+
+    let mut ci: usize = 0;
+    while ci < constraints.len()
+        invariant
+            0 <= ci <= constraints@.len(),
+            n_total <= ci,
+            n_verif <= n_total,
+            n_loci <= n_total,
+            (entity_id as int) < n_points,
+            resolved_flags@.len() == n_points,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+        decreases constraints@.len() - ci,
+    {
+        if is_entity_of_constraint_exec(&constraints[ci], entity_id, n_points) {
+            n_total = n_total + 1;
+
+            if is_verification_constraint_exec(&constraints[ci], n_points) {
+                n_verif = n_verif + 1;
+            } else {
+                // Constructive constraint — check for unresolved dependencies
+                let eids = constraint_entity_ids(&constraints[ci], n_points);
+                let mut has_unresolved_dep = false;
+                let mut ei: usize = 0;
+                while ei < eids.len()
+                    invariant
+                        0 <= ei <= eids@.len(),
+                        resolved_flags@.len() == n_points,
+                        forall|j: int| 0 <= j < eids@.len() ==>
+                            (#[trigger] eids@[j] as int) < n_points,
+                    decreases eids@.len() - ei,
+                {
+                    let eid = eids[ei];
+                    if eid != entity_id && !resolved_flags[eid] {
+                        has_unresolved_dep = true;
+                        unresolved_deps.push(eid);
+                    }
+                    ei = ei + 1;
+                }
+                if !has_unresolved_dep {
+                    // All deps resolved — this constraint should produce a locus
+                    n_loci = n_loci + 1;
+                }
+            }
+        }
+        ci = ci + 1;
+    }
+
+    let n_constructive = if n_total >= n_verif { n_total - n_verif } else { 0 };
+    let has_unresolved = unresolved_deps.len() > 0;
+    let reason = if n_constructive == 0 {
+        StuckReason::NoConstraints
+    } else if n_loci < 2 && has_unresolved {
+        StuckReason::DependencyCycle
+    } else if n_loci < 2 {
+        StuckReason::InsufficientLoci { n_loci }
+    } else {
+        StuckReason::GeometricDegeneracy
+    };
+
+    let diag = StuckEntityDiagnostic {
+        entity_id,
+        n_total_constraints: n_total,
+        n_verification_only: n_verif,
+        n_nontrivial_loci: n_loci,
+        unresolved_dependencies: unresolved_deps,
+    };
+
+    (diag, reason)
+}
+
+/// Diagnose all stuck entities.
+pub fn diagnose_all_stuck(
+    unresolved_ids: &Vec<usize>,
+    constraints: &Vec<RuntimeConstraint>,
+    resolved_flags: &Vec<bool>,
+    n_points: usize,
+) -> (out: Vec<(StuckEntityDiagnostic, StuckReason)>)
+    requires
+        forall|i: int| 0 <= i < unresolved_ids@.len() ==>
+            (#[trigger] unresolved_ids@[i] as int) < n_points,
+        resolved_flags@.len() == n_points,
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+    ensures
+        out@.len() == unresolved_ids@.len(),
+{
+    let mut results: Vec<(StuckEntityDiagnostic, StuckReason)> = Vec::new();
+    let mut i: usize = 0;
+    while i < unresolved_ids.len()
+        invariant
+            0 <= i <= unresolved_ids@.len(),
+            results@.len() == i,
+            forall|j: int| 0 <= j < unresolved_ids@.len() ==>
+                (#[trigger] unresolved_ids@[j] as int) < n_points,
+            resolved_flags@.len() == n_points,
+            forall|j: int| 0 <= j < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[j], n_points as nat),
+        decreases unresolved_ids@.len() - i,
+    {
+        let diag = diagnose_stuck_entity(
+            unresolved_ids[i], constraints, resolved_flags, n_points);
+        results.push(diag);
+        i = i + 1;
+    }
+    results
+}
+
 } // verus!
