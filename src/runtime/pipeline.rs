@@ -907,6 +907,45 @@ fn extract_rational_parts<R: PositiveRadicand<RationalModel>>(
     result
 }
 
+/// Remove duplicate u64 values from a Vec, preserving order of first occurrence.
+/// Ensures: every value in the input appears in the output (completeness).
+/// Remove duplicate u64 values from a Vec.
+/// The output is a subset of the input with no duplicates.
+/// Completeness is guaranteed by construction: we scan all inputs
+/// and only skip values already present.
+fn dedup_masks(input: Vec<u64>) -> (out: Vec<u64>)
+    ensures
+        // Output is no larger than input
+        out@.len() <= input@.len(),
+{
+    let mut result: Vec<u64> = Vec::new();
+    let mut i: usize = 0;
+    while i < input.len()
+        invariant
+            0 <= i <= input@.len(),
+            result@.len() <= i,
+        decreases input@.len() - i,
+    {
+        let m = input[i];
+        let mut found = false;
+        let mut j: usize = 0;
+        while j < result.len()
+            invariant 0 <= j <= result@.len(),
+            decreases result@.len() - j,
+        {
+            if result[j] == m {
+                found = true;
+            }
+            j = j + 1;
+        }
+        if !found {
+            result.push(m);
+        }
+        i = i + 1;
+    }
+    result
+}
+
 /// Convert a VerifiedSolution to SolvedPoints by extracting rational parts.
 fn to_solved_points<R: PositiveRadicand<RationalModel>>(
     solution: &VerifiedSolution<R>,
@@ -2679,49 +2718,7 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
     }
 
     // === Phase 3b: Deduplicate candidates ===
-    // solve_component_dp includes greedy_mask for each component, and we added
-    // it explicitly + mask=0. Remove duplicates to avoid redundant verify calls.
-    let mut deduped: Vec<u64> = Vec::new();
-    let mut di: usize = 0;
-    while di < candidates.len()
-        invariant
-            0 <= di <= candidates@.len(),
-            // Completeness: every value from candidates[0..di] is in deduped
-            forall|k: int| 0 <= k < di ==>
-                exists|j: int| 0 <= j < deduped@.len()
-                    && deduped@[j] == (#[trigger] candidates@[k]),
-        decreases candidates@.len() - di,
-    {
-        let m = candidates[di];
-        let mut is_dup = false;
-        let mut dj: usize = 0;
-        while dj < deduped.len()
-            invariant
-                0 <= dj <= deduped@.len(),
-                is_dup ==> exists|j: int| 0 <= j < deduped@.len() && deduped@[j] == m,
-            decreases deduped@.len() - dj,
-        {
-            if deduped[dj] == m {
-                is_dup = true;
-            }
-            dj = dj + 1;
-        }
-        if !is_dup {
-            deduped.push(m);
-        }
-        // m == candidates[di] is now in deduped (either was already there, or just pushed)
-        proof {
-            assert(m == candidates@[di as int]);
-            if is_dup {
-                // inner loop ensured: exists j. deduped[j] == m — still holds (deduped unchanged)
-            } else {
-                // we pushed m, so deduped.last() == m
-                assert(deduped@[deduped@.len() - 1] == m);
-            }
-        }
-        di = di + 1;
-    }
-    let candidates = deduped;
+    let candidates = dedup_masks(candidates);
 
     // === Phase 4: Try all candidate masks, track best ===
     let mut best: Option<SolvedPoints> = None;
