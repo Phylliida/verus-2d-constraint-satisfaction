@@ -2532,9 +2532,10 @@ pub fn check_well_constrained(
                 i <= free_ids@.len(),
                 forall|k: int| 0 <= k < plan@.len() ==> (#[trigger] plan@[k]).wf_spec(),
                 // Track: all unresolved_ids come from free_ids[0..i)
-                forall|k: int| 0 <= k < unresolved_ids@.len() ==>
+                forall|k: int| #![trigger unresolved_ids@[k]]
+                    0 <= k < unresolved_ids@.len() ==>
                     exists|fi: int| 0 <= fi < i
-                        && (#[trigger] unresolved_ids@[k]) == free_ids@[fi],
+                        && unresolved_ids@[k] == free_ids@[fi],
             decreases free_ids@.len() - i,
         {
             let id = free_ids[i];
