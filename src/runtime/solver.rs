@@ -2508,12 +2508,12 @@ pub fn check_well_constrained(
             }
             WellConstrainedResult::Stuck { n_resolved, n_free, unresolved_ids } => {
                 &&& n_resolved != n_free
-                // Each unresolved_id is in free_ids
-                &&& forall|k: int| 0 <= k < unresolved_ids@.len() ==>
+                &&& n_free == free_ids@.len()
+                // Each unresolved_id came from free_ids
+                &&& forall|k: int| #![trigger unresolved_ids@[k]]
+                    0 <= k < unresolved_ids@.len() ==>
                     exists|fi: int| 0 <= fi < free_ids@.len()
-                        && (#[trigger] unresolved_ids@[k]) == free_ids@[fi]
-                // At least one unresolved entity
-                &&& unresolved_ids@.len() > 0
+                        && unresolved_ids@[k] == free_ids@[fi]
             }
         },
 {
@@ -2531,6 +2531,10 @@ pub fn check_well_constrained(
             invariant
                 i <= free_ids@.len(),
                 forall|k: int| 0 <= k < plan@.len() ==> (#[trigger] plan@[k]).wf_spec(),
+                // Track: all unresolved_ids come from free_ids[0..i)
+                forall|k: int| 0 <= k < unresolved_ids@.len() ==>
+                    exists|fi: int| 0 <= fi < i
+                        && (#[trigger] unresolved_ids@[k]) == free_ids@[fi],
             decreases free_ids@.len() - i,
         {
             let id = free_ids[i];
@@ -2552,6 +2556,8 @@ pub fn check_well_constrained(
             }
             i = i + 1;
         }
+        // Loop exited with i == free_ids.len(), so invariant gives fi < free_ids.len()
+        assert(i == free_ids.len());
         WellConstrainedResult::Stuck { n_resolved, n_free, unresolved_ids }
     }
 }
