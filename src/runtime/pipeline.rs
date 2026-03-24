@@ -910,6 +910,7 @@ fn extract_rational_parts<R: PositiveRadicand<RationalModel>>(
 /// Remove duplicate u64 values from a Vec.
 /// Completeness: every input value appears in the output.
 /// Uses a ghost Map<u64, int> as witness function to avoid existential quantifiers.
+#[verifier::rlimit(40)]
 fn dedup_masks(input: Vec<u64>) -> (out: Vec<u64>)
     ensures
         out@.len() <= input@.len(),
@@ -966,19 +967,20 @@ fn dedup_masks(input: Vec<u64>) -> (out: Vec<u64>)
         }
         i = i + 1;
     }
+    let out = result;
     proof {
         assert forall|k: int| 0 <= k < input@.len()
-        implies exists|j: int| 0 <= j < result@.len()
-            && result@[j] == (#[trigger] input@[k])
+        implies exists|j: int| 0 <= j < out@.len()
+            && out@[j] == (#[trigger] input@[k])
         by {
             let v = input@[k];
             assert(witness.dom().contains(v));
             let w = witness[v];
-            assert(0 <= w < result@.len());
-            assert(result@[w] == v);
+            assert(0 <= w < out@.len());
+            assert(out@[w] == v);
         }
     }
-    result
+    out
 }
 
 /// Convert a VerifiedSolution to SolvedPoints by extracting rational parts.
