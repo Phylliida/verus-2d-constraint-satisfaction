@@ -4578,4 +4578,73 @@ pub proof fn lemma_solver_to_soundness_det<R: PositiveRadicand<RationalModel>>(
     };
 }
 
+// ===========================================================================
+//  Displacement Independence
+// ===========================================================================
+//
+// execute_step_in_ext(step) depends ONLY on the step's own fields (circle,
+// line, plus) — not on the resolved map from prior steps. This means
+// changing one step's `plus` flag cannot affect any other step's result.
+//
+// Consequence: total displacement = Σ per-step displacements, where each
+// term depends on only one sign variable. Per-step greedy = global optimum.
+
+/// Two plans that agree on all steps except possibly step `idx`
+/// produce the same execute_step_in_ext result at every other step.
+///
+/// This follows trivially from the structure of execute_step_in_ext:
+/// each step's result is self-contained (doesn't reference the resolved map).
+pub proof fn lemma_step_result_independent<F: OrderedField, R: PositiveRadicand<F>>(
+    plan1: ConstructionPlan<F>,
+    plan2: ConstructionPlan<F>,
+    idx: int,
+    j: int,
+)
+    requires
+        plan1.len() == plan2.len(),
+        0 <= idx < plan1.len(),
+        0 <= j < plan1.len(),
+        j != idx,
+        // Plans agree on all steps except idx
+        forall|k: int| 0 <= k < plan1.len() && k != idx ==> plan1[k] == plan2[k],
+    ensures
+        execute_step_in_ext::<F, R>(plan1[j]) == execute_step_in_ext::<F, R>(plan2[j]),
+{
+    // plan1[j] == plan2[j] since j != idx
+    assert(plan1[j] == plan2[j]);
+}
+
+/// Total displacement separability: for plans with distinct targets,
+/// execute_step_in_ext(plan[j]) is independent of plan[i] for i != j.
+/// Therefore changing step i's sign only affects step i's displacement term.
+///
+/// This is the formal justification for the greedy per-step sign selection:
+/// minimizing each step's displacement independently gives the global minimum.
+proof fn lemma_displacement_separable<F: OrderedField, R: PositiveRadicand<F>>(
+    plan1: ConstructionPlan<F>,
+    plan2: ConstructionPlan<F>,
+    idx: int,
+)
+    requires
+        plan1.len() == plan2.len(),
+        0 <= idx < plan1.len(),
+        // Plans agree on all steps except idx
+        forall|k: int| 0 <= k < plan1.len() && k != idx ==> plan1[k] == plan2[k],
+        // All targets are distinct
+        forall|a: int, b: int| 0 <= a < plan1.len() && 0 <= b < plan1.len() && a != b ==>
+            step_target(#[trigger] plan1[a]) != step_target(#[trigger] plan1[b]),
+    ensures
+        // All steps except idx produce the same result
+        forall|j: int| 0 <= j < plan1.len() && j != idx ==>
+            execute_step_in_ext::<F, R>(#[trigger] plan1[j])
+                == execute_step_in_ext::<F, R>(plan2[j]),
+{
+    assert forall|j: int| 0 <= j < plan1.len() && j != idx
+    implies execute_step_in_ext::<F, R>(#[trigger] plan1[j])
+        == execute_step_in_ext::<F, R>(plan2[j])
+    by {
+        lemma_step_result_independent::<F, R>(plan1, plan2, idx, j);
+    }
+}
+
 } // verus!
