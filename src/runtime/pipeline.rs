@@ -2638,14 +2638,14 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
     let mut best: Option<SolvedPoints> = None;
     let mut best_disp: Option<RuntimeQExtRat<R>> = None;
 
-    // Search order: mask=0 first (base plan), then 1,2,3,...
-    // For k>20 we cap at 1+k masks (base + Hamming-distance-1 only).
+    // For k<=20: try all 2^k masks exhaustively (at most ~1M).
+    // For k>20: try only 1+k masks (base plan + Hamming-distance-1 neighbors).
     let limit: u64 = if k <= 20 { n } else { 1 + k as u64 };
 
     while mask < limit
         invariant
             0 <= mask <= limit,
-            limit <= n,
+            limit == n || limit == 1 + k as u64,
             n == 1u64 << (k as u64),
             k <= 63,
             forall|j: int| 0 <= j < base_plan@.len() ==> (#[trigger] base_plan@[j]).wf_spec(),
@@ -2675,13 +2675,15 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         // For large k: only try mask=0 and single-bit masks (Hamming distance 1)
         // mask 0 = base plan, masks 1..k = single bit flips
         // For k<=20: try all masks exhaustively
-        let try_mask = if k <= 20 {
+        let try_mask: u64 = if k <= 20 {
             mask
         } else if mask == 0 {
             0u64
-        } else {
+        } else if mask - 1 < 64 {
             // mask 1..k → single bit flip at position (mask-1)
             1u64 << ((mask - 1) as u64)
+        } else {
+            0u64 // unreachable since k <= 63
         };
 
         let variant = make_sign_variant(base_plan, try_mask);
