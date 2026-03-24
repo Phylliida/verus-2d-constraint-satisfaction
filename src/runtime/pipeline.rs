@@ -2673,15 +2673,19 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         }
 
         let comp_size = comp_steps.len();
-        if comp_size <= 20 {
+        if comp_size > 0 && comp_size <= 20 {
             // Exhaustive: try all 2^comp_size sub-combinations
             let n_combos: u64 = 1u64 << (comp_size as u64);
+            // n_combos >= 2 since comp_size >= 1 and 2^1 = 2
             let mut combo: u64 = 1; // skip 0 (that's the greedy mask itself)
+            if n_combos <= 1 { return None; } // unreachable guard for verifier
             while combo < n_combos
                 invariant
-                    0 <= combo <= n_combos,
-                    n_combos == 1u64 << (comp_size as u64),
+                    1 <= combo <= n_combos,
+                    comp_size == comp_steps@.len(),
+                    comp_size >= 1,
                     comp_size <= 20,
+                    n_combos == 1u64 << (comp_size as u64),
                     forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
                 decreases n_combos - combo,
             {
@@ -2691,11 +2695,13 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
                 while bi < comp_size
                     invariant
                         0 <= bi <= comp_size,
+                        comp_size == comp_steps@.len(),
+                        comp_size <= 20,
                         forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
                     decreases comp_size - bi,
                 {
+                    let step_bit = comp_steps[bi];
                     if (combo >> (bi as u64)) & 1 == 1 {
-                        let step_bit = comp_steps[bi];
                         m = m ^ (1u64 << (step_bit as u64));
                     }
                     bi = bi + 1;
@@ -2703,12 +2709,13 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
                 candidates.push(m);
                 combo = combo + 1;
             }
-        } else {
+        } else if comp_size > 20 {
             // Large component: Hamming-distance-1 (flip one step at a time)
             let mut hi: usize = 0;
             while hi < comp_size
                 invariant
                     0 <= hi <= comp_size,
+                    comp_size == comp_steps@.len(),
                     forall|j: int| 0 <= j < comp_steps@.len() ==> (#[trigger] comp_steps@[j]) < 63,
                 decreases comp_size - hi,
             {
