@@ -434,9 +434,16 @@ pub fn compute_total_displacement<R: PositiveRadicand<RationalModel>, RR: Runtim
         all_points_wf(initial_points@),
     ensures
         out.wf_spec(),
+        // Non-negativity: total displacement is always ≥ 0
+        SpecQuadExt::<RationalModel, R>::zero().le(out@),
 {
     let mut total = RuntimeQExtRat::<R>::zero_exec();
     let mut idx: usize = 0;
+    proof {
+        // zero.le(zero) by reflexivity
+        SpecQuadExt::<RationalModel, R>::axiom_le_reflexive(
+            SpecQuadExt::<RationalModel, R>::zero());
+    }
     while idx < ext_points.len()
         invariant
             0 <= idx <= ext_points@.len(),
@@ -445,11 +452,20 @@ pub fn compute_total_displacement<R: PositiveRadicand<RationalModel>, RR: Runtim
             forall|i: int| 0 <= i < ext_points@.len() ==> (#[trigger] ext_points@[i]).wf_spec(),
             all_points_wf(initial_points@),
             total.wf_spec(),
+            SpecQuadExt::<RationalModel, R>::zero().le(total@),
         decreases ext_points@.len() - idx,
     {
         if !initial_flags[idx] {
             let embedded = embed_rational_point::<R>(&initial_points[idx]);
             let dist = qext_sq_dist_2d::<R, RR>(&ext_points[idx], &embedded);
+            proof {
+                // sq_dist = (dx)² + (dy)² is nonneg
+                let dx = ext_points@[idx as int]@.x.sub(embedded@.x);
+                let dy = ext_points@[idx as int]@.y.sub(embedded@.y);
+                verus_algebra::inequalities::lemma_sum_squares_nonneg_2d::<SpecQuadExt<RationalModel, R>>(dx, dy);
+                // total + dist is nonneg (nonneg + nonneg)
+                verus_algebra::inequalities::lemma_nonneg_add::<SpecQuadExt<RationalModel, R>>(total@, dist@);
+            }
             total = total.add_exec(&dist);
         }
         idx = idx + 1;
