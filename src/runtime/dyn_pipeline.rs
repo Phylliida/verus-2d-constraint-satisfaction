@@ -1596,7 +1596,7 @@ pub fn check_all_constraints_dyn(
 
 /// Embed a single DynRtPoint2 to one level deeper by wrapping
 /// coordinates as Extension { re=coord, im=0, radicand }.
-fn embed_dyn_point(p: &DynRtPoint2, radicand: &DynFieldElem) -> (out: DynRtPoint2)
+pub fn embed_dyn_point(p: &DynRtPoint2, radicand: &DynFieldElem) -> (out: DynRtPoint2)
     requires p.wf_spec(), radicand.dyn_wf()
     ensures out.wf_spec()
 {
