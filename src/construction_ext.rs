@@ -2534,14 +2534,51 @@ proof fn lemma_reflect_congruence<T: OrderedField>(
         two.mul(proj_y1), two.mul(proj_y2), p1.y, p2.y);
 }
 
-// --- Non-degeneracy predicate for Symmetric constraints ---
+// --- Non-degeneracy predicate for constraints that produce lines ---
 
-/// For Symmetric constraints, the axis must be non-degenerate (axis_a ≠ axis_b
-/// position-wise) for locus congruence to hold. True for all other constraints.
+/// Constraint locus non-degeneracy: the locus produced for `target` by
+/// constraint `c` at state `resolved` is non-degenerate (no zero-vector
+/// line normals, no coincident axis points).
+///
+/// Covers all constraints that can produce OnLine loci:
+/// - PointOnLine, Collinear: line through two resolved points
+/// - Perpendicular, Parallel: direction from two resolved points
+/// - Symmetric: axis from two resolved points
+///
+/// Constraints producing FixedX/FixedY/SameX/SameY lines are always
+/// non-degenerate (a=1 or b=1). Circle/AtPoint/FullPlane loci are
+/// never degenerate.
 pub open spec fn constraint_locus_nondegenerate<T: OrderedField>(
     c: Constraint<T>, resolved: ResolvedPoints<T>, target: EntityId,
 ) -> bool {
     match c {
+        Constraint::PointOnLine { point, line_a, line_b } => {
+            if target == point && resolved.dom().contains(line_a)
+                && resolved.dom().contains(line_b) {
+                !resolved[line_a].eqv(resolved[line_b])
+            } else { true }
+        }
+        Constraint::Collinear { a, b, c } => {
+            if target == c && resolved.dom().contains(a) && resolved.dom().contains(b) {
+                !resolved[a].eqv(resolved[b])
+            } else if target == a && resolved.dom().contains(b) && resolved.dom().contains(c) {
+                !resolved[b].eqv(resolved[c])
+            } else if target == b && resolved.dom().contains(a) && resolved.dom().contains(c) {
+                !resolved[a].eqv(resolved[c])
+            } else { true }
+        }
+        Constraint::Perpendicular { a1, a2, b1, b2 } => {
+            if (target == a1 || target == a2)
+                && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
+                !resolved[b1].eqv(resolved[b2])
+            } else { true }
+        }
+        Constraint::Parallel { a1, a2, b1, b2 } => {
+            if (target == a1 || target == a2)
+                && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
+                !resolved[b1].eqv(resolved[b2])
+            } else { true }
+        }
         Constraint::Symmetric { point, original, axis_a, axis_b } => {
             if target == point && resolved.dom().contains(axis_a)
                 && resolved.dom().contains(axis_b) {
