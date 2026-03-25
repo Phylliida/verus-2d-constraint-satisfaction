@@ -816,11 +816,16 @@ pub fn greedy_solve_exec_dyn(
     {
         let mut found = false;
         let mut fi: usize = 0;
+        let ghost plan_len_before = plan@.len();
 
         while fi < n
             invariant_except_break
                 !found,
+                plan@.len() == plan_len_before,
+                pairs@.len() == plan_len_before,
             invariant
+                plan@.len() <= plan_len_before + 1,
+                pairs@.len() <= plan_len_before + 1,
                 0 <= fi <= n,
                 n == free_ids@.len(),
                 n_entities == points@.len(),
@@ -843,6 +848,8 @@ pub fn greedy_solve_exec_dyn(
                 all_dyn_points_wf(dyn_points@),
                 resolved_flags@.len() == n_entities,
                 plan@.len() == pairs@.len(),
+                plan@.len() <= plan_len_before + 1,
+                !found ==> plan@.len() == plan_len_before,
                 forall|i: int| 0 <= i < constraints@.len() ==>
                     runtime_constraint_wf(#[trigger] constraints@[i], n_entities as nat),
                 forall|j: int| 0 <= j < plan@.len() ==>
