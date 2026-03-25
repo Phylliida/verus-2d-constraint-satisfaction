@@ -26,6 +26,13 @@ use verus_geometry::runtime::circle_circle::cc_discriminant_exec;
 use verus_quadratic_extension::radicand::PositiveRadicand;
 use verus_quadratic_extension::runtime::RuntimeRadicand;
 use crate::runtime::construction::{RuntimeStepData, execute_line_line_step, step_radicand_matches};
+use crate::runtime::abstract_plan::{AbstractPlanStep, AbstractStepKind};
+use crate::runtime::dyn_pipeline::{
+    DynRtPoint2, DynRtLocus, all_dyn_points_wf,
+    wrap_rationals_as_dyn, collect_loci_dyn_for_target, find_two_nontrivial_dyn,
+    dyn_line_line_intersection, intersect_loci_dyn, embed_dyn_point,
+};
+use crate::runtime::dyn_field::DynFieldElem;
 use crate::construction_ext::{
     at_most_two_nontrivial_loci, is_nontrivial_for_target,
     is_fully_independent_plan, circle_targets, is_rational_step,
