@@ -740,6 +740,9 @@ pub struct GreedyDynResult {
     pub plan: Vec<AbstractPlanStep>,
     pub constraint_pairs: Vec<(usize, usize)>,
     pub dyn_positions: Vec<DynRtPoint2>,
+    /// Ghost: true iff the solver completed all free_ids.len() iterations
+    /// without getting stuck. When true, plan.len() == free_ids.len().
+    pub ghost_complete: Ghost<bool>,
 }
 
 /// Greedy solver using DynFieldElem for correct Q(√D) coordinates.
@@ -785,6 +788,8 @@ pub fn greedy_solve_exec_dyn(
         // Each plan target is marked resolved
         forall|i: int| 0 <= i < out.plan@.len() ==>
             resolved_flags@[out.plan@[i].target as int] == true,
+        // Completeness: if ghost_complete, plan covers all free entities
+        out.ghost_complete@ ==> out.plan@.len() == free_ids@.len(),
         resolved_flags@.len() == old(resolved_flags)@.len(),
 {
     let mut dyn_points = wrap_rationals_as_dyn(points);
@@ -1103,7 +1108,11 @@ pub fn greedy_solve_exec_dyn(
         iter = iter + 1;
     }
 
-    GreedyDynResult { plan, constraint_pairs: pairs, dyn_positions: dyn_points }
+    let ghost complete = plan@.len() == free_ids@.len();
+    GreedyDynResult {
+        plan, constraint_pairs: pairs, dyn_positions: dyn_points,
+        ghost_complete: Ghost(complete),
+    }
 }
 
 // ===========================================================================

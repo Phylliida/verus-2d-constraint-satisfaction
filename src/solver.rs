@@ -7,7 +7,7 @@ use crate::entities::*;
 use crate::constraints::*;
 use crate::locus::*;
 use crate::construction::*;
-use crate::construction_ext::constraint_locus_line_nondegenerate;
+use crate::construction_ext::{constraint_locus_line_nondegenerate, is_nontrivial_for_target};
 
 verus! {
 
@@ -498,6 +498,26 @@ pub open spec fn system_nondegenerate<T: OrderedField>(
             constraints[ci],
             execute_plan(plan.take(si)),
             step_target(plan[si]))
+}
+
+// ===========================================================================
+//  Nontriviality bridge
+// ===========================================================================
+
+/// Bridge: spec-level locus nontriviality implies is_nontrivial_for_target.
+/// Both are open spec fns with the same branch structure; Z3 unfolds them.
+pub proof fn lemma_spec_nontrivial_iff_predicate<T: OrderedField>(
+    c: Constraint<T>,
+    resolved: ResolvedPoints<T>,
+    target: EntityId,
+)
+    requires !resolved.dom().contains(target),
+    ensures
+        locus_is_nontrivial(constraint_to_locus(c, resolved, target))
+        == is_nontrivial_for_target(c, target, resolved.dom()),
+{
+    // Both are open spec fn with identical branch structure on entity IDs + domain.
+    // Z3 unfolds and matches automatically.
 }
 
 // ===========================================================================

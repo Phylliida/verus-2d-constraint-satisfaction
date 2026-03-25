@@ -410,6 +410,14 @@ pub fn collect_loci_dyn_for_target(
     ensures
         out@.len() == constraints@.len(),
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
+        // Nontriviality bridge: spec-nontrivial constraints produce nontrivial dyn loci
+        forall|i: int| #![trigger out@[i]] 0 <= i < out@.len() ==>
+            (is_nontrivial_for_target(
+                runtime_constraint_model(constraints@[i]),
+                target as nat,
+                Set::new(|id: nat| (id as int) < resolved_flags@.len()
+                    && resolved_flags@[id as int]))
+             ==> out@[i].is_nontrivial()),
 {
     let mut loci: Vec<DynRtLocus> = Vec::new();
     let mut ci: usize = 0;
@@ -424,6 +432,13 @@ pub fn collect_loci_dyn_for_target(
             forall|i: int| 0 <= i < constraints@.len() ==>
                 runtime_constraint_wf(#[trigger] constraints@[i], dyn_points@.len() as nat),
             forall|i: int| 0 <= i < loci@.len() ==> (#[trigger] loci@[i]).wf_spec(),
+            forall|i: int| #![trigger loci@[i]] 0 <= i < loci@.len() ==>
+                (is_nontrivial_for_target(
+                    runtime_constraint_model(constraints@[i]),
+                    target as nat,
+                    Set::new(|id: nat| (id as int) < resolved_flags@.len()
+                        && resolved_flags@[id as int]))
+                 ==> loci@[i].is_nontrivial()),
         decreases constraints@.len() - ci,
     {
         let locus = constraint_to_locus_dyn(&constraints[ci], dyn_points, resolved_flags, target);
@@ -541,11 +556,12 @@ pub fn constraint_to_locus_dyn(
         points@.len() > 0,
     ensures
         out.wf_spec(),
-        // Nontriviality bridge: non-FullPlane iff spec says nontrivial
-        out.is_nontrivial() == is_nontrivial_for_target(
+        // Nontriviality bridge: if spec says nontrivial, dyn locus is nontrivial
+        is_nontrivial_for_target(
             runtime_constraint_model(*rc),
             target as nat,
-            Set::new(|id: nat| (id as int) < resolved_flags@.len() && resolved_flags@[id as int])),
+            Set::new(|id: nat| (id as int) < resolved_flags@.len() && resolved_flags@[id as int]))
+        ==> out.is_nontrivial(),
 {
     // Use first point's x for zero_like/one_like/embed_rational context
     let template = &points[0].x;
