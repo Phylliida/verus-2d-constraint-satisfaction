@@ -2536,19 +2536,35 @@ proof fn lemma_reflect_congruence<T: OrderedField>(
 
 // --- Non-degeneracy predicate for constraints that produce lines ---
 
-/// Constraint locus non-degeneracy: the locus produced for `target` by
-/// constraint `c` at state `resolved` is non-degenerate (no zero-vector
-/// line normals, no coincident axis points).
-///
-/// Covers all constraints that can produce OnLine loci:
-/// - PointOnLine, Collinear: line through two resolved points
-/// - Perpendicular, Parallel: direction from two resolved points
-/// - Symmetric: axis from two resolved points
-///
-/// Constraints producing FixedX/FixedY/SameX/SameY lines are always
-/// non-degenerate (a=1 or b=1). Circle/AtPoint/FullPlane loci are
-/// never degenerate.
+/// Constraint locus non-degeneracy (for extension field bridge).
+/// For Symmetric constraints, the axis must be non-degenerate.
+/// True for all other constraints (they're handled by the stronger
+/// `constraint_locus_line_nondegenerate` for exec correspondence).
 pub open spec fn constraint_locus_nondegenerate<T: OrderedField>(
+    c: Constraint<T>, resolved: ResolvedPoints<T>, target: EntityId,
+) -> bool {
+    match c {
+        Constraint::Symmetric { point, original, axis_a, axis_b } => {
+            if target == point && resolved.dom().contains(axis_a)
+                && resolved.dom().contains(axis_b) {
+                let d = sub2(resolved[axis_b], resolved[axis_a]);
+                !d.x.mul(d.x).add(d.y.mul(d.y)).eqv(T::zero())
+            } else { true }
+        }
+        _ => true,
+    }
+}
+
+/// Strong line non-degeneracy: the OnLine locus (if any) produced by
+/// constraint `c` for `target` at `resolved` is non-degenerate.
+///
+/// Covers constraints that can produce degenerate lines:
+/// - PointOnLine, Collinear: line through two resolved points (degenerate iff coincident)
+/// - Perpendicular, Parallel: direction vector (degenerate iff zero)
+///
+/// Constraints producing FixedX/FixedY/SameX/SameY always produce
+/// non-degenerate lines (a=1 or b=1). Symmetric produces AtPoint.
+pub open spec fn constraint_locus_line_nondegenerate<T: OrderedField>(
     c: Constraint<T>, resolved: ResolvedPoints<T>, target: EntityId,
 ) -> bool {
     match c {
@@ -2577,13 +2593,6 @@ pub open spec fn constraint_locus_nondegenerate<T: OrderedField>(
             if (target == a1 || target == a2)
                 && resolved.dom().contains(b1) && resolved.dom().contains(b2) {
                 !resolved[b1].eqv(resolved[b2])
-            } else { true }
-        }
-        Constraint::Symmetric { point, original, axis_a, axis_b } => {
-            if target == point && resolved.dom().contains(axis_a)
-                && resolved.dom().contains(axis_b) {
-                let d = sub2(resolved[axis_b], resolved[axis_a]);
-                !d.x.mul(d.x).add(d.y.mul(d.y)).eqv(T::zero())
             } else { true }
         }
         _ => true,
