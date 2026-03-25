@@ -3029,20 +3029,20 @@ pub fn solve_and_verify_chain(
                         constraint_satisfied_dts(#[trigger] constraints@[ci], deep)
         }),
 {
-    // Run greedy solver (mutates points/resolved_flags)
-    let plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
-
     if points.len() == 0 {
         return None;
     }
 
-    // Extract abstract plan and compute tower levels
-    let abstract_plan = extract_abstract_plan(&plan);
+    // Run dyn greedy solver (uses DynRtPoint2 for correct Q(√D) coordinates)
+    let dyn_result = greedy_solve_exec_dyn(free_ids, constraints, &*points, resolved_flags);
+    let abstract_plan = dyn_result.plan;
+    let pairs = dyn_result.constraint_pairs;
+
+    // Compute tower levels
     let levels = compute_step_levels(&abstract_plan, constraints);
     let depth = crate::runtime::abstract_plan::max_depth(&levels);
 
     // If no circle steps, all positions are rational — return directly.
-    // Wrap rational points as DynRtPoint2 and check constraints at DynTowerSpec level.
     if depth == 0 {
         let result = copy_points_vec(points);
         let dyn_pts = wrap_rationals_as_dyn(points);
@@ -3058,13 +3058,7 @@ pub fn solve_and_verify_chain(
         return Some(result);
     }
 
-    // Extract constraint pairs for circle steps
-    let pairs = match extract_constraint_pairs(&abstract_plan, constraints) {
-        None => { return None; }
-        Some(p) => p,
-    };
-
-    // Execute all tower levels using dyn_pipeline (no OrderedField, no assumes)
+    // Execute all tower levels using dyn_pipeline
     let deep_positions = match execute_all_levels_dyn(
         &*points, &abstract_plan, constraints, &pairs, &levels, depth,
     ) {
