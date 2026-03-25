@@ -731,6 +731,366 @@ pub fn greedy_solve_exec(
 }
 
 // ===========================================================================
+//  Dynamic greedy solver (correct Q(√D) coordinates)
+// ===========================================================================
+
+/// Result of the dynamic greedy solver.
+pub struct GreedyDynResult {
+    pub plan: Vec<AbstractPlanStep>,
+    pub constraint_pairs: Vec<(usize, usize)>,
+    pub dyn_positions: Vec<DynRtPoint2>,
+}
+
+/// Greedy solver using DynFieldElem for correct Q(√D) coordinates.
+///
+/// Unlike `greedy_solve_exec` which stores only rational coordinates,
+/// this version maintains a `Vec<DynRtPoint2>` that correctly stores
+/// circle-step results at arbitrary quadratic extension depth.
+/// This ensures subsequent loci computations use correct coordinates
+/// even when referencing entities resolved by circle steps.
+///
+/// Returns a lightweight plan (target + kind + plus + constraint pair indices)
+/// rather than full geometry, since geometry is recomputed at execution time.
+pub fn greedy_solve_exec_dyn(
+    free_ids: &Vec<usize>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: &Vec<RuntimePoint2>,
+    resolved_flags: &mut Vec<bool>,
+) -> (out: GreedyDynResult)
+    requires
+        old(resolved_flags)@.len() == points@.len(),
+        points@.len() > 0,
+        all_points_wf(points@),
+        forall|i: int| 0 <= i < free_ids@.len() ==>
+            (free_ids@[i] as int) < points@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
+        forall|i: int| 0 <= i < old(resolved_flags)@.len() ==>
+            (#[trigger] old(resolved_flags)@[i]) ==
+            partial_resolved_map(points_view(points@), old(resolved_flags)@)
+                .dom().contains(i as nat),
+    ensures
+        out.plan@.len() == out.constraint_pairs@.len(),
+        out.plan@.len() <= free_ids@.len(),
+        out.dyn_positions@.len() == points@.len(),
+        all_dyn_points_wf(out.dyn_positions@),
+        // Distinct targets
+        forall|i: int, j: int|
+            0 <= i < out.plan@.len() && 0 <= j < out.plan@.len() && i != j ==>
+            out.plan@[i].target != out.plan@[j].target,
+        // Valid targets
+        forall|i: int| 0 <= i < out.plan@.len() ==>
+            (out.plan@[i].target as int) < points@.len(),
+        resolved_flags@.len() == old(resolved_flags)@.len(),
+{
+    let mut dyn_points = wrap_rationals_as_dyn(points);
+    let n = free_ids.len();
+    let n_entities = points.len();
+    let mut plan: Vec<AbstractPlanStep> = Vec::new();
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    let mut iter: usize = 0;
+
+    while iter < n
+        invariant
+            0 <= iter <= n,
+            n == free_ids@.len(),
+            n_entities == points@.len(),
+            plan@.len() <= iter,
+            plan@.len() == pairs@.len(),
+            dyn_points@.len() == n_entities,
+            all_dyn_points_wf(dyn_points@),
+            resolved_flags@.len() == n_entities,
+            forall|i: int| 0 <= i < free_ids@.len() ==>
+                (free_ids@[i] as int) < n_entities,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_entities as nat),
+            // Plan targets are resolved and distinct
+            forall|j: int| 0 <= j < plan@.len() ==>
+                (plan@[j].target as int) < n_entities
+                && resolved_flags@[plan@[j].target as int] == true,
+            forall|i: int, j: int|
+                0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
+                plan@[i].target != plan@[j].target,
+        decreases n - iter,
+    {
+        let mut found = false;
+        let mut fi: usize = 0;
+
+        while fi < n
+            invariant_except_break
+                !found,
+            invariant
+                0 <= fi <= n,
+                n == free_ids@.len(),
+                n_entities == points@.len(),
+                dyn_points@.len() == n_entities,
+                all_dyn_points_wf(dyn_points@),
+                resolved_flags@.len() == n_entities,
+                plan@.len() == pairs@.len(),
+                forall|i: int| 0 <= i < free_ids@.len() ==>
+                    (free_ids@[i] as int) < n_entities,
+                forall|i: int| 0 <= i < constraints@.len() ==>
+                    runtime_constraint_wf(#[trigger] constraints@[i], n_entities as nat),
+                forall|j: int| 0 <= j < plan@.len() ==>
+                    (plan@[j].target as int) < n_entities
+                    && resolved_flags@[plan@[j].target as int] == true,
+                forall|i: int, j: int|
+                    0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
+                    plan@[i].target != plan@[j].target,
+            ensures
+                dyn_points@.len() == n_entities,
+                all_dyn_points_wf(dyn_points@),
+                resolved_flags@.len() == n_entities,
+                plan@.len() == pairs@.len(),
+                forall|i: int| 0 <= i < constraints@.len() ==>
+                    runtime_constraint_wf(#[trigger] constraints@[i], n_entities as nat),
+                forall|j: int| 0 <= j < plan@.len() ==>
+                    (plan@[j].target as int) < n_entities
+                    && resolved_flags@[plan@[j].target as int] == true,
+                forall|i: int, j: int|
+                    0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
+                    plan@[i].target != plan@[j].target,
+            decreases n - fi,
+        {
+            let target = free_ids[fi];
+            if resolved_flags[target] {
+                fi = fi + 1;
+            } else {
+                // Collect dyn loci for this entity
+                let loci = collect_loci_dyn_for_target(
+                    constraints, &dyn_points, resolved_flags, target);
+
+                // Find two nontrivial loci
+                let pair = find_two_nontrivial_dyn(&loci);
+                match pair {
+                    None => {
+                        // Check for single AtPoint locus
+                        let mut at_point_idx: Option<usize> = None;
+                        let mut ai: usize = 0;
+                        while ai < loci.len()
+                            invariant
+                                0 <= ai <= loci@.len(),
+                                forall|i: int| 0 <= i < loci@.len() ==>
+                                    (#[trigger] loci@[i]).wf_spec(),
+                                at_point_idx.is_some() ==>
+                                    (at_point_idx.unwrap() as int) < loci@.len(),
+                            decreases loci@.len() - ai,
+                        {
+                            match &loci[ai] {
+                                DynRtLocus::AtPoint { .. } => {
+                                    at_point_idx = Some(ai);
+                                    break;
+                                }
+                                _ => { ai = ai + 1; }
+                            }
+                        }
+                        match at_point_idx {
+                            Some(idx) => {
+                                match &loci[idx] {
+                                    DynRtLocus::AtPoint { x, y } => {
+                                        let pt = DynRtPoint2::new(x.dyn_copy(), y.dyn_copy());
+                                        let mut old_pt = pt;
+                                        dyn_points.set_and_swap(target, &mut old_pt);
+
+                                        proof {
+                                            assert(resolved_flags@[target as int] == false);
+                                            assert forall|j: int| 0 <= j < plan@.len() implies
+                                                plan@[j].target != target
+                                            by {
+                                                assert(resolved_flags@[plan@[j].target as int] == true);
+                                            }
+                                        }
+                                        let mut flag = true;
+                                        resolved_flags.set_and_swap(target, &mut flag);
+
+                                        plan.push(AbstractPlanStep {
+                                            target, kind: AbstractStepKind::Point, plus: false });
+                                        pairs.push((idx, idx));
+                                        found = true;
+                                        break;
+                                    }
+                                    _ => { fi = fi + 1; }
+                                }
+                            }
+                            None => { fi = fi + 1; }
+                        }
+                    }
+                    Some((ci1, ci2)) => {
+                        // Determine step kind from locus pair
+                        let (kind, intersection) = match (&loci[ci1], &loci[ci2]) {
+                            // Line + Line
+                            (DynRtLocus::OnLine { a: a1, b: b1, c: c1 },
+                             DynRtLocus::OnLine { a: a2, b: b2, c: c2 }) => {
+                                match dyn_line_line_intersection(a1, b1, c1, a2, b2, c2) {
+                                    Some(pt) => (AbstractStepKind::LineLine, Some(pt)),
+                                    None => (AbstractStepKind::LineLine, None),
+                                }
+                            }
+                            // Circle + Line
+                            (DynRtLocus::OnCircle { cx, cy, radius_sq },
+                             DynRtLocus::OnLine { a, b, c }) => {
+                                // Compute radicand: A*r² - h²
+                                let big_a = a.dyn_mul(a).dyn_add(&b.dyn_mul(b));
+                                let h = a.dyn_mul(cx).dyn_add(&b.dyn_mul(cy)).dyn_add(c);
+                                let radicand = big_a.dyn_mul(radius_sq).dyn_sub(&h.dyn_mul(&h));
+
+                                // Embed all points to next tower level
+                                let mut new_dyn: Vec<DynRtPoint2> = Vec::new();
+                                let mut ei: usize = 0;
+                                while ei < n_entities
+                                    invariant
+                                        0 <= ei <= n_entities,
+                                        new_dyn@.len() == ei,
+                                        radicand.dyn_wf(),
+                                        all_dyn_points_wf(dyn_points@),
+                                        n_entities == dyn_points@.len(),
+                                        forall|k: int| 0 <= k < new_dyn@.len() ==>
+                                            (#[trigger] new_dyn@[k]).wf_spec(),
+                                    decreases n_entities - ei,
+                                {
+                                    let embedded = embed_dyn_point(&dyn_points[ei], &radicand);
+                                    new_dyn.push(embedded);
+                                    ei = ei + 1;
+                                }
+                                dyn_points = new_dyn;
+
+                                // Recompute loci at new depth and intersect
+                                let l1_new = constraint_to_locus_dyn(
+                                    &constraints[ci1], &dyn_points, resolved_flags, target);
+                                let l2_new = constraint_to_locus_dyn(
+                                    &constraints[ci2], &dyn_points, resolved_flags, target);
+                                let pt = intersect_loci_dyn(&l1_new, &l2_new, &radicand, true);
+                                (AbstractStepKind::CircleLine, pt)
+                            }
+                            // Line + Circle (swap)
+                            (DynRtLocus::OnLine { a, b, c },
+                             DynRtLocus::OnCircle { cx, cy, radius_sq }) => {
+                                let big_a = a.dyn_mul(a).dyn_add(&b.dyn_mul(b));
+                                let h = a.dyn_mul(cx).dyn_add(&b.dyn_mul(cy)).dyn_add(c);
+                                let radicand = big_a.dyn_mul(radius_sq).dyn_sub(&h.dyn_mul(&h));
+
+                                let mut new_dyn: Vec<DynRtPoint2> = Vec::new();
+                                let mut ei: usize = 0;
+                                while ei < n_entities
+                                    invariant
+                                        0 <= ei <= n_entities,
+                                        new_dyn@.len() == ei,
+                                        radicand.dyn_wf(),
+                                        all_dyn_points_wf(dyn_points@),
+                                        n_entities == dyn_points@.len(),
+                                        forall|k: int| 0 <= k < new_dyn@.len() ==>
+                                            (#[trigger] new_dyn@[k]).wf_spec(),
+                                    decreases n_entities - ei,
+                                {
+                                    let embedded = embed_dyn_point(&dyn_points[ei], &radicand);
+                                    new_dyn.push(embedded);
+                                    ei = ei + 1;
+                                }
+                                dyn_points = new_dyn;
+
+                                let l1_new = constraint_to_locus_dyn(
+                                    &constraints[ci1], &dyn_points, resolved_flags, target);
+                                let l2_new = constraint_to_locus_dyn(
+                                    &constraints[ci2], &dyn_points, resolved_flags, target);
+                                let pt = intersect_loci_dyn(&l1_new, &l2_new, &radicand, true);
+                                (AbstractStepKind::CircleLine, pt)
+                            }
+                            // Circle + Circle
+                            (DynRtLocus::OnCircle { cx: c1x, cy: c1y, radius_sq: r1sq },
+                             DynRtLocus::OnCircle { cx: c2x, cy: c2y, radius_sq: r2sq }) => {
+                                // Radical axis coefficients for radicand
+                                let one = c1x.dyn_one_like();
+                                let two = one.dyn_add(&c1x.dyn_one_like());
+                                let ra = two.dyn_mul(&c2x.dyn_sub(c1x));
+                                let rb = two.dyn_mul(&c2y.dyn_sub(c1y));
+                                let big_a = ra.dyn_mul(&ra).dyn_add(&rb.dyn_mul(&rb));
+                                // h for radical axis
+                                let c1_sq = c1x.dyn_mul(c1x).dyn_add(&c1y.dyn_mul(c1y));
+                                let c2_sq = c2x.dyn_mul(c2x).dyn_add(&c2y.dyn_mul(c2y));
+                                let rc = c1_sq.dyn_sub(r1sq).dyn_sub(&c2_sq.dyn_sub(r2sq));
+                                let h = ra.dyn_mul(c1x).dyn_add(&rb.dyn_mul(c1y)).dyn_add(&rc);
+                                let radicand = big_a.dyn_mul(r1sq).dyn_sub(&h.dyn_mul(&h));
+
+                                let mut new_dyn: Vec<DynRtPoint2> = Vec::new();
+                                let mut ei: usize = 0;
+                                while ei < n_entities
+                                    invariant
+                                        0 <= ei <= n_entities,
+                                        new_dyn@.len() == ei,
+                                        radicand.dyn_wf(),
+                                        all_dyn_points_wf(dyn_points@),
+                                        n_entities == dyn_points@.len(),
+                                        forall|k: int| 0 <= k < new_dyn@.len() ==>
+                                            (#[trigger] new_dyn@[k]).wf_spec(),
+                                    decreases n_entities - ei,
+                                {
+                                    let embedded = embed_dyn_point(&dyn_points[ei], &radicand);
+                                    new_dyn.push(embedded);
+                                    ei = ei + 1;
+                                }
+                                dyn_points = new_dyn;
+
+                                let l1_new = constraint_to_locus_dyn(
+                                    &constraints[ci1], &dyn_points, resolved_flags, target);
+                                let l2_new = constraint_to_locus_dyn(
+                                    &constraints[ci2], &dyn_points, resolved_flags, target);
+                                let pt = intersect_loci_dyn(&l1_new, &l2_new, &radicand, true);
+                                (AbstractStepKind::CircleCircle, pt)
+                            }
+                            // AtPoint cases
+                            (DynRtLocus::AtPoint { x, y }, _) => {
+                                let pt = DynRtPoint2::new(x.dyn_copy(), y.dyn_copy());
+                                (AbstractStepKind::Point, Some(pt))
+                            }
+                            (_, DynRtLocus::AtPoint { x, y }) => {
+                                let pt = DynRtPoint2::new(x.dyn_copy(), y.dyn_copy());
+                                (AbstractStepKind::Point, Some(pt))
+                            }
+                            _ => {
+                                (AbstractStepKind::Point, None)
+                            }
+                        };
+
+                        match intersection {
+                            Some(pt) => {
+                                let mut old_pt = pt;
+                                dyn_points.set_and_swap(target, &mut old_pt);
+
+                                proof {
+                                    assert(resolved_flags@[target as int] == false);
+                                    assert forall|j: int| 0 <= j < plan@.len() implies
+                                        plan@[j].target != target
+                                    by {
+                                        assert(resolved_flags@[plan@[j].target as int] == true);
+                                    }
+                                }
+                                let mut flag = true;
+                                resolved_flags.set_and_swap(target, &mut flag);
+
+                                plan.push(AbstractPlanStep { target, kind, plus: true });
+                                pairs.push((ci1, ci2));
+                                found = true;
+                                break;
+                            }
+                            None => {
+                                fi = fi + 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if !found {
+            break;
+        }
+        iter = iter + 1;
+    }
+
+    GreedyDynResult { plan, constraint_pairs: pairs, dyn_positions: dyn_points }
+}
+
+// ===========================================================================
 //  Sign variant enumeration
 // ===========================================================================
 
