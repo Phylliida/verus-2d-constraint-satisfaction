@@ -782,6 +782,9 @@ pub fn greedy_solve_exec_dyn(
         // Valid targets
         forall|i: int| 0 <= i < out.plan@.len() ==>
             (out.plan@[i].target as int) < points@.len(),
+        // Each plan target is marked resolved
+        forall|i: int| 0 <= i < out.plan@.len() ==>
+            resolved_flags@[out.plan@[i].target as int] == true,
         resolved_flags@.len() == old(resolved_flags)@.len(),
 {
     let mut dyn_points = wrap_rationals_as_dyn(points);
@@ -792,6 +795,9 @@ pub fn greedy_solve_exec_dyn(
     let mut iter: usize = 0;
 
     while iter < n
+        invariant_except_break
+            plan@.len() == iter,
+            pairs@.len() == iter,
         invariant
             0 <= iter <= n,
             n == free_ids@.len(),
@@ -850,6 +856,8 @@ pub fn greedy_solve_exec_dyn(
                 plan@.len() == pairs@.len(),
                 plan@.len() <= plan_len_before + 1,
                 !found ==> plan@.len() == plan_len_before,
+                found ==> plan@.len() == plan_len_before + 1
+                    && pairs@.len() == plan_len_before + 1,
                 forall|i: int| 0 <= i < constraints@.len() ==>
                     runtime_constraint_wf(#[trigger] constraints@[i], n_entities as nat),
                 forall|j: int| 0 <= j < plan@.len() ==>
