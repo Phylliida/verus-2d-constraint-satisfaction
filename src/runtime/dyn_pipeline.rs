@@ -13,6 +13,7 @@ use verus_geometry::runtime::point2::RuntimePoint2;
 use crate::runtime::constraint::*;
 use crate::runtime::abstract_plan::*;
 use crate::runtime::dyn_field::*;
+use crate::construction_ext::is_nontrivial_for_target;
 
 use verus_quadratic_extension::dyn_tower::*;
 use verus_quadratic_extension::dyn_tower_lemmas::{
@@ -540,6 +541,11 @@ pub fn constraint_to_locus_dyn(
         points@.len() > 0,
     ensures
         out.wf_spec(),
+        // Nontriviality bridge: non-FullPlane iff spec says nontrivial
+        out.is_nontrivial() == is_nontrivial_for_target(
+            runtime_constraint_model(*rc),
+            target as nat,
+            Set::new(|id: nat| (id as int) < resolved_flags@.len() && resolved_flags@[id as int])),
 {
     // Use first point's x for zero_like/one_like/embed_rational context
     let template = &points[0].x;
