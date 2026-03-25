@@ -31,6 +31,7 @@ use crate::runtime::dyn_pipeline::{
     DynRtPoint2, DynRtLocus, all_dyn_points_wf,
     wrap_rationals_as_dyn, collect_loci_dyn_for_target, find_two_nontrivial_dyn,
     dyn_line_line_intersection, intersect_loci_dyn, embed_dyn_point,
+    constraint_to_locus_dyn,
 };
 use crate::runtime::dyn_field::DynFieldElem;
 use crate::construction_ext::{
