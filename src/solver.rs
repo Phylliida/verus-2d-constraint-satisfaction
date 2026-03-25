@@ -7,6 +7,7 @@ use crate::entities::*;
 use crate::constraints::*;
 use crate::locus::*;
 use crate::construction::*;
+use crate::construction_ext::constraint_locus_line_nondegenerate;
 
 verus! {
 
@@ -478,6 +479,25 @@ pub open spec fn solver_stuck_entities<T: OrderedField>(
         exists|i: int| 0 <= i < free_ids.len() && free_ids[i] == id
         && forall|j: int| 0 <= j < plan.len() ==> step_target(plan[j]) != id
     )
+}
+
+/// A system is non-degenerate if at every step of the greedy solution,
+/// all constraint loci that could produce OnLine are non-degenerate.
+/// This ensures the exec solver's runtime checks never reject a valid
+/// locus intersection (i.e., `loci_exec_compatible` holds throughout).
+pub open spec fn system_nondegenerate<T: OrderedField>(
+    free_ids: Seq<EntityId>,
+    constraints: Seq<Constraint<T>>,
+    initial_resolved: ResolvedPoints<T>,
+) -> bool {
+    let plan = greedy_solve(free_ids, constraints, initial_resolved, free_ids.len());
+    forall|si: int, ci: int|
+        #![trigger plan[si], constraints[ci]]
+        0 <= si < plan.len() && 0 <= ci < constraints.len() ==>
+        constraint_locus_line_nondegenerate(
+            constraints[ci],
+            execute_plan(plan.take(si)),
+            step_target(plan[si]))
 }
 
 // ===========================================================================
