@@ -389,6 +389,136 @@ pub fn wrap_rationals_as_dyn(points: &Vec<RuntimePoint2>) -> (out: Vec<DynRtPoin
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  Greedy solver helpers for DynRtLocus
+// ═══════════════════════════════════════════════════════════════════
+
+/// Collect dyn loci for a target entity from all constraints.
+pub fn collect_loci_dyn_for_target(
+    constraints: &Vec<RuntimeConstraint>,
+    dyn_points: &Vec<DynRtPoint2>,
+    resolved_flags: &Vec<bool>,
+    target: usize,
+) -> (out: Vec<DynRtLocus>)
+    requires
+        all_dyn_points_wf(dyn_points@),
+        resolved_flags@.len() == dyn_points@.len(),
+        (target as int) < dyn_points@.len(),
+        dyn_points@.len() > 0,
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], dyn_points@.len() as nat),
+    ensures
+        out@.len() == constraints@.len(),
+        forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
+{
+    let mut loci: Vec<DynRtLocus> = Vec::new();
+    let mut ci: usize = 0;
+    while ci < constraints.len()
+        invariant
+            0 <= ci <= constraints@.len(),
+            loci@.len() == ci,
+            all_dyn_points_wf(dyn_points@),
+            resolved_flags@.len() == dyn_points@.len(),
+            (target as int) < dyn_points@.len(),
+            dyn_points@.len() > 0,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], dyn_points@.len() as nat),
+            forall|i: int| 0 <= i < loci@.len() ==> (#[trigger] loci@[i]).wf_spec(),
+        decreases constraints@.len() - ci,
+    {
+        let locus = constraint_to_locus_dyn(&constraints[ci], dyn_points, resolved_flags, target);
+        loci.push(locus);
+        ci = ci + 1;
+    }
+    loci
+}
+
+/// Find the first two nontrivial loci in a Vec<DynRtLocus>.
+/// Returns (index1, index2) or None.
+pub fn find_two_nontrivial_dyn(
+    loci: &Vec<DynRtLocus>,
+) -> (out: Option<(usize, usize)>)
+    requires
+        forall|i: int| 0 <= i < loci@.len() ==> (#[trigger] loci@[i]).wf_spec(),
+    ensures
+        match out {
+            Some((i1, i2)) => i1 < i2
+                && (i1 as int) < loci@.len()
+                && (i2 as int) < loci@.len()
+                && loci@[i1 as int].is_nontrivial()
+                && loci@[i2 as int].is_nontrivial(),
+            None => true,
+        },
+{
+    let mut first: usize = 0;
+    let mut found_first = false;
+    while first < loci.len()
+        invariant_except_break
+            !found_first,
+        invariant
+            0 <= first <= loci@.len(),
+            found_first ==> (first as int) < loci@.len() && loci@[first as int].is_nontrivial(),
+        decreases loci@.len() - first,
+    {
+        match &loci[first] {
+            DynRtLocus::FullPlane => { first = first + 1; }
+            _ => { found_first = true; break; }
+        }
+    }
+    if !found_first {
+        return None;
+    }
+
+    assert(first < loci.len());
+    let mut second: usize = first + 1;
+    let mut found_second = false;
+    while second < loci.len()
+        invariant_except_break
+            !found_second,
+        invariant
+            first < second && second <= loci@.len(),
+            (first as int) < loci@.len(),
+            loci@[first as int].is_nontrivial(),
+            found_second ==> (second as int) < loci@.len() && loci@[second as int].is_nontrivial(),
+        decreases loci@.len() - second,
+    {
+        match &loci[second] {
+            DynRtLocus::FullPlane => { second = second + 1; }
+            _ => { found_second = true; break; }
+        }
+    }
+    if !found_second {
+        return None;
+    }
+    Some((first, second))
+}
+
+/// Line-line intersection using DynFieldElem arithmetic.
+/// Returns None if lines are parallel (det ≡ 0).
+pub fn dyn_line_line_intersection(
+    a1: &DynFieldElem, b1: &DynFieldElem, c1: &DynFieldElem,
+    a2: &DynFieldElem, b2: &DynFieldElem, c2: &DynFieldElem,
+) -> (out: Option<DynRtPoint2>)
+    requires
+        a1.dyn_wf(), b1.dyn_wf(), c1.dyn_wf(),
+        a2.dyn_wf(), b2.dyn_wf(), c2.dyn_wf(),
+    ensures
+        out.is_some() ==> out.unwrap().wf_spec(),
+{
+    let det = a1.dyn_mul(b2).dyn_sub(&a2.dyn_mul(b1));
+    let zero = a1.dyn_zero_like();
+    if det.dyn_eq(&zero) {
+        return None;
+    }
+    // x = (b1*c2 - b2*c1) / det
+    let x_num = b1.dyn_mul(c2).dyn_sub(&b2.dyn_mul(c1));
+    // y = (a2*c1 - a1*c2) / det
+    let y_num = a2.dyn_mul(c1).dyn_sub(&a1.dyn_mul(c2));
+    let x = x_num.dyn_div(&det);
+    let y = y_num.dyn_div(&det);
+    Some(DynRtPoint2::new(x, y))
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  constraint_to_locus_dyn — 19-arm constraint → locus
 // ═══════════════════════════════════════════════════════════════════
 
