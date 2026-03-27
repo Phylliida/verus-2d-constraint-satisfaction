@@ -15,6 +15,7 @@ verus! {
 // ═══════════════════════════════════════════════════════════════════
 
 /// The kind of a construction step (without geometry data).
+#[derive(Copy, Clone)]
 pub enum AbstractStepKind {
     /// Known position (x, y) — level 0.
     Point,

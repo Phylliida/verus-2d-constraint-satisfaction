@@ -953,7 +953,7 @@ proof fn lemma_seq_contains_all_push(output: Seq<u64>, input: Seq<u64>, n: int, 
 }
 
 /// Dedup preserving completeness.
-fn dedup_masks(input: &Vec<u64>) -> (out: Vec<u64>)
+pub fn dedup_masks(input: &Vec<u64>) -> (out: Vec<u64>)
     ensures
         out@.len() <= input@.len(),
         seq_contains_all(out@, input@, input@.len() as int),
@@ -3088,6 +3088,86 @@ pub fn solve_and_verify_chain(
     }
 
     Some(rational_pts)
+}
+
+/// Solve constraints with minimum-displacement variant selection using the
+/// arbitrary-depth DTS pipeline. Supports multiple circle-circle intersections
+/// at different tower levels (unlike `solve_min_displacement_auto` which is
+/// limited to depth-1).
+///
+/// Uses the same tree-aware sign variant heuristics (coupling components,
+/// component graph DP) as the depth-1 version.
+pub fn solve_min_displacement_dyn(
+    free_ids: &Vec<usize>,
+    constraints: &Vec<RuntimeConstraint>,
+    points: &Vec<RuntimePoint2>,
+    resolved_flags: &mut Vec<bool>,
+) -> (out: SolveResult)
+    requires
+        points@.len() == old(resolved_flags)@.len(),
+        points@.len() > 0,
+        all_points_wf(points@),
+        forall|i: int| 0 <= i < free_ids@.len() ==>
+            (free_ids@[i] as int) < points@.len(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], points@.len() as nat),
+        forall|i: int| 0 <= i < old(resolved_flags)@.len() ==>
+            (#[trigger] old(resolved_flags)@[i]) ==
+            partial_resolved_map(points_view(points@), old(resolved_flags)@)
+                .dom().contains(i as nat),
+    ensures
+        match out {
+            SolveResult::Solved { solution } =>
+                solution.ghost_n_constraints_verified@
+                    == constraints_to_spec(constraints@).len(),
+            _ => true,
+        },
+{
+    let initial_points = copy_points_vec(points);
+    let initial_flags = copy_flags_vec(resolved_flags);
+
+    let dyn_result = greedy_solve_exec_dyn(
+        free_ids, constraints, points, resolved_flags);
+
+    if dyn_result.plan.len() != free_ids.len() {
+        // Solver got stuck — not well-constrained
+        let mut unresolved: Vec<usize> = Vec::new();
+        let mut fi: usize = 0;
+        let n_points = points.len();
+        while fi < free_ids.len()
+            invariant
+                0 <= fi <= free_ids@.len(),
+                forall|i: int| 0 <= i < free_ids@.len() ==>
+                    (free_ids@[i] as int) < n_points,
+                resolved_flags@.len() == n_points,
+                forall|j: int| 0 <= j < unresolved@.len() ==>
+                    (#[trigger] unresolved@[j] as int) < n_points,
+                forall|i: int| 0 <= i < constraints@.len() ==>
+                    runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+            decreases free_ids@.len() - fi,
+        {
+            let id = free_ids[fi];
+            if !resolved_flags[id] {
+                unresolved.push(id);
+            }
+            fi = fi + 1;
+        }
+        let diagnostics = diagnose_all_stuck(
+            &unresolved, constraints, resolved_flags, n_points);
+        return SolveResult::NoConstruction {
+            n_resolved: dyn_result.plan.len(),
+            n_free: free_ids.len(),
+            unresolved_ids: unresolved,
+            diagnostics,
+        };
+    }
+
+    let result = lazy_verify_min_displacement_dyn(
+        &dyn_result, constraints, &initial_points, &initial_flags);
+    match result {
+        Some(sp) => SolveResult::Solved { solution: sp },
+        None => SolveResult::Unsatisfiable { plan: Vec::new() },
+    }
 }
 
 } // verus!

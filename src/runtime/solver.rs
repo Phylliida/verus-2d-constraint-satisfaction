@@ -26,14 +26,16 @@ use verus_geometry::runtime::circle_circle::cc_discriminant_exec;
 use verus_quadratic_extension::radicand::PositiveRadicand;
 use verus_quadratic_extension::runtime::RuntimeRadicand;
 use crate::runtime::construction::{RuntimeStepData, execute_line_line_step, step_radicand_matches};
-use crate::runtime::abstract_plan::{AbstractPlanStep, AbstractStepKind};
+use crate::runtime::abstract_plan::{AbstractPlanStep, AbstractStepKind, compute_step_levels};
 use crate::runtime::dyn_pipeline::{
     DynRtPoint2, DynRtLocus, all_dyn_points_wf,
     wrap_rationals_as_dyn, collect_loci_dyn_for_target, find_two_nontrivial_dyn,
     dyn_line_line_intersection, intersect_loci_dyn, embed_dyn_point,
     constraint_to_locus_dyn,
+    execute_all_levels_dyn, check_all_constraints_dyn, extract_rational_points_dyn,
 };
 use crate::runtime::dyn_field::DynFieldElem;
+use crate::runtime::pipeline::{SolvedPoints, dedup_masks};
 use crate::construction_ext::{
     at_most_two_nontrivial_loci, is_nontrivial_for_target,
     is_fully_independent_plan, circle_targets, is_rational_step,
@@ -3843,6 +3845,578 @@ pub fn solve_component_dp(
     }
 
     candidates
+}
+
+// ===========================================================================
+//  DTS sign variant helpers (AbstractPlanStep-based)
+// ===========================================================================
+
+/// Count circle steps in an abstract plan.
+pub fn count_circle_steps_abstract(plan: &Vec<AbstractPlanStep>) -> (out: usize)
+    ensures out <= plan@.len(),
+{
+    let mut count: usize = 0;
+    let mut i: usize = 0;
+    while i < plan.len()
+        invariant 0 <= i <= plan@.len(), count <= i,
+        decreases plan@.len() - i,
+    {
+        match plan[i].kind {
+            AbstractStepKind::CircleLine | AbstractStepKind::CircleCircle => {
+                count = count + 1;
+            }
+            _ => {}
+        }
+        i = i + 1;
+    }
+    count
+}
+
+/// Create a sign variant of an abstract plan by flipping plus for the k-th
+/// circle step when bit k of sign_mask is 1.
+pub fn make_sign_variant_abstract(
+    plan: &Vec<AbstractPlanStep>,
+    sign_mask: u64,
+) -> (out: Vec<AbstractPlanStep>)
+    ensures
+        out@.len() == plan@.len(),
+        forall|i: int| 0 <= i < out@.len() ==>
+            (#[trigger] out@[i]).target == plan@[i].target,
+        forall|i: int| 0 <= i < out@.len() ==>
+            (#[trigger] out@[i]).kind == plan@[i].kind,
+{
+    let mut result: Vec<AbstractPlanStep> = Vec::new();
+    let mut circle_idx: u64 = 0;
+    let mut i: usize = 0;
+    while i < plan.len()
+        invariant
+            0 <= i <= plan@.len(),
+            result@.len() == i as int,
+            circle_idx <= i as u64,
+            forall|j: int| 0 <= j < result@.len() ==>
+                (#[trigger] result@[j]).target == plan@[j].target,
+            forall|j: int| 0 <= j < result@.len() ==>
+                (#[trigger] result@[j]).kind == plan@[j].kind,
+        decreases plan@.len() - i,
+    {
+        let target = plan[i].target;
+        let kind = plan[i].kind;
+        let plus = plan[i].plus;
+        match kind {
+            AbstractStepKind::CircleLine | AbstractStepKind::CircleCircle => {
+                let flip = circle_idx < 64 && (sign_mask >> circle_idx) & 1 == 1;
+                result.push(AbstractPlanStep {
+                    target,
+                    kind,
+                    plus: if flip { !plus } else { plus },
+                });
+                circle_idx = circle_idx + 1;
+            }
+            _ => {
+                result.push(AbstractPlanStep { target, kind, plus });
+            }
+        }
+        i = i + 1;
+    }
+    result
+}
+
+/// Map entity ID → circle step index for an abstract plan.
+/// Returns usize::MAX for entities not resolved by a circle step.
+pub fn build_entity_to_circle_step_abstract(
+    plan: &Vec<AbstractPlanStep>,
+    n_points: usize,
+) -> (out: Vec<usize>)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (#[trigger] plan@[i]).target < n_points,
+    ensures
+        out@.len() == n_points,
+{
+    let mut map: Vec<usize> = Vec::new();
+    let mut j: usize = 0;
+    while j < n_points
+        invariant 0 <= j <= n_points, map@.len() == j,
+        decreases n_points - j,
+    {
+        map.push(usize::MAX);
+        j = j + 1;
+    }
+    let mut circle_idx: usize = 0;
+    let mut i: usize = 0;
+    while i < plan.len()
+        invariant
+            0 <= i <= plan@.len(),
+            circle_idx <= i,
+            map@.len() == n_points,
+            forall|k: int| 0 <= k < plan@.len() ==>
+                (#[trigger] plan@[k]).target < n_points,
+        decreases plan@.len() - i,
+    {
+        match plan[i].kind {
+            AbstractStepKind::CircleLine | AbstractStepKind::CircleCircle => {
+                let target = plan[i].target;
+                map.set(target, circle_idx);
+                circle_idx = circle_idx + 1;
+            }
+            _ => {}
+        }
+        i = i + 1;
+    }
+    map
+}
+
+/// Build coupling components from an abstract plan.
+pub fn build_coupling_components_abstract(
+    plan: &Vec<AbstractPlanStep>,
+    constraints: &Vec<RuntimeConstraint>,
+    n_points: usize,
+) -> (out: CouplingComponents)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (#[trigger] plan@[i]).target < n_points,
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+    ensures
+        out.step_to_component@.len() == out.n_circle_steps,
+        out.n_circle_steps <= plan@.len(),
+{
+    let k = count_circle_steps_abstract(plan);
+    let entity_map = build_entity_to_circle_step_abstract(plan, n_points);
+
+    let mut uf = uf_new(k);
+    let mut ci: usize = 0;
+    while ci < constraints.len()
+        invariant
+            0 <= ci <= constraints@.len(),
+            uf@.len() == k,
+            uf_wf(uf@),
+            entity_map@.len() == n_points,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+        decreases constraints@.len() - ci,
+    {
+        if is_verification_constraint_exec(&constraints[ci], n_points) {
+            let eids = constraint_entity_ids(&constraints[ci], n_points);
+            let mut first_circle: usize = usize::MAX;
+            let mut ei: usize = 0;
+            while ei < eids.len()
+                invariant
+                    0 <= ei <= eids@.len(),
+                    uf@.len() == k,
+                    uf_wf(uf@),
+                    entity_map@.len() == n_points,
+                    forall|j: int| 0 <= j < eids@.len() ==>
+                        (#[trigger] eids@[j] as int) < n_points,
+                    first_circle == usize::MAX || (first_circle as int) < k,
+                decreases eids@.len() - ei,
+            {
+                let eid = eids[ei];
+                let step_idx = entity_map[eid];
+                if step_idx != usize::MAX && step_idx < k {
+                    if first_circle == usize::MAX {
+                        first_circle = step_idx;
+                    } else {
+                        uf_union(&mut uf, first_circle, step_idx);
+                    }
+                }
+                ei = ei + 1;
+            }
+        }
+        ci = ci + 1;
+    }
+
+    let mut root_to_comp: Vec<usize> = Vec::new();
+    let mut comp_ids: Vec<usize> = Vec::new();
+    let mut n_comps: usize = 0;
+    let mut i2: usize = 0;
+    while i2 < k
+        invariant 0 <= i2 <= k, root_to_comp@.len() == i2,
+        decreases k - i2,
+    {
+        root_to_comp.push(usize::MAX);
+        i2 = i2 + 1;
+    }
+    let mut si2: usize = 0;
+    while si2 < k
+        invariant
+            0 <= si2 <= k,
+            comp_ids@.len() == si2,
+            root_to_comp@.len() == k,
+            uf@.len() == k,
+            uf_wf(uf@),
+            n_comps <= si2,
+        decreases k - si2,
+    {
+        let root = uf_find(&uf, si2);
+        if root_to_comp[root] == usize::MAX {
+            root_to_comp.set(root, n_comps);
+            comp_ids.push(n_comps);
+            n_comps = n_comps + 1;
+        } else {
+            comp_ids.push(root_to_comp[root]);
+        }
+        si2 = si2 + 1;
+    }
+
+    CouplingComponents {
+        step_to_component: comp_ids,
+        n_components: n_comps,
+        n_circle_steps: k,
+    }
+}
+
+/// Build the component graph for a single coupling component using an abstract plan.
+pub fn build_component_graph_abstract(
+    coupling: &CouplingComponents,
+    comp_idx: usize,
+    plan: &Vec<AbstractPlanStep>,
+    constraints: &Vec<RuntimeConstraint>,
+    n_points: usize,
+    global_entity_map: &Vec<usize>,
+) -> (out: ComponentGraph)
+    requires
+        forall|i: int| 0 <= i < plan@.len() ==>
+            (#[trigger] plan@[i]).target < n_points,
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+        coupling.step_to_component@.len() == coupling.n_circle_steps,
+        coupling.n_circle_steps <= plan@.len(),
+        global_entity_map@.len() == n_points,
+    ensures
+        out.n_nodes == out.step_indices@.len(),
+{
+    // Collect circle step indices belonging to this component
+    let mut step_indices: Vec<usize> = Vec::new();
+    let mut local_map: Vec<usize> = Vec::new(); // global circle idx → local node idx
+
+    let mut gi: usize = 0;
+    while gi < coupling.n_circle_steps
+        invariant
+            0 <= gi <= coupling.n_circle_steps,
+            local_map@.len() == gi,
+            step_indices@.len() <= gi,
+            coupling.step_to_component@.len() == coupling.n_circle_steps,
+        decreases coupling.n_circle_steps - gi,
+    {
+        if coupling.step_to_component[gi] == comp_idx {
+            local_map.push(step_indices.len());
+            step_indices.push(gi);
+        } else {
+            local_map.push(usize::MAX);
+        }
+        gi = gi + 1;
+    }
+
+    let comp_size = step_indices.len();
+    // Build edges directly: for each verification constraint, if it connects
+    // two nodes in this component, add an edge.
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+
+    let mut ci3: usize = 0;
+    while ci3 < constraints.len()
+        invariant
+            0 <= ci3 <= constraints@.len(),
+            global_entity_map@.len() == n_points,
+            local_map@.len() == coupling.n_circle_steps,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+        decreases constraints@.len() - ci3,
+    {
+        if is_verification_constraint_exec(&constraints[ci3], n_points) {
+            let eids = constraint_entity_ids(&constraints[ci3], n_points);
+            let mut nodes_in: Vec<usize> = Vec::new();
+            let mut ei3: usize = 0;
+            while ei3 < eids.len()
+                invariant
+                    0 <= ei3 <= eids@.len(),
+                    global_entity_map@.len() == n_points,
+                    local_map@.len() == coupling.n_circle_steps,
+                    forall|j: int| 0 <= j < eids@.len() ==>
+                        (#[trigger] eids@[j] as int) < n_points,
+                    forall|j: int| 0 <= j < nodes_in@.len() ==>
+                        (#[trigger] nodes_in@[j] as int) < comp_size,
+                decreases eids@.len() - ei3,
+            {
+                let eid = eids[ei3];
+                let gci = global_entity_map[eid];
+                if gci != usize::MAX && gci < coupling.n_circle_steps {
+                    let lci = local_map[gci];
+                    if lci != usize::MAX && lci < comp_size {
+                        nodes_in.push(lci);
+                    }
+                }
+                ei3 = ei3 + 1;
+            }
+            // Add edges for all pairs
+            let mut p1: usize = 0;
+            while p1 < nodes_in.len()
+                invariant
+                    0 <= p1 <= nodes_in@.len(),
+                    forall|j: int| 0 <= j < nodes_in@.len() ==>
+                        (#[trigger] nodes_in@[j] as int) < comp_size,
+                decreases nodes_in@.len() - p1,
+            {
+                let mut p2: usize = p1 + 1;
+                while p2 < nodes_in.len()
+                    invariant
+                        p1 < p2 && p2 <= nodes_in@.len(),
+                        forall|j: int| 0 <= j < nodes_in@.len() ==>
+                            (#[trigger] nodes_in@[j] as int) < comp_size,
+                    decreases nodes_in@.len() - p2,
+                {
+                    edges.push((nodes_in[p1], nodes_in[p2]));
+                    p2 = p2 + 1;
+                }
+                p1 = p1 + 1;
+            }
+        }
+        ci3 = ci3 + 1;
+    }
+
+    ComponentGraph {
+        n_nodes: comp_size,
+        edges,
+        step_indices,
+    }
+}
+
+/// Verify a single sign variant using the DTS pipeline.
+/// Returns DynRtPoint2 positions if execution succeeds and all constraints pass.
+fn verify_variant_dyn(
+    abstract_plan: &Vec<AbstractPlanStep>,
+    constraints: &Vec<RuntimeConstraint>,
+    constraint_pairs: &Vec<(usize, usize)>,
+    initial_points: &Vec<RuntimePoint2>,
+) -> (out: Option<Vec<DynRtPoint2>>)
+    requires
+        abstract_plan@.len() == constraint_pairs@.len(),
+        initial_points@.len() > 0,
+        forall|i: int| 0 <= i < initial_points@.len() ==>
+            (#[trigger] initial_points@[i]).wf_spec(),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], initial_points@.len() as nat),
+    ensures
+        out.is_some() ==> ({
+            let r = out.unwrap();
+            &&& r@.len() == initial_points@.len()
+            &&& all_dyn_points_wf(r@)
+        }),
+{
+    let levels = compute_step_levels(abstract_plan, constraints);
+    let mut max_depth: usize = 0;
+    let mut li: usize = 0;
+    while li < levels.len()
+        invariant
+            0 <= li <= levels@.len(),
+            levels@.len() == abstract_plan@.len(),
+        decreases levels@.len() - li,
+    {
+        if levels[li] > max_depth {
+            max_depth = levels[li];
+        }
+        li = li + 1;
+    }
+    let exec_result = execute_all_levels_dyn(
+        initial_points, abstract_plan, constraints, constraint_pairs,
+        &levels, max_depth);
+    match exec_result {
+        None => None,
+        Some(dyn_points) => {
+            if check_all_constraints_dyn(constraints, &dyn_points) {
+                Some(dyn_points)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Compute total squared displacement from initial (rational) positions
+/// using rational extraction from DTS positions.
+fn compute_displacement_rational(
+    dyn_points: &Vec<DynRtPoint2>,
+    initial_points: &Vec<RuntimePoint2>,
+    initial_flags: &Vec<bool>,
+) -> (out: RuntimeRational)
+    requires
+        dyn_points@.len() == initial_points@.len(),
+        dyn_points@.len() == initial_flags@.len(),
+        all_dyn_points_wf(dyn_points@),
+        all_points_wf(initial_points@),
+    ensures
+        out.wf_spec(),
+{
+    let rat_points = extract_rational_points_dyn(dyn_points);
+    let mut total = RuntimeRational::from_int(0);
+    let mut idx: usize = 0;
+    while idx < rat_points.len()
+        invariant
+            0 <= idx <= rat_points@.len(),
+            rat_points@.len() == initial_points@.len(),
+            rat_points@.len() == initial_flags@.len(),
+            forall|i: int| 0 <= i < rat_points@.len() ==>
+                (#[trigger] rat_points@[i]).wf_spec(),
+            all_points_wf(initial_points@),
+            total.wf_spec(),
+        decreases rat_points@.len() - idx,
+    {
+        if !initial_flags[idx] {
+            let dx = rat_points[idx].x.sub(&initial_points[idx].x);
+            let dy = rat_points[idx].y.sub(&initial_points[idx].y);
+            let dx2 = dx.mul(&dx);
+            let dy2 = dy.mul(&dy);
+            let dist = dx2.add(&dy2);
+            total = total.add(&dist);
+        }
+        idx = idx + 1;
+    }
+    total
+}
+
+/// DTS-based minimum-displacement sign variant search.
+/// Uses the same tree-aware heuristic as lazy_verify_min_displacement but
+/// with DTS execution for correct arbitrary-depth circle intersections.
+pub fn lazy_verify_min_displacement_dyn(
+    greedy_result: &GreedyDynResult,
+    constraints: &Vec<RuntimeConstraint>,
+    initial_points: &Vec<RuntimePoint2>,
+    initial_flags: &Vec<bool>,
+) -> (out: Option<SolvedPoints>)
+    requires
+        initial_points@.len() == initial_flags@.len(),
+        initial_points@.len() > 0,
+        all_points_wf(initial_points@),
+        forall|i: int| 0 <= i < constraints@.len() ==>
+            runtime_constraint_wf(#[trigger] constraints@[i], initial_points@.len() as nat),
+        greedy_result.plan@.len() == greedy_result.constraint_pairs@.len(),
+        greedy_result.dyn_positions@.len() == initial_points@.len(),
+        all_dyn_points_wf(greedy_result.dyn_positions@),
+        forall|i: int| 0 <= i < greedy_result.plan@.len() ==>
+            (#[trigger] greedy_result.plan@[i]).target < initial_points@.len(),
+        forall|i: int, j: int|
+            0 <= i < greedy_result.plan@.len() &&
+            0 <= j < greedy_result.plan@.len() && i != j ==>
+            greedy_result.plan@[i].target != greedy_result.plan@[j].target,
+    ensures
+        out.is_some() ==>
+            out.unwrap().ghost_n_constraints_verified@
+                == constraints_to_spec(constraints@).len(),
+{
+    let plan = &greedy_result.plan;
+    let constraint_pairs = &greedy_result.constraint_pairs;
+    let n_points = initial_points.len();
+
+    let k = count_circle_steps_abstract(plan);
+    if k > 63 {
+        // Too many circle steps — try base plan only
+        let result = verify_variant_dyn(plan, constraints, constraint_pairs, initial_points);
+        return match result {
+            Some(dyn_pts) => {
+                let rat_pts = extract_rational_points_dyn(&dyn_pts);
+                Some(SolvedPoints {
+                    plan: Vec::new(), // no RuntimeStepData in DTS path
+                    points_re: rat_pts,
+                    ghost_n_constraints_verified: Ghost(constraints_to_spec(constraints@).len()),
+                })
+            }
+            None => None,
+        };
+    }
+
+    // Build coupling components + candidate masks
+    let coupling = build_coupling_components_abstract(plan, constraints, n_points);
+    let global_entity_map = build_entity_to_circle_step_abstract(plan, n_points);
+    let greedy_mask: u64 = 0; // Default: use base plan signs
+
+    let mut candidates: Vec<u64> = Vec::new();
+    candidates.push(greedy_mask);
+
+    let mut comp: usize = 0;
+    while comp < coupling.n_components
+        invariant
+            0 <= comp <= coupling.n_components,
+            coupling.step_to_component@.len() == coupling.n_circle_steps,
+            coupling.n_circle_steps <= plan@.len(),
+            global_entity_map@.len() == n_points,
+            forall|i: int| 0 <= i < plan@.len() ==>
+                (#[trigger] plan@[i]).target < n_points,
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
+        decreases coupling.n_components - comp,
+    {
+        let graph = build_component_graph_abstract(
+            &coupling, comp, plan, constraints, n_points, &global_entity_map);
+        let comp_candidates = solve_component_dp(&graph, greedy_mask);
+        let mut ci2: usize = 0;
+        while ci2 < comp_candidates.len()
+            invariant 0 <= ci2 <= comp_candidates@.len(),
+            decreases comp_candidates@.len() - ci2,
+        {
+            candidates.push(comp_candidates[ci2]);
+            ci2 = ci2 + 1;
+        }
+        comp = comp + 1;
+    }
+
+    let candidates = dedup_masks(&candidates);
+
+    // Try all candidate masks
+    let mut best: Option<SolvedPoints> = None;
+    let mut best_disp: Option<RuntimeRational> = None;
+
+    let mut mi: usize = 0;
+    while mi < candidates.len()
+        invariant
+            0 <= mi <= candidates@.len(),
+            plan@.len() == constraint_pairs@.len(),
+            initial_points@.len() > 0,
+            initial_points@.len() == initial_flags@.len(),
+            all_points_wf(initial_points@),
+            forall|i: int| 0 <= i < plan@.len() ==>
+                (#[trigger] plan@[i]).target < initial_points@.len(),
+            forall|i: int| 0 <= i < constraints@.len() ==>
+                runtime_constraint_wf(#[trigger] constraints@[i], initial_points@.len() as nat),
+            best.is_some() ==> best_disp.is_some(),
+            best.is_some() ==>
+                best.unwrap().ghost_n_constraints_verified@ ==
+                    constraints_to_spec(constraints@).len(),
+            best_disp.is_some() ==> best_disp.unwrap().wf_spec(),
+        decreases candidates@.len() - mi,
+    {
+        let try_mask = candidates[mi];
+        let variant = make_sign_variant_abstract(plan, try_mask);
+        let result = verify_variant_dyn(
+            &variant, constraints, constraint_pairs, initial_points);
+        match result {
+            Some(dyn_pts) => {
+                let disp = compute_displacement_rational(
+                    &dyn_pts, initial_points, initial_flags);
+                let rat_pts = extract_rational_points_dyn(&dyn_pts);
+                let sp = SolvedPoints {
+                    plan: Vec::new(),
+                    points_re: rat_pts,
+                    ghost_n_constraints_verified: Ghost(constraints_to_spec(constraints@).len()),
+                };
+                match &best_disp {
+                    None => {
+                        best = Some(sp);
+                        best_disp = Some(disp);
+                    }
+                    Some(bd) => {
+                        if disp.lt(bd) {
+                            best = Some(sp);
+                            best_disp = Some(disp);
+                        }
+                    }
+                }
+            }
+            None => {}
+        }
+        mi = mi + 1;
+    }
+
+    best
 }
 
 // ===========================================================================
