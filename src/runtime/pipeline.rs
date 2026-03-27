@@ -3126,6 +3126,12 @@ pub fn solve_min_displacement_dyn(
     let initial_points = copy_points_vec(points);
     let initial_flags = copy_flags_vec(resolved_flags);
 
+    // Run rational greedy solver on copies to get geometry for greedy mask
+    let mut rat_points = copy_points_vec(points);
+    let mut rat_flags = copy_flags_vec(resolved_flags);
+    let rat_plan = greedy_solve_exec(free_ids, constraints, &mut rat_points, &mut rat_flags);
+    let greedy_mask = compute_greedy_mask(&rat_plan, &initial_points);
+
     let dyn_result = greedy_solve_exec_dyn(
         free_ids, constraints, points, resolved_flags);
 
@@ -3163,7 +3169,7 @@ pub fn solve_min_displacement_dyn(
     }
 
     let result = lazy_verify_min_displacement_dyn(
-        &dyn_result, constraints, &initial_points, &initial_flags);
+        &dyn_result, constraints, &initial_points, &initial_flags, greedy_mask);
     match result {
         Some(sp) => SolveResult::Solved { solution: sp },
         None => SolveResult::Unsatisfiable { plan: Vec::new() },
