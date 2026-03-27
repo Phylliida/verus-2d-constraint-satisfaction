@@ -4282,6 +4282,7 @@ pub fn lazy_verify_min_displacement_dyn(
     constraints: &Vec<RuntimeConstraint>,
     initial_points: &Vec<RuntimePoint2>,
     initial_flags: &Vec<bool>,
+    greedy_mask: u64,
 ) -> (out: Option<SolvedPoints>)
     requires
         initial_points@.len() == initial_flags@.len(),
@@ -4327,7 +4328,7 @@ pub fn lazy_verify_min_displacement_dyn(
     // Build coupling components + candidate masks
     let coupling = build_coupling_components_abstract(plan, constraints, n_points);
     let global_entity_map = build_entity_to_circle_step_abstract(plan, n_points);
-    let greedy_mask: u64 = 0; // Default: use base plan signs
+    // greedy_mask is computed by caller from rational solver geometry
 
     let mut candidates: Vec<u64> = Vec::new();
     candidates.push(greedy_mask);
