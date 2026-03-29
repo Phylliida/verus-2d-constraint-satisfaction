@@ -17,12 +17,12 @@ type RationalModel = verus_rational::rational::Rational;
 
 verus! {
 
-// ===========================================================================
-//  Resolved points bridge
-// ===========================================================================
+//  ===========================================================================
+//   Resolved points bridge
+//  ===========================================================================
 
-/// Convert a Vec of runtime points (viewed as spec) into a ResolvedPoints map.
-/// Entity i maps to points[i] for 0 <= i < points.len().
+///  Convert a Vec of runtime points (viewed as spec) into a ResolvedPoints map.
+///  Entity i maps to points[i] for 0 <= i < points.len().
 pub open spec fn vec_to_resolved_map(
     points: Seq<Point2<RationalModel>>,
 ) -> ResolvedPoints<RationalModel> {
@@ -32,8 +32,8 @@ pub open spec fn vec_to_resolved_map(
     )
 }
 
-/// Partial resolved map: only entities with flags[i] == true are in the domain.
-/// Used by the greedy solver where not all entities are resolved yet.
+///  Partial resolved map: only entities with flags[i] == true are in the domain.
+///  Used by the greedy solver where not all entities are resolved yet.
 pub open spec fn partial_resolved_map(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -44,22 +44,22 @@ pub open spec fn partial_resolved_map(
     )
 }
 
-/// Helper: check that all points in the Vec satisfy wf_spec.
+///  Helper: check that all points in the Vec satisfy wf_spec.
 pub open spec fn all_points_wf(points: Seq<RuntimePoint2>) -> bool {
     forall|i: int| 0 <= i < points.len() ==> (#[trigger] points[i]).wf_spec()
 }
 
-/// Lift the views of all RuntimePoint2 in a Vec to a spec-level Seq of Point2.
+///  Lift the views of all RuntimePoint2 in a Vec to a spec-level Seq of Point2.
 pub open spec fn points_view(points: Seq<RuntimePoint2>) -> Seq<Point2<RationalModel>> {
     Seq::new(points.len(), |i: int| points[i]@)
 }
 
-// ===========================================================================
-//  Runtime constraint enum
-// ===========================================================================
+//  ===========================================================================
+//   Runtime constraint enum
+//  ===========================================================================
 
-/// Runtime constraint: mirrors spec-level Constraint<RationalModel> with
-/// entity IDs as usize indices into a resolved-points Vec.
+///  Runtime constraint: mirrors spec-level Constraint<RationalModel> with
+///  entity IDs as usize indices into a resolved-points Vec.
 pub enum RuntimeConstraint {
     Coincident { a: usize, b: usize, model: Ghost<Constraint<RationalModel>> },
     DistanceSq { a: usize, b: usize, dist_sq: RuntimeRational, model: Ghost<Constraint<RationalModel>> },
@@ -86,8 +86,8 @@ pub enum RuntimeConstraint {
     PointOnArc { point: usize, center: usize, radius_point: usize, arc_start: usize, arc_end: usize, model: Ghost<Constraint<RationalModel>> },
 }
 
-/// Well-formedness: the runtime constraint matches its ghost model and
-/// all entity IDs are valid nats matching the spec EntityId.
+///  Well-formedness: the runtime constraint matches its ghost model and
+///  all entity IDs are valid nats matching the spec EntityId.
 pub open spec fn runtime_constraint_wf(
     rc: RuntimeConstraint, n_points: nat,
 ) -> bool {
@@ -182,7 +182,7 @@ pub open spec fn runtime_constraint_wf(
     }
 }
 
-/// Extract the ghost model from a RuntimeConstraint.
+///  Extract the ghost model from a RuntimeConstraint.
 pub open spec fn runtime_constraint_model(rc: RuntimeConstraint) -> Constraint<RationalModel> {
     match rc {
         RuntimeConstraint::Coincident { model, .. } => model@,
@@ -211,11 +211,11 @@ pub open spec fn runtime_constraint_model(rc: RuntimeConstraint) -> Constraint<R
     }
 }
 
-// ===========================================================================
-//  Constraint checker helpers
-// ===========================================================================
+//  ===========================================================================
+//   Constraint checker helpers
+//  ===========================================================================
 
-/// Check rational equality: a@ ≡ b@ (using le both ways).
+///  Check rational equality: a@ ≡ b@ (using le both ways).
 fn rational_eqv(a: &RuntimeRational, b: &RuntimeRational) -> (out: bool)
     requires a.wf_spec(), b.wf_spec(),
     ensures out == a@.eqv(b@),
@@ -223,7 +223,7 @@ fn rational_eqv(a: &RuntimeRational, b: &RuntimeRational) -> (out: bool)
     a.le(b) && b.le(a)
 }
 
-/// Check Point2 equivalence: both coordinates match.
+///  Check Point2 equivalence: both coordinates match.
 fn point2_eqv(a: &RuntimePoint2, b: &RuntimePoint2) -> (out: bool)
     requires a.wf_spec(), b.wf_spec(),
     ensures out == a@.eqv(b@),
@@ -231,9 +231,9 @@ fn point2_eqv(a: &RuntimePoint2, b: &RuntimePoint2) -> (out: bool)
     rational_eqv(&a.x, &b.x) && rational_eqv(&a.y, &b.y)
 }
 
-// ===========================================================================
-//  Per-constraint satisfaction checkers
-// ===========================================================================
+//  ===========================================================================
+//   Per-constraint satisfaction checkers
+//  ===========================================================================
 
 fn check_coincident_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) -> (out: bool)
     requires runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
@@ -736,11 +736,11 @@ fn check_normal_to_circle_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint
                 assert(resolved[*center as nat] == points@[*center as int]@);
                 assert(resolved[*radius_point as nat] == points@[*radius_point as int]@);
             }
-            // on_circle: sq_dist(line_a, center) ≡ sq_dist(radius_point, center)
+            //  on_circle: sq_dist(line_a, center) ≡ sq_dist(radius_point, center)
             let d_la = sq_dist_2d_exec(&points[*line_a], &points[*center]);
             let d_rp = sq_dist_2d_exec(&points[*radius_point], &points[*center]);
             if !rational_eqv(&d_la, &d_rp) { return false; }
-            // collinear: center on line through line_a, line_b
+            //  collinear: center on line through line_a, line_b
             let line = line2_from_points_exec(&points[*line_a], &points[*line_b]);
             let eval = line2_eval_exec(&line, &points[*center]);
             eval.is_zero()
@@ -766,22 +766,22 @@ fn check_point_on_ellipse_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint
                 assert(resolved[*semi_a as nat] == points@[*semi_a as int]@);
                 assert(resolved[*semi_b as nat] == points@[*semi_b as int]@);
             }
-            // d = point - center
+            //  d = point - center
             let dx = points[*point].x.sub(&points[*center].x);
             let dy = points[*point].y.sub(&points[*center].y);
-            // u = semi_a - center
+            //  u = semi_a - center
             let ux = points[*semi_a].x.sub(&points[*center].x);
             let uy = points[*semi_a].y.sub(&points[*center].y);
-            // v = semi_b - center
+            //  v = semi_b - center
             let vx = points[*semi_b].x.sub(&points[*center].x);
             let vy = points[*semi_b].y.sub(&points[*center].y);
-            // a_sq = |u|², b_sq = |v|²
+            //  a_sq = |u|², b_sq = |v|²
             let a_sq = ux.mul(&ux).add(&uy.mul(&uy));
             let b_sq = vx.mul(&vx).add(&vy.mul(&vy));
-            // proj_u = dot(d, u), proj_v = dot(d, v)
+            //  proj_u = dot(d, u), proj_v = dot(d, v)
             let proj_u = dx.mul(&ux).add(&dy.mul(&uy));
             let proj_v = dx.mul(&vx).add(&dy.mul(&vy));
-            // Ellipse equation: proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
+            //  Ellipse equation: proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
             let lhs = proj_u.mul(&proj_u).mul(&b_sq).add(&proj_v.mul(&proj_v).mul(&a_sq));
             let rhs = a_sq.mul(&b_sq);
             rational_eqv(&lhs, &rhs)
@@ -809,15 +809,15 @@ fn check_point_on_arc_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) 
                 assert(resolved[*arc_start as nat] == points@[*arc_start as int]@);
                 assert(resolved[*arc_end as nat] == points@[*arc_end as int]@);
             }
-            // on_circle
+            //  on_circle
             let d_pt = sq_dist_2d_exec(&points[*point], &points[*center]);
             let d_rp = sq_dist_2d_exec(&points[*radius_point], &points[*center]);
             if !rational_eqv(&d_pt, &d_rp) { return false; }
-            // orient2d values
+            //  orient2d values
             let o_se = orient2d_exec(&points[*center], &points[*arc_start], &points[*arc_end]);
             let o_sp = orient2d_exec(&points[*center], &points[*arc_start], &points[*point]);
             let o_pe = orient2d_exec(&points[*center], &points[*point], &points[*arc_end]);
-            // Check: 0 <= o_sp * o_se && 0 <= o_pe * o_se
+            //  Check: 0 <= o_sp * o_se && 0 <= o_pe * o_se
             let zero = RuntimeRational::from_int(0);
             let prod1 = o_sp.mul(&o_se);
             let prod2 = o_pe.mul(&o_se);
@@ -827,12 +827,12 @@ fn check_point_on_arc_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>) 
     }
 }
 
-// ===========================================================================
-//  Main checker (dispatcher)
-// ===========================================================================
+//  ===========================================================================
+//   Main checker (dispatcher)
+//  ===========================================================================
 
-/// Check if a single runtime constraint is satisfied by the resolved points.
-/// Dispatches to per-constraint helpers for efficient verification.
+///  Check if a single runtime constraint is satisfied by the resolved points.
+///  Dispatches to per-constraint helpers for efficient verification.
 pub fn check_constraint_satisfied_exec(
     rc: &RuntimeConstraint,
     points: &Vec<RuntimePoint2>,
@@ -873,7 +873,7 @@ pub fn check_constraint_satisfied_exec(
     }
 }
 
-/// Check if all constraints in a Vec are satisfied.
+///  Check if all constraints in a Vec are satisfied.
 pub fn check_all_constraints_exec(
     constraints: &Vec<RuntimeConstraint>,
     points: &Vec<RuntimePoint2>,
@@ -912,4 +912,4 @@ pub fn check_all_constraints_exec(
     true
 }
 
-} // verus!
+} //  verus!

@@ -1,28 +1,28 @@
-/// Dynamic field element for arbitrary-depth quadratic extension towers.
+///  Dynamic field element for arbitrary-depth quadratic extension towers.
 ///
-/// `DynFieldElem` type-erases the tower level, allowing arbitrary-depth
-/// quadratic extension arithmetic via recursive `dyn_*` methods.
+///  `DynFieldElem` type-erases the tower level, allowing arbitrary-depth
+///  quadratic extension arithmetic via recursive `dyn_*` methods.
 ///
-/// Ghost tracking via `dts_model` maps each `DynFieldElem` to a concrete
-/// `DynTowerSpec`, enabling spec-level reasoning about operations.
+///  Ghost tracking via `dts_model` maps each `DynFieldElem` to a concrete
+///  `DynTowerSpec`, enabling spec-level reasoning about operations.
 ///
-/// All methods are fully verified (no external_body, no assume).
-/// Spec correspondence proved for all operations including reciprocal/division.
+///  All methods are fully verified (no external_body, no assume).
+///  Spec correspondence proved for all operations including reciprocal/division.
 use vstd::prelude::*;
 use verus_rational::runtime_rational::RuntimeRational;
 use verus_quadratic_extension::dyn_tower::*;
 
 verus! {
 
-// ═══════════════════════════════════════════════════════════════════
-//  DynFieldElem — recursive field element at any tower depth
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   DynFieldElem — recursive field element at any tower depth
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Runtime field element at any depth of the quadratic extension tower.
+///  Runtime field element at any depth of the quadratic extension tower.
 ///
-/// - `Rational(r)`: base-level element in Q
-/// - `Extension { re, im, radicand }`: element `re + im·√radicand` where
-///   re, im, radicand are themselves DynFieldElem at one level lower.
+///  - `Rational(r)`: base-level element in Q
+///  - `Extension { re, im, radicand }`: element `re + im·√radicand` where
+///    re, im, radicand are themselves DynFieldElem at one level lower.
 pub enum DynFieldElem {
     Rational(RuntimeRational),
     Extension {
@@ -32,12 +32,12 @@ pub enum DynFieldElem {
     },
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Ghost model: DynFieldElem → DynTowerSpec
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Ghost model: DynFieldElem → DynTowerSpec
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Structural mapping from runtime DynFieldElem to spec DynTowerSpec.
-/// Each RuntimeRational maps to Rat(r@), each Extension maps to Ext.
+///  Structural mapping from runtime DynFieldElem to spec DynTowerSpec.
+///  Each RuntimeRational maps to Rat(r@), each Extension maps to Ext.
 pub open spec fn dts_model(x: DynFieldElem) -> DynTowerSpec
     decreases x,
 {
@@ -51,9 +51,9 @@ pub open spec fn dts_model(x: DynFieldElem) -> DynTowerSpec
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Inherent methods — fully verified recursive arithmetic
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Inherent methods — fully verified recursive arithmetic
+//  ═══════════════════════════════════════════════════════════════════
 
 impl DynFieldElem {
     pub open spec fn dyn_wf(&self) -> bool
@@ -130,10 +130,10 @@ impl DynFieldElem {
                 DynFieldElem::Rational(a.mul(b)),
             (DynFieldElem::Extension { re: a, im: b, radicand: d },
              DynFieldElem::Extension { re: c, im: e, .. }) => {
-                // (a + b√d)(c + e√d) = (ac + d·be) + (ae + bc)√d
+                //  (a + b√d)(c + e√d) = (ac + d·be) + (ae + bc)√d
                 let ac = a.dyn_mul(c);
                 let be = b.dyn_mul(e);
-                // d.dyn_mul(&be) matches spec's dts_mul(*d, im1_im2) for termination
+                //  d.dyn_mul(&be) matches spec's dts_mul(*d, im1_im2) for termination
                 let d_be = d.dyn_mul(&be);
                 let re_out = ac.dyn_add(&d_be);
                 let ae = a.dyn_mul(e);
@@ -160,7 +160,7 @@ impl DynFieldElem {
         }
     }
 
-    /// Check if this element is zero (im and re are recursively zero).
+    ///  Check if this element is zero (im and re are recursively zero).
     pub fn dyn_is_zero(&self) -> (out: bool)
         requires self.dyn_wf()
         ensures out == dts_is_zero(dts_model(*self))
@@ -176,8 +176,8 @@ impl DynFieldElem {
         }
     }
 
-    /// Check if this element is equivalent to a rational value.
-    /// Terminates by structural descent on self.
+    ///  Check if this element is equivalent to a rational value.
+    ///  Terminates by structural descent on self.
     pub fn dyn_eq_rational(&self, r: &RuntimeRational) -> (out: bool)
         requires self.dyn_wf(), r.wf_spec()
         ensures out == dts_eqv(dts_model(*self), DynTowerSpec::Rat(r@))
@@ -203,8 +203,8 @@ impl DynFieldElem {
             (DynFieldElem::Rational(r), DynFieldElem::Extension { re, im, .. }) => {
                 let out = re.dyn_eq_rational(r) && im.dyn_is_zero();
                 proof {
-                    // dyn_eq_rational gives dts_eqv(model(*re), Rat(r@))
-                    // but spec needs dts_eqv(Rat(r@), model(*re))
+                    //  dyn_eq_rational gives dts_eqv(model(*re), Rat(r@))
+                    //  but spec needs dts_eqv(Rat(r@), model(*re))
                     verus_quadratic_extension::dyn_tower_lemmas::lemma_dts_eqv_symmetric(
                         dts_model(**re), DynTowerSpec::Rat(r@));
                 }
@@ -216,8 +216,8 @@ impl DynFieldElem {
     }
 
 
-    /// Reciprocal with explicit fuel for termination.
-    /// Returns self for zero inputs (matching spec's reciprocal_spec behavior).
+    ///  Reciprocal with explicit fuel for termination.
+    ///  Returns self for zero inputs (matching spec's reciprocal_spec behavior).
     fn dyn_recip_fuel(&self, fuel: u64) -> (out: Self)
         requires self.dyn_wf()
         ensures out.dyn_wf(), dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)
@@ -229,7 +229,7 @@ impl DynFieldElem {
                     Some(r) => {
                         let out = DynFieldElem::Rational(r);
                         proof {
-                            assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); // CHECK A
+                            assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); //  CHECK A
                         }
                         out
                     }
@@ -239,13 +239,13 @@ impl DynFieldElem {
                             let m = a@;
                             let zero = Rational::from_int_spec(0);
                             assert(m.eqv_spec(zero));
-                            // eqv_spec expands to: m.num * zero.denom() == zero.num * m.denom()
-                            // zero = Rational { num: 0, den: 0 }
-                            // zero.denom() = zero.den + 1 = 1
-                            // zero.num = 0
+                            //  eqv_spec expands to: m.num * zero.denom() == zero.num * m.denom()
+                            //  zero = Rational { num: 0, den: 0 }
+                            //  zero.denom() = zero.den + 1 = 1
+                            //  zero.num = 0
                             assert(zero.num == 0int);
                             assert(zero.denom() == 1int);
-                            // So: m.num * 1 == 0 * m.denom()
+                            //  So: m.num * 1 == 0 * m.denom()
                             assert(m.num * 1 == 0int * m.denom());
                             assert(m.num == 0int) by(nonlinear_arith)
                                 requires m.num * 1 == 0int * m.denom()
@@ -254,7 +254,7 @@ impl DynFieldElem {
                         }
                         let out = self.dyn_copy();
                         proof {
-                            assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); // CHECK B
+                            assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); //  CHECK B
                         }
                         out
                     }
@@ -264,11 +264,11 @@ impl DynFieldElem {
                 if fuel == 0 {
                     let out = self.dyn_copy();
                     proof {
-                        assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); // CHECK C
+                        assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); //  CHECK C
                     }
                     return out;
                 }
-                // norm = a² - d·b²
+                //  norm = a² - d·b²
                 let a_sq = a.dyn_mul(a);
                 let b_sq = b.dyn_mul(b);
                 let d_b_sq = d.dyn_mul(&b_sq);
@@ -287,7 +287,7 @@ impl DynFieldElem {
                     radicand: Box::new(d.dyn_copy()),
                 };
                 proof {
-                    assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); // CHECK D
+                    assert(dts_model(out) == dts_recip_fuel(dts_model(*self), fuel as nat)); //  CHECK D
                 }
                 out
             }
@@ -339,9 +339,9 @@ impl DynFieldElem {
                 let im_out = re.dyn_zero_like();
                 let d_out = radicand.dyn_copy();
                 proof {
-                    // Recursive ensures: dts_eqv(dts_model(re_out), dts_zero())
-                    //                    dts_eqv(dts_model(im_out), dts_zero())
-                    // Need: dts_is_zero(dts_model(im_out)) for the cross-variant unfolding
+                    //  Recursive ensures: dts_eqv(dts_model(re_out), dts_zero())
+                    //                     dts_eqv(dts_model(im_out), dts_zero())
+                    //  Need: dts_is_zero(dts_model(im_out)) for the cross-variant unfolding
                     verus_quadratic_extension::dyn_tower_lemmas::lemma_dts_eqv_zero_implies_is_zero(
                         dts_model(im_out));
                 }
@@ -405,11 +405,11 @@ impl DynFieldElem {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Extract rational approximation from DynFieldElem
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Extract rational approximation from DynFieldElem
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Extract the rational part (innermost re.re.re...) from a DynFieldElem.
+///  Extract the rational part (innermost re.re.re...) from a DynFieldElem.
 pub fn extract_rational_part(elem: &DynFieldElem) -> (out: RuntimeRational)
     requires elem.dyn_wf()
     ensures out.wf_spec()
@@ -421,4 +421,4 @@ pub fn extract_rational_part(elem: &DynFieldElem) -> (out: RuntimeRational)
     }
 }
 
-} // verus!
+} //  verus!

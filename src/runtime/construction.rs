@@ -27,11 +27,11 @@ type RationalModel = verus_rational::rational::Rational;
 
 verus! {
 
-// ===========================================================================
-//  Runtime construction step execution
-// ===========================================================================
+//  ===========================================================================
+//   Runtime construction step execution
+//  ===========================================================================
 
-/// Execute a Fixed step: just wrap the given position.
+///  Execute a Fixed step: just wrap the given position.
 pub fn execute_fixed_step(
     x: &RuntimeRational,
     y: &RuntimeRational,
@@ -51,7 +51,7 @@ pub fn execute_fixed_step(
     }
 }
 
-/// Execute a LineLine step.
+///  Execute a LineLine step.
 pub fn execute_line_line_step(
     l1: &RuntimeLine2,
     l2: &RuntimeLine2,
@@ -67,12 +67,12 @@ pub fn execute_line_line_step(
     line_line_intersection_2d_exec(l1, l2)
 }
 
-// ===========================================================================
-//  Circle intersection step execution (quadratic extension coordinates)
-// ===========================================================================
+//  ===========================================================================
+//   Circle intersection step execution (quadratic extension coordinates)
+//  ===========================================================================
 
-/// Runtime point in a quadratic extension field Q(sqrt(d)).
-/// Stores (x, y) coordinates as RuntimeQExtRat<R>.
+///  Runtime point in a quadratic extension field Q(sqrt(d)).
+///  Stores (x, y) coordinates as RuntimeQExtRat<R>.
 pub struct RuntimeQExtPoint2<R: Radicand<RationalModel>> {
     pub x: RuntimeQExtRat<R>,
     pub y: RuntimeQExtRat<R>,
@@ -96,9 +96,9 @@ impl<R: Radicand<RationalModel>> RuntimeQExtPoint2<R> {
     }
 }
 
-/// Execute a CircleLine step: intersect a circle with a line.
-/// Returns a point with coordinates in Q(sqrt(discriminant)).
-/// R must encode the discriminant of the circle-line intersection.
+///  Execute a CircleLine step: intersect a circle with a line.
+///  Returns a point with coordinates in Q(sqrt(discriminant)).
+///  R must encode the discriminant of the circle-line intersection.
 pub fn execute_circle_line_step<R: PositiveRadicand<RationalModel>>(
     circle: &RuntimeCircle2,
     line: &RuntimeLine2,
@@ -129,8 +129,8 @@ pub fn execute_circle_line_step<R: PositiveRadicand<RationalModel>>(
     RuntimeQExtPoint2 { x, y, model: Ghost(model) }
 }
 
-/// Execute a CircleCircle step: intersect two circles.
-/// Computes the radical axis and delegates to circle-line intersection.
+///  Execute a CircleCircle step: intersect two circles.
+///  Computes the radical axis and delegates to circle-line intersection.
 pub fn execute_circle_circle_step<R: PositiveRadicand<RationalModel>>(
     c1: &RuntimeCircle2,
     c2: &RuntimeCircle2,
@@ -150,27 +150,27 @@ pub fn execute_circle_circle_step<R: PositiveRadicand<RationalModel>>(
     RuntimeQExtPoint2 { x, y, model: Ghost(model) }
 }
 
-// ===========================================================================
-//  Runtime plan types and executor
-// ===========================================================================
+//  ===========================================================================
+//   Runtime plan types and executor
+//  ===========================================================================
 
-/// Runtime data for a single construction step.
-/// Each variant carries a ghost model linking it to the spec-level ConstructionStep.
-/// The caller MUST provide a matching spec step — wf_spec checks correspondence.
+///  Runtime data for a single construction step.
+///  Each variant carries a ghost model linking it to the spec-level ConstructionStep.
+///  The caller MUST provide a matching spec step — wf_spec checks correspondence.
 pub enum RuntimeStepData {
-    /// Known position (fixed input or determined by a single locus).
+    ///  Known position (fixed input or determined by a single locus).
     PointStep { target: usize, x: RuntimeRational, y: RuntimeRational, model: Ghost<ConstructionStep<RationalModel>> },
-    /// Intersection of two lines.
+    ///  Intersection of two lines.
     LineLine { target: usize, l1: RuntimeLine2, l2: RuntimeLine2, model: Ghost<ConstructionStep<RationalModel>> },
-    /// Intersection of a circle and a line.
+    ///  Intersection of a circle and a line.
     CircleLine { target: usize, circle: RuntimeCircle2, line: RuntimeLine2, plus: bool, model: Ghost<ConstructionStep<RationalModel>> },
-    /// Intersection of two circles.
+    ///  Intersection of two circles.
     CircleCircle { target: usize, c1: RuntimeCircle2, c2: RuntimeCircle2, plus: bool, model: Ghost<ConstructionStep<RationalModel>> },
 }
 
 impl RuntimeStepData {
-    /// The step data is well-formed: runtime fields match the ghost model,
-    /// and all geometric preconditions for execution are met.
+    ///  The step data is well-formed: runtime fields match the ghost model,
+    ///  and all geometric preconditions for execution are met.
     pub open spec fn wf_spec(&self) -> bool {
         match self {
             RuntimeStepData::PointStep { target, x, y, model } =>
@@ -205,7 +205,7 @@ impl RuntimeStepData {
         }
     }
 
-    /// The spec-level construction step this runtime step corresponds to.
+    ///  The spec-level construction step this runtime step corresponds to.
     pub open spec fn spec_step(&self) -> ConstructionStep<RationalModel> {
         match self {
             RuntimeStepData::PointStep { model, .. } => model@,
@@ -215,7 +215,7 @@ impl RuntimeStepData {
         }
     }
 
-    /// Runtime target entity ID.
+    ///  Runtime target entity ID.
     pub fn target_id(&self) -> (out: usize)
         requires self.wf_spec(),
         ensures out as nat == step_target(self.spec_step()),
@@ -228,7 +228,7 @@ impl RuntimeStepData {
         }
     }
 
-    /// Whether this is a circle step (not rational).
+    ///  Whether this is a circle step (not rational).
     pub fn is_circle_step(&self) -> (out: bool)
         requires self.wf_spec(),
         ensures out == !is_rational_step(self.spec_step()),
@@ -240,8 +240,8 @@ impl RuntimeStepData {
     }
 }
 
-/// Checks that the radicand type R matches the discriminant of circle intersection steps.
-/// Trivially true for rational steps (PointStep/LineLine).
+///  Checks that the radicand type R matches the discriminant of circle intersection steps.
+///  Trivially true for rational steps (PointStep/LineLine).
 pub open spec fn step_radicand_matches<R: Radicand<RationalModel>>(
     step: ConstructionStep<RationalModel>,
 ) -> bool {
@@ -256,13 +256,13 @@ pub open spec fn step_radicand_matches<R: Radicand<RationalModel>>(
     }
 }
 
-/// Runtime result of executing a construction step.
-/// Tagged with the ghost entity ID so the caller can't mix up which
-/// result corresponds to which entity.
+///  Runtime result of executing a construction step.
+///  Tagged with the ghost entity ID so the caller can't mix up which
+///  result corresponds to which entity.
 pub enum RuntimeConstructionResult<R: Radicand<RationalModel>> {
-    /// Result from PointStep or LineLine steps (rational coordinates).
+    ///  Result from PointStep or LineLine steps (rational coordinates).
     RationalPoint { point: RuntimePoint2, entity_id: Ghost<EntityId> },
-    /// Result from CircleLine or CircleCircle steps (quadratic extension coordinates).
+    ///  Result from CircleLine or CircleCircle steps (quadratic extension coordinates).
     QExtPoint { point: RuntimeQExtPoint2<R>, entity_id: Ghost<EntityId> },
 }
 
@@ -274,7 +274,7 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
         }
     }
 
-    /// The entity ID this result is for.
+    ///  The entity ID this result is for.
     pub open spec fn entity_id(&self) -> EntityId {
         match self {
             RuntimeConstructionResult::RationalPoint { entity_id, .. } => entity_id@,
@@ -282,8 +282,8 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
         }
     }
 
-    /// For rational results, the spec-level point.
-    /// Returns None for QExt results (different coordinate field).
+    ///  For rational results, the spec-level point.
+    ///  Returns None for QExt results (different coordinate field).
     pub open spec fn rational_point(&self) -> Option<Point2<RationalModel>> {
         match self {
             RuntimeConstructionResult::RationalPoint { point, .. } => Some(point@),
@@ -291,9 +291,9 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
         }
     }
 
-    /// The extension-level point value.
-    /// - Rational results: lift the rational point into QExt.
-    /// - QExt results: use the point directly.
+    ///  The extension-level point value.
+    ///  - Rational results: lift the rational point into QExt.
+    ///  - QExt results: use the point directly.
     pub open spec fn ext_point_value(&self) -> Point2<SpecQuadExt<RationalModel, R>> {
         match self {
             RuntimeConstructionResult::RationalPoint { point, .. } =>
@@ -302,10 +302,10 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
         }
     }
 
-    /// Whether the computed point satisfies geometric correctness for this step.
-    /// - Rational: output point == execute_step(step)
-    /// - QExt CircleLine: point is on lifted line AND on lifted circle
-    /// - QExt CircleCircle: point is on both lifted circles
+    ///  Whether the computed point satisfies geometric correctness for this step.
+    ///  - Rational: output point == execute_step(step)
+    ///  - QExt CircleLine: point is on lifted line AND on lifted circle
+    ///  - QExt CircleCircle: point is on both lifted circles
     pub open spec fn matches_spec_step(&self, step: ConstructionStep<RationalModel>) -> bool {
         match self {
             RuntimeConstructionResult::RationalPoint { point, .. } =>
@@ -327,10 +327,10 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
     }
 }
 
-/// Execute a single runtime step, returning the computed point tagged with entity ID.
-/// The ensures connects the output to the spec-level step:
-/// - entity_id matches step_target of the spec model
-/// - For rational steps (PointStep/LineLine), the output point == execute_step(spec_step)
+///  Execute a single runtime step, returning the computed point tagged with entity ID.
+///  The ensures connects the output to the spec-level step:
+///  - entity_id matches step_target of the spec model
+///  - For rational steps (PointStep/LineLine), the output point == execute_step(spec_step)
 pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
     step: &RuntimeStepData,
 ) -> (out: RuntimeConstructionResult<R>)
@@ -375,9 +375,9 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
     }
 }
 
-/// Execute a full construction plan: apply each step and collect results.
-/// Each result is tagged with the entity ID from the spec-level plan.
-/// If the spec-level steps have distinct targets, the output entity IDs are distinct.
+///  Execute a full construction plan: apply each step and collect results.
+///  Each result is tagged with the entity ID from the spec-level plan.
+///  If the spec-level steps have distinct targets, the output entity IDs are distinct.
 pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
     steps: &Vec<RuntimeStepData>,
 ) -> (out: Vec<RuntimeConstructionResult<R>>)
@@ -394,7 +394,7 @@ pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
         forall|i: int| 0 <= i < out@.len() ==>
             (#[trigger] out@[i]).ext_point_value()
                 == execute_step_in_ext::<RationalModel, R>(steps@[i].spec_step()),
-        // Distinct targets in → distinct entity IDs out
+        //  Distinct targets in → distinct entity IDs out
         forall|i: int, j: int|
             0 <= i < out@.len() && 0 <= j < out@.len() && i != j
             && step_target(steps@[i].spec_step()) != step_target(steps@[j].spec_step())
@@ -425,4 +425,4 @@ pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
     results
 }
 
-} // verus!
+} //  verus!

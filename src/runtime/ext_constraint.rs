@@ -23,58 +23,58 @@ type RationalModel = verus_rational::rational::Rational;
 
 verus! {
 
-// ===========================================================================
-//  Helper: qe_nonneg(x) ==> zero().le(x)
-// ===========================================================================
+//  ===========================================================================
+//   Helper: qe_nonneg(x) ==> zero().le(x)
+//  ===========================================================================
 
-/// Bridge from qe_nonneg to the PartialOrder::le formulation.
-/// zero().le(x) == qe_nonneg(qe_sub(x, zero())) == qe_nonneg(qext(x.re - 0, x.im - 0)).
-/// Since a - 0 ≡ a for ordered fields, nonneg_congruence gives the result.
+///  Bridge from qe_nonneg to the PartialOrder::le formulation.
+///  zero().le(x) == qe_nonneg(qe_sub(x, zero())) == qe_nonneg(qext(x.re - 0, x.im - 0)).
+///  Since a - 0 ≡ a for ordered fields, nonneg_congruence gives the result.
 proof fn lemma_nonneg_implies_zero_le<F: OrderedField, R: PositiveRadicand<F>>(
     x: SpecQuadExt<F, R>,
 )
     requires qe_nonneg::<F, R>(x),
     ensures SpecQuadExt::<F, R>::zero().le(x),
 {
-    // zero().le(x) = qe_nonneg(qe_sub(x, zero()))
-    // qe_sub(x, zero()) = qext(x.re.sub(F::zero()), x.im.sub(F::zero()))
-    // Since a.sub(zero) = a.add(zero.neg()) ≡ a.add(zero) ≡ a,
-    // we use nonneg_congruence to transfer from x to qe_sub(x, zero()).
+    //  zero().le(x) = qe_nonneg(qe_sub(x, zero()))
+    //  qe_sub(x, zero()) = qext(x.re.sub(F::zero()), x.im.sub(F::zero()))
+    //  Since a.sub(zero) = a.add(zero.neg()) ≡ a.add(zero) ≡ a,
+    //  we use nonneg_congruence to transfer from x to qe_sub(x, zero()).
     use verus_algebra::lemmas::additive_group_lemmas::{lemma_neg_zero, lemma_add_congruence_right};
 
-    // Show x.re.sub(zero) ≡ x.re
-    // Step 1: sub(a, b) ≡ add(a, neg(b))
+    //  Show x.re.sub(zero) ≡ x.re
+    //  Step 1: sub(a, b) ≡ add(a, neg(b))
     F::axiom_sub_is_add_neg(x.re, F::zero());
-    // Step 2: add(x.re, neg(zero)) ≡ add(x.re, zero)  [since neg(zero) ≡ zero]
+    //  Step 2: add(x.re, neg(zero)) ≡ add(x.re, zero)  [since neg(zero) ≡ zero]
     lemma_neg_zero::<F>();
     lemma_add_congruence_right::<F>(x.re, F::zero().neg(), F::zero());
-    // Step 3: add(x.re, zero) ≡ x.re
+    //  Step 3: add(x.re, zero) ≡ x.re
     F::axiom_add_zero_right(x.re);
-    // Chain: sub ≡ add(neg) ≡ add(zero) ≡ x.re
+    //  Chain: sub ≡ add(neg) ≡ add(zero) ≡ x.re
     F::axiom_eqv_transitive(x.re.sub(F::zero()), x.re.add(F::zero().neg()), x.re.add(F::zero()));
     F::axiom_eqv_transitive(x.re.sub(F::zero()), x.re.add(F::zero()), x.re);
 
-    // Show x.im.sub(zero) ≡ x.im (same chain)
+    //  Show x.im.sub(zero) ≡ x.im (same chain)
     F::axiom_sub_is_add_neg(x.im, F::zero());
     lemma_add_congruence_right::<F>(x.im, F::zero().neg(), F::zero());
     F::axiom_add_zero_right(x.im);
     F::axiom_eqv_transitive(x.im.sub(F::zero()), x.im.add(F::zero().neg()), x.im.add(F::zero()));
     F::axiom_eqv_transitive(x.im.sub(F::zero()), x.im.add(F::zero()), x.im);
 
-    // Symmetric: x.re ≡ x.re.sub(zero) (nonneg_congruence needs this direction)
+    //  Symmetric: x.re ≡ x.re.sub(zero) (nonneg_congruence needs this direction)
     F::axiom_eqv_symmetric(x.re.sub(F::zero()), x.re);
     F::axiom_eqv_symmetric(x.im.sub(F::zero()), x.im);
 
-    // nonneg_congruence: qe_nonneg(x) && x.re ≡ sub.re && x.im ≡ sub.im ==> qe_nonneg(sub)
+    //  nonneg_congruence: qe_nonneg(x) && x.re ≡ sub.re && x.im ≡ sub.im ==> qe_nonneg(sub)
     verus_quadratic_extension::ordered::lemma_nonneg_congruence::<F, R>(x,
         qe_sub::<F, R>(x, qe_zero::<F, R>()));
 }
 
-// ===========================================================================
-//  2a: QExt embedding helpers
-// ===========================================================================
+//  ===========================================================================
+//   2a: QExt embedding helpers
+//  ===========================================================================
 
-/// Embed a rational value into Q(√d): v ↦ v + 0·√d
+///  Embed a rational value into Q(√d): v ↦ v + 0·√d
 pub fn embed_rational<R: Radicand<RationalModel>>(
     v: &RuntimeRational,
 ) -> (out: RuntimeQExtRat<R>)
@@ -86,7 +86,7 @@ pub fn embed_rational<R: Radicand<RationalModel>>(
     RuntimeQExtRat::<R>::new(re, im)
 }
 
-/// Embed a rational point into Q(√d): (x, y) ↦ (x + 0·√d, y + 0·√d)
+///  Embed a rational point into Q(√d): (x, y) ↦ (x + 0·√d, y + 0·√d)
 pub fn embed_rational_point<R: Radicand<RationalModel>>(
     p: &RuntimePoint2,
 ) -> (out: RuntimeQExtPoint2<R>)
@@ -98,11 +98,11 @@ pub fn embed_rational_point<R: Radicand<RationalModel>>(
     RuntimeQExtPoint2 { x, y, model: Ghost(lift_point2::<RationalModel, R>(p@)) }
 }
 
-// ===========================================================================
-//  2b: QExt arithmetic helpers
-// ===========================================================================
+//  ===========================================================================
+//   2b: QExt arithmetic helpers
+//  ===========================================================================
 
-/// QExt squared distance: ||a - b||²
+///  QExt squared distance: ||a - b||²
 pub fn qext_sq_dist_2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     a: &RuntimeQExtPoint2<R>,
     b: &RuntimeQExtPoint2<R>,
@@ -117,8 +117,8 @@ pub fn qext_sq_dist_2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R
     dx2.add_exec(&dy2)
 }
 
-/// QExt line2_from_points: line through two points, returns (a, b, c) coefficients.
-/// Mirrors spec: a = -(q.y - p.y), b = q.x - p.x, c = -(a*p.x + b*p.y)
+///  QExt line2_from_points: line through two points, returns (a, b, c) coefficients.
+///  Mirrors spec: a = -(q.y - p.y), b = q.x - p.x, c = -(a*p.x + b*p.y)
 fn qext_line2_from_points<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     p: &RuntimeQExtPoint2<R>,
     q: &RuntimeQExtPoint2<R>,
@@ -131,11 +131,11 @@ fn qext_line2_from_points<R: PositiveRadicand<RationalModel>, RR: RuntimeRadican
             out.0@ == line.a && out.1@ == line.b && out.2@ == line.c
         }),
 {
-    // spec: a = q.y.sub(p.y).neg(), b = q.x.sub(p.x), c = a.mul(p.x).add(b.mul(p.y)).neg()
-    // a = (q.y - p.y).neg() = p.y - q.y
+    //  spec: a = q.y.sub(p.y).neg(), b = q.x.sub(p.x), c = a.mul(p.x).add(b.mul(p.y)).neg()
+    //  a = (q.y - p.y).neg() = p.y - q.y
     let a = q.y.sub_exec(&p.y).neg_exec();
     let b = q.x.sub_exec(&p.x);
-    // c = -(a * p.x + b * p.y)
+    //  c = -(a * p.x + b * p.y)
     let ax = a.mul_exec::<RR>(&p.x);
     let by = b.mul_exec::<RR>(&p.y);
     let sum = ax.add_exec(&by);
@@ -143,7 +143,7 @@ fn qext_line2_from_points<R: PositiveRadicand<RationalModel>, RR: RuntimeRadican
     (a, b, c)
 }
 
-/// QExt line2_eval: a*p.x + b*p.y + c
+///  QExt line2_eval: a*p.x + b*p.y + c
 fn qext_line2_eval<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     la: &RuntimeQExtRat<R>,
     lb: &RuntimeQExtRat<R>,
@@ -162,11 +162,11 @@ fn qext_line2_eval<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     sum.add_exec(lc)
 }
 
-// ===========================================================================
-//  2c: Build extension resolved vec
-// ===========================================================================
+//  ===========================================================================
+//   2c: Build extension resolved vec
+//  ===========================================================================
 
-/// Spec helper: view an ext points vec as a resolved map.
+///  Spec helper: view an ext points vec as a resolved map.
 pub open spec fn ext_vec_to_resolved_map<R: Radicand<RationalModel>>(
     ext_points: Seq<RuntimeQExtPoint2<R>>,
 ) -> ResolvedPoints<SpecQuadExt<RationalModel, R>> {
@@ -176,10 +176,10 @@ pub open spec fn ext_vec_to_resolved_map<R: Radicand<RationalModel>>(
     )
 }
 
-/// Build a Vec of QExt points from execution results + plan steps + initial (rational) points.
-/// Initial points are embedded; execution results are either embedded (rational)
-/// or copied (QExt). The output vec has the same length as initial_points.
-/// The plan steps provide exec-level target IDs for indexing.
+///  Build a Vec of QExt points from execution results + plan steps + initial (rational) points.
+///  Initial points are embedded; execution results are either embedded (rational)
+///  or copied (QExt). The output vec has the same length as initial_points.
+///  The plan steps provide exec-level target IDs for indexing.
 pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     results: &Vec<RuntimeConstructionResult<R>>,
     steps: &Vec<RuntimeStepData>,
@@ -194,16 +194,16 @@ pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
             (#[trigger] results@[i]).entity_id() == step_target(steps@[i].spec_step()),
         forall|i: int| 0 <= i < steps@.len() ==>
             (step_target(#[trigger] steps@[i].spec_step()) as int) < initial_points@.len(),
-        // Distinct entity IDs across results
+        //  Distinct entity IDs across results
         forall|i: int, j: int| 0 <= i < results@.len() && 0 <= j < results@.len() && i != j
             ==> (#[trigger] results@[i]).entity_id() != (#[trigger] results@[j]).entity_id(),
     ensures
         out@.len() == initial_points@.len(),
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
-        // Overwritten entries: result ext_point_value
+        //  Overwritten entries: result ext_point_value
         forall|k: int| 0 <= k < results@.len()
             ==> out@[results@[k].entity_id() as int]@ == (#[trigger] results@[k]).ext_point_value(),
-        // Non-overwritten entries: lifted initial points
+        //  Non-overwritten entries: lifted initial points
         forall|j: int| 0 <= j < out@.len()
             && (forall|k: int| 0 <= k < results@.len()
                 ==> (#[trigger] results@[k]).entity_id() != j as nat)
@@ -211,7 +211,7 @@ pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
 {
     let n = initial_points.len();
 
-    // Start by embedding all initial points
+    //  Start by embedding all initial points
     let mut ext_points: Vec<RuntimeQExtPoint2<R>> = Vec::new();
     let mut i: usize = 0;
     while i < n
@@ -230,7 +230,7 @@ pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
         i = i + 1;
     }
 
-    // Overwrite with execution results using plan step targets for indexing
+    //  Overwrite with execution results using plan step targets for indexing
     let mut ri: usize = 0;
     while ri < results.len()
         invariant
@@ -247,11 +247,11 @@ pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
             forall|i: int, j: int| 0 <= i < results@.len() && 0 <= j < results@.len() && i != j
                 ==> (#[trigger] results@[i]).entity_id() != (#[trigger] results@[j]).entity_id(),
             forall|j: int| 0 <= j < ext_points@.len() ==> (#[trigger] ext_points@[j]).wf_spec(),
-            // Overwritten entries: result ext_point_value for k < ri
+            //  Overwritten entries: result ext_point_value for k < ri
             forall|k: int| 0 <= k < ri ==>
                 ext_points@[results@[k].entity_id() as int]@
                     == (#[trigger] results@[k]).ext_point_value(),
-            // Non-overwritten entries: still initial
+            //  Non-overwritten entries: still initial
             forall|j: int| 0 <= j < n
                 && (forall|k: int| 0 <= k < ri
                     ==> (#[trigger] results@[k]).entity_id() as int != j)
@@ -280,15 +280,15 @@ pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
     ext_points
 }
 
-// ===========================================================================
-//  2d: Verification constraint checkers at QExt level
-// ===========================================================================
+//  ===========================================================================
+//   2d: Verification constraint checkers at QExt level
+//  ===========================================================================
 
-/// Check Tangent constraint at QExt level:
-/// eval² ≡ norm_sq · r_sq
-/// where eval = line2_eval(line_from_points(la, lb), center),
-///       norm_sq = a² + b²,
-///       r_sq = sq_dist_2d(center, radius_point).
+///  Check Tangent constraint at QExt level:
+///  eval² ≡ norm_sq · r_sq
+///  where eval = line2_eval(line_from_points(la, lb), center),
+///        norm_sq = a² + b²,
+///        r_sq = sq_dist_2d(center, radius_point).
 fn check_tangent_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     line_a_pt: &RuntimeQExtPoint2<R>,
     line_b_pt: &RuntimeQExtPoint2<R>,
@@ -319,9 +319,9 @@ fn check_tangent_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>
     lhs.eq_exec(&rhs)
 }
 
-/// Check CircleTangent constraint at QExt level:
-/// (d - r1 - r2)² ≡ 4 · r1 · r2
-/// where d = sq_dist_2d(c1, c2), r1 = sq_dist_2d(c1, rp1), r2 = sq_dist_2d(c2, rp2).
+///  Check CircleTangent constraint at QExt level:
+///  (d - r1 - r2)² ≡ 4 · r1 · r2
+///  where d = sq_dist_2d(c1, c2), r1 = sq_dist_2d(c1, rp1), r2 = sq_dist_2d(c2, rp2).
 fn check_circle_tangent_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     c1: &RuntimeQExtPoint2<R>,
     rp1: &RuntimeQExtPoint2<R>,
@@ -343,21 +343,21 @@ fn check_circle_tangent_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadic
     let d = qext_sq_dist_2d::<R, RR>(c1, c2);
     let r1 = qext_sq_dist_2d::<R, RR>(c1, rp1);
     let r2 = qext_sq_dist_2d::<R, RR>(c2, rp2);
-    // four = 1+1+1+1 = (1+1)*(1+1)
+    //  four = 1+1+1+1 = (1+1)*(1+1)
     let one = RuntimeQExtRat::<R>::one_exec();
     let two = one.add_exec(&one);
     let four = two.mul_exec::<RR>(&two);
-    // diff = d - r1 - r2
+    //  diff = d - r1 - r2
     let diff = d.sub_exec(&r1).sub_exec(&r2);
     let lhs = diff.mul_exec::<RR>(&diff);
     let rhs = four.mul_exec::<RR>(&r1).mul_exec::<RR>(&r2);
     lhs.eq_exec(&rhs)
 }
 
-/// Check Angle constraint at QExt level:
-/// dp² ≡ cos_sq · n1 · n2
-/// where dp = dot(d1, d2), n1 = |d1|², n2 = |d2|²,
-///       d1 = a2 - a1, d2 = b2 - b1.
+///  Check Angle constraint at QExt level:
+///  dp² ≡ cos_sq · n1 · n2
+///  where dp = dot(d1, d2), n1 = |d1|², n2 = |d2|²,
+///        d1 = a2 - a1, d2 = b2 - b1.
 fn check_angle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     a1: &RuntimeQExtPoint2<R>,
     a2: &RuntimeQExtPoint2<R>,
@@ -379,26 +379,26 @@ fn check_angle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
             dp.mul(dp).eqv(cos_sq_ext.mul(n1).mul(n2))
         },
 {
-    // d1 = a2 - a1
+    //  d1 = a2 - a1
     let dx1 = a2.x.sub_exec(&a1.x);
     let dy1 = a2.y.sub_exec(&a1.y);
-    // d2 = b2 - b1
+    //  d2 = b2 - b1
     let dx2 = b2.x.sub_exec(&b1.x);
     let dy2 = b2.y.sub_exec(&b1.y);
-    // dp = d1.x * d2.x + d1.y * d2.y
+    //  dp = d1.x * d2.x + d1.y * d2.y
     let dp = dx1.mul_exec::<RR>(&dx2).add_exec(&dy1.mul_exec::<RR>(&dy2));
-    // n1 = d1.x² + d1.y²
+    //  n1 = d1.x² + d1.y²
     let n1 = dx1.mul_exec::<RR>(&dx1).add_exec(&dy1.mul_exec::<RR>(&dy1));
-    // n2 = d2.x² + d2.y²
+    //  n2 = d2.x² + d2.y²
     let n2 = dx2.mul_exec::<RR>(&dx2).add_exec(&dy2.mul_exec::<RR>(&dy2));
-    // cos_sq embedded into QExt
+    //  cos_sq embedded into QExt
     let cos_sq_ext = embed_rational::<R>(cos_sq);
     let lhs = dp.mul_exec::<RR>(&dp);
     let rhs = cos_sq_ext.mul_exec::<RR>(&n1).mul_exec::<RR>(&n2);
     lhs.eq_exec(&rhs)
 }
 
-/// QExt orient2d: (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x)
+///  QExt orient2d: (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x)
 fn qext_orient2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     a: &RuntimeQExtPoint2<R>,
     b: &RuntimeQExtPoint2<R>,
@@ -415,13 +415,13 @@ fn qext_orient2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     bx_ax.mul_exec::<RR>(&cy_ay).sub_exec(&by_ay.mul_exec::<RR>(&cx_ax))
 }
 
-// ===========================================================================
-//  2d: Total displacement computation
-// ===========================================================================
+//  ===========================================================================
+//   2d: Total displacement computation
+//  ===========================================================================
 
-/// Compute total squared displacement of free entities from initial positions.
-/// Returns Σ_{i where !initial_flags[i]} sq_dist(ext_points[i], embed(initial_points[i]))
-/// in Q(√d). Used to select the minimum-displacement variant.
+///  Compute total squared displacement of free entities from initial positions.
+///  Returns Σ_{i where !initial_flags[i]} sq_dist(ext_points[i], embed(initial_points[i]))
+///  in Q(√d). Used to select the minimum-displacement variant.
 pub fn compute_total_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     ext_points: &Vec<RuntimeQExtPoint2<R>>,
     initial_points: &Vec<RuntimePoint2>,
@@ -434,13 +434,13 @@ pub fn compute_total_displacement<R: PositiveRadicand<RationalModel>, RR: Runtim
         all_points_wf(initial_points@),
     ensures
         out.wf_spec(),
-        // Non-negativity: total displacement is always ≥ 0
+        //  Non-negativity: total displacement is always ≥ 0
         SpecQuadExt::<RationalModel, R>::zero().le(out@),
 {
     let mut total = RuntimeQExtRat::<R>::zero_exec();
     let mut idx: usize = 0;
     proof {
-        // zero.le(zero) by reflexivity
+        //  zero.le(zero) by reflexivity
         SpecQuadExt::<RationalModel, R>::axiom_le_reflexive(
             SpecQuadExt::<RationalModel, R>::zero());
     }
@@ -459,11 +459,11 @@ pub fn compute_total_displacement<R: PositiveRadicand<RationalModel>, RR: Runtim
             let embedded = embed_rational_point::<R>(&initial_points[idx]);
             let dist = qext_sq_dist_2d::<R, RR>(&ext_points[idx], &embedded);
             proof {
-                // sq_dist = (dx)² + (dy)² is nonneg
+                //  sq_dist = (dx)² + (dy)² is nonneg
                 let dx = ext_points@[idx as int]@.x.sub(embedded@.x);
                 let dy = ext_points@[idx as int]@.y.sub(embedded@.y);
                 verus_algebra::inequalities::lemma_sum_squares_nonneg_2d::<SpecQuadExt<RationalModel, R>>(dx, dy);
-                // total + dist is nonneg (nonneg + nonneg)
+                //  total + dist is nonneg (nonneg + nonneg)
                 verus_algebra::inequalities::lemma_nonneg_add::<SpecQuadExt<RationalModel, R>>(total@, dist@);
             }
             total = total.add_exec(&dist);
@@ -473,11 +473,11 @@ pub fn compute_total_displacement<R: PositiveRadicand<RationalModel>, RR: Runtim
     total
 }
 
-// ===========================================================================
-//  2e: Per-constraint QExt checkers
-// ===========================================================================
+//  ===========================================================================
+//   2e: Per-constraint QExt checkers
+//  ===========================================================================
 
-/// Check NotCoincident at QExt level: !(a.x ≡ b.x && a.y ≡ b.y)
+///  Check NotCoincident at QExt level: !(a.x ≡ b.x && a.y ≡ b.y)
 fn check_not_coincident_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     a: &RuntimeQExtPoint2<R>,
     b: &RuntimeQExtPoint2<R>,
@@ -488,7 +488,7 @@ fn check_not_coincident_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadic
     !(a.x.eq_exec(&b.x) && a.y.eq_exec(&b.y))
 }
 
-/// Check NormalToCircle at QExt level: on_circle(line_a, center, radius_point) && collinear(line_a, line_b, center)
+///  Check NormalToCircle at QExt level: on_circle(line_a, center, radius_point) && collinear(line_a, line_b, center)
 fn check_normal_to_circle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     line_a: &RuntimeQExtPoint2<R>,
     line_b: &RuntimeQExtPoint2<R>,
@@ -497,30 +497,30 @@ fn check_normal_to_circle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
 ) -> (out: bool)
     requires line_a.wf_spec(), line_b.wf_spec(), center.wf_spec(), radius_point.wf_spec(),
     ensures out ==> {
-        // on_circle: sq_dist(line_a, center) ≡ sq_dist(radius_point, center)
+        //  on_circle: sq_dist(line_a, center) ≡ sq_dist(radius_point, center)
         let on_circle = sq_dist_2d::<SpecQuadExt<RationalModel, R>>(line_a@, center@).eqv(
             sq_dist_2d::<SpecQuadExt<RationalModel, R>>(radius_point@, center@));
-        // collinear: point_on_line2(line_from_points(line_a, line_b), center)
+        //  collinear: point_on_line2(line_from_points(line_a, line_b), center)
         let collinear = point_on_line2(
             line2_from_points::<SpecQuadExt<RationalModel, R>>(line_a@, line_b@),
             center@);
         on_circle && collinear
     },
 {
-    // Check on_circle
+    //  Check on_circle
     let d_la = qext_sq_dist_2d::<R, RR>(line_a, center);
     let d_rp = qext_sq_dist_2d::<R, RR>(radius_point, center);
     let on_circle = d_la.eq_exec(&d_rp);
     if !on_circle { return false; }
-    // Check collinear
+    //  Check collinear
     let (la, lb, lc) = qext_line2_from_points::<R, RR>(line_a, line_b);
     let eval = qext_line2_eval::<R, RR>(&la, &lb, &lc, center);
     let zero = RuntimeQExtRat::<R>::zero_exec();
     eval.eq_exec(&zero) && on_circle
 }
 
-/// Check PointOnEllipse at QExt level:
-/// proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
+///  Check PointOnEllipse at QExt level:
+///  proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
 fn check_point_on_ellipse_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     point: &RuntimeQExtPoint2<R>,
     center: &RuntimeQExtPoint2<R>,
@@ -540,32 +540,32 @@ fn check_point_on_ellipse_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
             .eqv(a_sq.mul(b_sq))
     },
 {
-    // d = point - center
+    //  d = point - center
     let dx = point.x.sub_exec(&center.x);
     let dy = point.y.sub_exec(&center.y);
-    // u = semi_a - center
+    //  u = semi_a - center
     let ux = semi_a.x.sub_exec(&center.x);
     let uy = semi_a.y.sub_exec(&center.y);
-    // v = semi_b - center
+    //  v = semi_b - center
     let vx = semi_b.x.sub_exec(&center.x);
     let vy = semi_b.y.sub_exec(&center.y);
-    // a_sq = |u|²
+    //  a_sq = |u|²
     let a_sq = ux.mul_exec::<RR>(&ux).add_exec(&uy.mul_exec::<RR>(&uy));
-    // b_sq = |v|²
+    //  b_sq = |v|²
     let b_sq = vx.mul_exec::<RR>(&vx).add_exec(&vy.mul_exec::<RR>(&vy));
-    // proj_u = dot(d, u)
+    //  proj_u = dot(d, u)
     let proj_u = dx.mul_exec::<RR>(&ux).add_exec(&dy.mul_exec::<RR>(&uy));
-    // proj_v = dot(d, v)
+    //  proj_v = dot(d, v)
     let proj_v = dx.mul_exec::<RR>(&vx).add_exec(&dy.mul_exec::<RR>(&vy));
-    // Check: proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
+    //  Check: proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
     let lhs = proj_u.mul_exec::<RR>(&proj_u).mul_exec::<RR>(&b_sq)
         .add_exec(&proj_v.mul_exec::<RR>(&proj_v).mul_exec::<RR>(&a_sq));
     let rhs = a_sq.mul_exec::<RR>(&b_sq);
     lhs.eq_exec(&rhs)
 }
 
-/// Check PointOnArc at QExt level:
-/// on_circle AND angular check via orient2d sign consistency.
+///  Check PointOnArc at QExt level:
+///  on_circle AND angular check via orient2d sign consistency.
 fn check_point_on_arc_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     point: &RuntimeQExtPoint2<R>,
     center: &RuntimeQExtPoint2<R>,
@@ -586,15 +586,15 @@ fn check_point_on_arc_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadican
         SpecQuadExt::<RationalModel, R>::zero().le(o_pe.mul(o_se))
     },
 {
-    // Check on_circle
+    //  Check on_circle
     let d_pt = qext_sq_dist_2d::<R, RR>(point, center);
     let d_rp = qext_sq_dist_2d::<R, RR>(radius_point, center);
     if !d_pt.eq_exec(&d_rp) { return false; }
 
-    // Angular check: compute orient2d values and check sign consistency
-    // orient2d(c, s, e), orient2d(c, s, p), orient2d(c, p, e)
-    // Check: 0 <= o_sp * o_se && 0 <= o_pe * o_se
-    // Using nonneg check via qext ordering
+    //  Angular check: compute orient2d values and check sign consistency
+    //  orient2d(c, s, e), orient2d(c, s, p), orient2d(c, p, e)
+    //  Check: 0 <= o_sp * o_se && 0 <= o_pe * o_se
+    //  Using nonneg check via qext ordering
     let o_se = qext_orient2d::<R, RR>(center, arc_start, arc_end);
     let o_sp = qext_orient2d::<R, RR>(center, arc_start, point);
     let o_pe = qext_orient2d::<R, RR>(center, point, arc_end);
@@ -613,14 +613,14 @@ fn check_point_on_arc_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadican
     nn1 && nn2
 }
 
-// ===========================================================================
-//  2e: Lightweight predicate for verification check results
-// ===========================================================================
+//  ===========================================================================
+//   2e: Lightweight predicate for verification check results
+//  ===========================================================================
 
-/// Lightweight predicate: the algebraic identity for verification constraints
-/// holds on the ext_points. Only matches the 3 verification types (Tangent,
-/// CircleTangent, Angle), returns true for all others.
-/// This avoids unfolding constraint_satisfied (19 arms) in tight loops.
+///  Lightweight predicate: the algebraic identity for verification constraints
+///  holds on the ext_points. Only matches the 3 verification types (Tangent,
+///  CircleTangent, Angle), returns true for all others.
+///  This avoids unfolding constraint_satisfied (19 arms) in tight loops.
 pub open spec fn ext_verification_identity<R: PositiveRadicand<RationalModel>>(
     rc: RuntimeConstraint,
     ext_points: Seq<RuntimeQExtPoint2<R>>,
@@ -701,8 +701,8 @@ pub open spec fn ext_verification_identity<R: PositiveRadicand<RationalModel>>(
     }
 }
 
-/// Bridge: ext_verification_identity → constraint_satisfied.
-/// Only needs to run once per constraint (not in a tight loop).
+///  Bridge: ext_verification_identity → constraint_satisfied.
+///  Only needs to run once per constraint (not in a tight loop).
 proof fn lemma_ext_identity_to_constraint_satisfied<R: PositiveRadicand<RationalModel>>(
     rc: RuntimeConstraint,
     ext_points: Seq<RuntimeQExtPoint2<R>>,
@@ -751,8 +751,8 @@ proof fn lemma_ext_identity_to_constraint_satisfied<R: PositiveRadicand<Rational
             assert(ext_map[b1 as nat] == ext_points[b1 as int]@);
             assert(ext_map[b2 as nat] == ext_points[b2 as int]@);
         }
-        // New verification constraints: ext_verification_identity returns true unconditionally,
-        // and constraint_satisfied for these holds trivially from the ext_points equality.
+        //  New verification constraints: ext_verification_identity returns true unconditionally,
+        //  and constraint_satisfied for these holds trivially from the ext_points equality.
         RuntimeConstraint::NotCoincident { a, b, .. } => {
             assert(ext_map.dom().contains(a as nat));
             assert(ext_map.dom().contains(b as nat));
@@ -776,16 +776,16 @@ proof fn lemma_ext_identity_to_constraint_satisfied<R: PositiveRadicand<Rational
             assert(ext_map.dom().contains(arc_start as nat));
             assert(ext_map.dom().contains(arc_end as nat));
         }
-        _ => {} // impossible by is_verification_constraint
+        _ => {} //  impossible by is_verification_constraint
     }
 }
 
-// ===========================================================================
-//  2f: Check all verification constraints at QExt level
-// ===========================================================================
+//  ===========================================================================
+//   2f: Check all verification constraints at QExt level
+//  ===========================================================================
 
-/// Check a single constraint at the ext level and establish ext_verification_identity.
-/// Extracted from the loop body to reduce Z3 proof context.
+///  Check a single constraint at the ext level and establish ext_verification_identity.
+///  Extracted from the loop body to reduce Z3 proof context.
 fn check_single_verification_constraint_ext<
     R: PositiveRadicand<RationalModel>,
     RR: RuntimeRadicand<R>,
@@ -840,11 +840,11 @@ fn check_single_verification_constraint_ext<
                 &ext_points[*point], &ext_points[*center],
                 &ext_points[*radius_point], &ext_points[*arc_start], &ext_points[*arc_end])
         }
-        _ => true, // Non-verification constraints: skip
+        _ => true, //  Non-verification constraints: skip
     }
 }
 
-/// Check all verification constraints are satisfied by the ext-level resolved points.
+///  Check all verification constraints are satisfied by the ext-level resolved points.
 pub fn check_all_verification_constraints_ext<
     R: PositiveRadicand<RationalModel>,
     RR: RuntimeRadicand<R>,
@@ -865,7 +865,7 @@ pub fn check_all_verification_constraints_ext<
                 lift_constraint::<RationalModel, R>(runtime_constraint_model(constraints@[ci])),
                 ext_vec_to_resolved_map::<R>(ext_points@)),
 {
-    // Phase 1: Loop accumulates the lightweight ext_verification_identity predicate.
+    //  Phase 1: Loop accumulates the lightweight ext_verification_identity predicate.
     let mut ci: usize = 0;
     while ci < constraints.len()
         invariant
@@ -888,7 +888,7 @@ pub fn check_all_verification_constraints_ext<
         ci = ci + 1;
     }
 
-    // Phase 2: Bridge from lightweight identity to constraint_satisfied.
+    //  Phase 2: Bridge from lightweight identity to constraint_satisfied.
     proof {
         assert forall|ci: int| 0 <= ci < constraints@.len()
             && is_verification_constraint(runtime_constraint_model(#[trigger] constraints@[ci]))
@@ -903,4 +903,4 @@ pub fn check_all_verification_constraints_ext<
     true
 }
 
-} // verus!
+} //  verus!

@@ -47,24 +47,24 @@ type RationalModel = verus_rational::rational::Rational;
 
 verus! {
 
-// ===========================================================================
-//  Spec helpers
-// ===========================================================================
+//  ===========================================================================
+//   Spec helpers
+//  ===========================================================================
 
-/// Convert a runtime plan Vec to spec-level ConstructionPlan.
+///  Convert a runtime plan Vec to spec-level ConstructionPlan.
 pub open spec fn plan_to_spec(plan: Seq<RuntimeStepData>) -> ConstructionPlan<RationalModel> {
     Seq::new(plan.len() as nat, |i: int| plan[i].spec_step())
 }
 
-/// Convert a runtime constraints Vec to spec-level Seq<Constraint>.
+///  Convert a runtime constraints Vec to spec-level Seq<Constraint>.
 pub open spec fn constraints_to_spec(constraints: Seq<RuntimeConstraint>) -> Seq<Constraint<RationalModel>> {
     Seq::new(constraints.len() as nat, |i: int| runtime_constraint_model(constraints[i]))
 }
 
-/// Whether a construction step's geometric preconditions are met.
-/// This is `step_well_formed` minus the existential witness requirement
-/// for circle steps (which needs a base-field intersection point that
-/// may not exist at T=Rational for circle intersections in Q(sqrt(D))).
+///  Whether a construction step's geometric preconditions are met.
+///  This is `step_well_formed` minus the existential witness requirement
+///  for circle steps (which needs a base-field intersection point that
+///  may not exist at T=Rational for circle intersections in Q(sqrt(D))).
 pub open spec fn step_geometrically_valid<T: OrderedField>(step: ConstructionStep<T>) -> bool {
     match step {
         ConstructionStep::PointStep { .. } => true,
@@ -77,8 +77,8 @@ pub open spec fn step_geometrically_valid<T: OrderedField>(step: ConstructionSte
     }
 }
 
-/// Whether a construction step's circle discriminant is positive.
-/// Non-circle steps are trivially true.
+///  Whether a construction step's circle discriminant is positive.
+///  Non-circle steps are trivially true.
 pub open spec fn step_has_positive_discriminant<T: OrderedField>(step: ConstructionStep<T>) -> bool {
     match step {
         ConstructionStep::CircleLine { circle, line, .. } =>
@@ -89,14 +89,14 @@ pub open spec fn step_has_positive_discriminant<T: OrderedField>(step: Construct
     }
 }
 
-// ===========================================================================
-//  Runtime locus intersection
-// ===========================================================================
+//  ===========================================================================
+//   Runtime locus intersection
+//  ===========================================================================
 
-/// Whether the exec-level locus intersection will succeed whenever
-/// the spec-level intersection succeeds. False for degenerate cases:
-/// - Circle-line with degenerate line (a=0, b=0)
-/// - Circle-circle with coincident centers
+///  Whether the exec-level locus intersection will succeed whenever
+///  the spec-level intersection succeeds. False for degenerate cases:
+///  - Circle-line with degenerate line (a=0, b=0)
+///  - Circle-circle with coincident centers
 pub open spec fn loci_exec_compatible(l1: Locus2d<RationalModel>, l2: Locus2d<RationalModel>) -> bool {
     match (l1, l2) {
         (Locus2d::OnCircle(_), Locus2d::OnLine(line)) => line2_nondegenerate(line),
@@ -106,7 +106,7 @@ pub open spec fn loci_exec_compatible(l1: Locus2d<RationalModel>, l2: Locus2d<Ra
     }
 }
 
-/// Check if a RuntimeLine2 is non-degenerate (normal vector is nonzero).
+///  Check if a RuntimeLine2 is non-degenerate (normal vector is nonzero).
 fn line2_nondegenerate_exec(line: &RuntimeLine2) -> (out: bool)
     requires line.wf_spec(),
     ensures out == line2_nondegenerate::<RationalModel>(line@),
@@ -114,7 +114,7 @@ fn line2_nondegenerate_exec(line: &RuntimeLine2) -> (out: bool)
     !line.a.is_zero() || !line.b.is_zero()
 }
 
-/// Check if two RuntimePoint2 centers are not equivalent.
+///  Check if two RuntimePoint2 centers are not equivalent.
 fn centers_not_eqv(p: &RuntimePoint2, q: &RuntimePoint2) -> (out: bool)
     requires p.wf_spec(), q.wf_spec(),
     ensures out == !p@.eqv(q@),
@@ -122,14 +122,14 @@ fn centers_not_eqv(p: &RuntimePoint2, q: &RuntimePoint2) -> (out: bool)
     let x_eq = p.x.le(&q.x) && q.x.le(&p.x);
     let y_eq = p.y.le(&q.y) && q.y.le(&p.y);
     proof {
-        // le antisymmetry: le both ways → eqv
+        //  le antisymmetry: le both ways → eqv
         if p@.x.le(q@.x) && q@.x.le(p@.x) {
             RationalModel::axiom_le_antisymmetric(p@.x, q@.x);
         }
         if p@.y.le(q@.y) && q@.y.le(p@.y) {
             RationalModel::axiom_le_antisymmetric(p@.y, q@.y);
         }
-        // eqv → le both ways
+        //  eqv → le both ways
         if p@.x.eqv(q@.x) {
             verus_algebra::lemmas::partial_order_lemmas::lemma_le_eqv_implies_le::<RationalModel>(p@.x, q@.x);
             RationalModel::axiom_eqv_symmetric(p@.x, q@.x);
@@ -144,12 +144,12 @@ fn centers_not_eqv(p: &RuntimePoint2, q: &RuntimePoint2) -> (out: bool)
     !(x_eq && y_eq)
 }
 
-/// Intersect two runtime loci to produce a construction step.
-/// Mirrors spec-level `intersect_loci`.
-/// Returns None if the intersection is underdetermined (FullPlane),
-/// the lines are parallel, or the resulting step would be degenerate.
-/// Sound but incomplete: may return None when the spec returns Some
-/// (e.g., degenerate line in circle-line, or coincident centers in circle-circle).
+///  Intersect two runtime loci to produce a construction step.
+///  Mirrors spec-level `intersect_loci`.
+///  Returns None if the intersection is underdetermined (FullPlane),
+///  the lines are parallel, or the resulting step would be degenerate.
+///  Sound but incomplete: may return None when the spec returns Some
+///  (e.g., degenerate line in circle-line, or coincident centers in circle-circle).
 pub fn intersect_loci_exec(
     id: usize,
     l1: RuntimeLocus,
@@ -170,7 +170,7 @@ pub fn intersect_loci_exec(
         },
 {
     match (l1, l2) {
-        // AtPoint overrides everything
+        //  AtPoint overrides everything
         (RuntimeLocus::AtPoint { point }, _) => {
             let ghost spec_step = ConstructionStep::<RationalModel>::PointStep {
                 id: id as nat, position: point@,
@@ -194,11 +194,11 @@ pub fn intersect_loci_exec(
             })
         }
 
-        // Line-line
+        //  Line-line
         (RuntimeLocus::OnLine { line: l1 }, RuntimeLocus::OnLine { line: l2 }) => {
             let det = line_det_exec(&l1, &l2);
             if det.is_zero() {
-                None // Parallel or coincident lines
+                None //  Parallel or coincident lines
             } else {
                 let ghost spec_step = ConstructionStep::<RationalModel>::LineLine {
                     id: id as nat, line1: l1@, line2: l2@,
@@ -211,7 +211,7 @@ pub fn intersect_loci_exec(
             }
         }
 
-        // Circle-line: check line is non-degenerate
+        //  Circle-line: check line is non-degenerate
         (RuntimeLocus::OnCircle { circle }, RuntimeLocus::OnLine { line }) => {
             if !line2_nondegenerate_exec(&line) {
                 None
@@ -241,7 +241,7 @@ pub fn intersect_loci_exec(
             }
         }
 
-        // Circle-circle: check centers are not equivalent
+        //  Circle-circle: check centers are not equivalent
         (RuntimeLocus::OnCircle { circle: c1 }, RuntimeLocus::OnCircle { circle: c2 }) => {
             if !centers_not_eqv(&c1.center, &c2.center) {
                 None
@@ -257,18 +257,18 @@ pub fn intersect_loci_exec(
             }
         }
 
-        // FullPlane doesn't constrain
+        //  FullPlane doesn't constrain
         (RuntimeLocus::FullPlane, _) => None,
         (_, RuntimeLocus::FullPlane) => None,
     }
 }
 
-// ===========================================================================
-//  Greedy solver loop
-// ===========================================================================
+//  ===========================================================================
+//   Greedy solver loop
+//  ===========================================================================
 
-/// Collect loci for a target entity from all constraints.
-/// Returns a Vec of RuntimeLocus values, one per constraint.
+///  Collect loci for a target entity from all constraints.
+///  Returns a Vec of RuntimeLocus values, one per constraint.
 pub fn collect_loci_exec(
     constraints: &Vec<RuntimeConstraint>,
     points: &Vec<RuntimePoint2>,
@@ -324,8 +324,8 @@ pub fn collect_loci_exec(
     result
 }
 
-/// Find two non-trivial loci and intersect them to produce a step.
-/// Returns None if fewer than two non-trivial loci exist or intersection fails.
+///  Find two non-trivial loci and intersect them to produce a step.
+///  Returns None if fewer than two non-trivial loci exist or intersection fails.
 pub fn find_and_intersect_loci(
     target: usize,
     loci: Vec<RuntimeLocus>,
@@ -339,7 +339,7 @@ pub fn find_and_intersect_loci(
             None => true,
         },
 {
-    // First pass: find first nontrivial locus
+    //  First pass: find first nontrivial locus
     let mut first_idx: usize = 0;
     let mut found_first = false;
     while first_idx < loci.len()
@@ -369,9 +369,9 @@ pub fn find_and_intersect_loci(
     }
 
     assert((first_idx as int) < loci@.len());
-    assert(first_idx < loci.len()); // guarantees first_idx + 1 doesn't overflow
+    assert(first_idx < loci.len()); //  guarantees first_idx + 1 doesn't overflow
 
-    // Second pass: find second nontrivial locus
+    //  Second pass: find second nontrivial locus
     let mut second_idx: usize = first_idx + 1;
     let mut found_second = false;
     while second_idx < loci.len()
@@ -398,7 +398,7 @@ pub fn find_and_intersect_loci(
     }
 
     if !found_second {
-        // Only one nontrivial locus — check if it's AtPoint
+        //  Only one nontrivial locus — check if it's AtPoint
         match &loci[first_idx] {
             RuntimeLocus::AtPoint { point } => {
                 let ghost spec_step = ConstructionStep::<RationalModel>::PointStep {
@@ -417,29 +417,29 @@ pub fn find_and_intersect_loci(
         }
     }
 
-    // Extract the two loci by swapping out of the Vec
-    // We need to consume them for intersect_loci_exec
+    //  Extract the two loci by swapping out of the Vec
+    //  We need to consume them for intersect_loci_exec
     let mut loci_mut = loci;
     let mut dummy = RuntimeLocus::FullPlane;
     let mut dummy2 = RuntimeLocus::FullPlane;
 
-    // Swap out the second first (to preserve indexing since second_idx > first_idx)
+    //  Swap out the second first (to preserve indexing since second_idx > first_idx)
     loci_mut.set_and_swap(second_idx, &mut dummy);
-    // Now dummy holds the second locus
+    //  Now dummy holds the second locus
     let l2 = dummy;
 
-    // Swap out the first
+    //  Swap out the first
     loci_mut.set_and_swap(first_idx, &mut dummy2);
     let l1 = dummy2;
 
     intersect_loci_exec(target, l1, l2)
 }
 
-// ===========================================================================
-//  Copy helpers
-// ===========================================================================
+//  ===========================================================================
+//   Copy helpers
+//  ===========================================================================
 
-/// Deep-copy a RuntimePoint2.
+///  Deep-copy a RuntimePoint2.
 fn copy_point(p: &RuntimePoint2) -> (out: RuntimePoint2)
     requires p.wf_spec(),
     ensures out.wf_spec(), out@ == p@,
@@ -447,7 +447,7 @@ fn copy_point(p: &RuntimePoint2) -> (out: RuntimePoint2)
     RuntimePoint2::new(copy_rational(&p.x), copy_rational(&p.y))
 }
 
-/// Deep-copy a RuntimeLine2.
+///  Deep-copy a RuntimeLine2.
 fn copy_line(l: &RuntimeLine2) -> (out: RuntimeLine2)
     requires l.wf_spec(),
     ensures out.wf_spec(), out@ == l@,
@@ -455,7 +455,7 @@ fn copy_line(l: &RuntimeLine2) -> (out: RuntimeLine2)
     RuntimeLine2::new(copy_rational(&l.a), copy_rational(&l.b), copy_rational(&l.c))
 }
 
-/// Deep-copy a RuntimeCircle2.
+///  Deep-copy a RuntimeCircle2.
 fn copy_circle(c: &RuntimeCircle2) -> (out: RuntimeCircle2)
     requires c.wf_spec(),
     ensures out.wf_spec(), out@ == c@,
@@ -465,7 +465,7 @@ fn copy_circle(c: &RuntimeCircle2) -> (out: RuntimeCircle2)
     RuntimeCircle2::from_center_radius_sq(center, r_sq)
 }
 
-/// Deep-copy a RuntimeStepData.
+///  Deep-copy a RuntimeStepData.
 pub fn copy_step(s: &RuntimeStepData) -> (out: RuntimeStepData)
     requires s.wf_spec(),
     ensures out.wf_spec(), out.spec_step() == s.spec_step(),
@@ -508,20 +508,20 @@ pub fn copy_step(s: &RuntimeStepData) -> (out: RuntimeStepData)
     }
 }
 
-// ===========================================================================
-//  Greedy solver
-// ===========================================================================
+//  ===========================================================================
+//   Greedy solver
+//  ===========================================================================
 
-/// Greedy solver: iteratively resolve free entities by collecting loci
-/// from constraints and intersecting them.
+///  Greedy solver: iteratively resolve free entities by collecting loci
+///  from constraints and intersecting them.
 ///
-/// On each iteration, scans free_ids for a resolvable entity (one with
-/// at least two non-trivial loci, or a single AtPoint locus).
-/// For circle intersection steps, no coordinate is written to the points
-/// array (the plan records the step but coordinates live in Q(sqrt(D))).
-/// For line-line and determined steps, the rational coordinates are written.
+///  On each iteration, scans free_ids for a resolvable entity (one with
+///  at least two non-trivial loci, or a single AtPoint locus).
+///  For circle intersection steps, no coordinate is written to the points
+///  array (the plan records the step but coordinates live in Q(sqrt(D))).
+///  For line-line and determined steps, the rational coordinates are written.
 ///
-/// Returns the construction plan (sequence of steps).
+///  Returns the construction plan (sequence of steps).
 pub fn greedy_solve_exec(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -541,14 +541,14 @@ pub fn greedy_solve_exec(
                 .dom().contains(i as nat),
     ensures
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
-        // All targets are distinct
+        //  All targets are distinct
         forall|i: int, j: int|
             0 <= i < out@.len() && 0 <= j < out@.len() && i != j ==>
             step_target(#[trigger] out@[i].spec_step()) != step_target(#[trigger] out@[j].spec_step()),
-        // Each target is a valid entity
+        //  Each target is a valid entity
         forall|i: int| 0 <= i < out@.len() ==>
             (step_target(#[trigger] out@[i].spec_step()) as int) < old(points)@.len(),
-        // Plan length bounded by number of free entities
+        //  Plan length bounded by number of free entities
         out@.len() <= free_ids@.len(),
         points@.len() == old(points)@.len(),
         resolved_flags@.len() == old(resolved_flags)@.len(),
@@ -577,15 +577,15 @@ pub fn greedy_solve_exec(
                 partial_resolved_map(points_view(points@), resolved_flags@)
                     .dom().contains(i as nat),
             forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
-            // All plan targets are currently resolved (flags == true)
+            //  All plan targets are currently resolved (flags == true)
             forall|j: int| 0 <= j < plan@.len() ==>
                 (step_target(#[trigger] plan@[j].spec_step()) as int) < resolved_flags@.len()
                 && resolved_flags@[step_target(plan@[j].spec_step()) as int] == true,
-            // All targets are distinct
+            //  All targets are distinct
             forall|i: int, j: int|
                 0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
                 step_target(#[trigger] plan@[i].spec_step()) != step_target(#[trigger] plan@[j].spec_step()),
-            // Each target is valid
+            //  Each target is valid
             forall|j: int| 0 <= j < plan@.len() ==>
                 (step_target(#[trigger] plan@[j].spec_step()) as int) < points@.len(),
         decreases n - iter,
@@ -660,7 +660,7 @@ pub fn greedy_solve_exec(
                 let step_opt = find_and_intersect_loci(target, loci);
                 match step_opt {
                     Some(step) => {
-                        // For rational steps, update the points array
+                        //  For rational steps, update the points array
                         match &step {
                             RuntimeStepData::PointStep { x, y, .. } => {
                                 let mut pt = RuntimePoint2::new(
@@ -672,12 +672,12 @@ pub fn greedy_solve_exec(
                                 let mut pt = execute_line_line_step(l1, l2);
                                 points.set_and_swap(target, &mut pt);
                             }
-                            // Circle steps: don't update coordinates (live in Q(sqrt(D)))
+                            //  Circle steps: don't update coordinates (live in Q(sqrt(D)))
                             RuntimeStepData::CircleLine { .. } => {}
                             RuntimeStepData::CircleCircle { .. } => {}
                         }
-                        // Before flipping the flag: target is unresolved, all plan
-                        // targets are resolved — so the new target is distinct.
+                        //  Before flipping the flag: target is unresolved, all plan
+                        //  targets are resolved — so the new target is distinct.
                         proof {
                             assert(resolved_flags@[target as int] == false);
                             assert forall|j: int| 0 <= j < plan@.len() implies
@@ -687,30 +687,30 @@ pub fn greedy_solve_exec(
                             }
                         }
 
-                        // Mark resolved
+                        //  Mark resolved
                         let mut flag = true;
                         resolved_flags.set_and_swap(target, &mut flag);
 
-                        // Re-establish the partial_resolved_map invariant
-                        // and the resolved-targets invariant after set_and_swap
+                        //  Re-establish the partial_resolved_map invariant
+                        //  and the resolved-targets invariant after set_and_swap
                         proof {
-                            // After set_and_swap, resolved_flags@[target] == true
-                            // and points@[target] is the new point (wf_spec)
-                            // For all i != target, nothing changed
+                            //  After set_and_swap, resolved_flags@[target] == true
+                            //  and points@[target] is the new point (wf_spec)
+                            //  For all i != target, nothing changed
                             assert forall|i: int| 0 <= i < resolved_flags@.len() implies
                                 (#[trigger] resolved_flags@[i]) ==
                                 partial_resolved_map(points_view(points@), resolved_flags@)
                                     .dom().contains(i as nat)
                             by {
-                                // partial_resolved_map.dom().contains(i as nat)
-                                // == (i < points.len() && i < flags.len() && flags[i])
-                                // == flags[i]  (since both lens are the same and i < len)
+                                //  partial_resolved_map.dom().contains(i as nat)
+                                //  == (i < points.len() && i < flags.len() && flags[i])
+                                //  == flags[i]  (since both lens are the same and i < len)
                             }
                         }
 
-                        // The new step's target == target, which was proved distinct
-                        // from all existing plan targets above. After set_and_swap,
-                        // resolved_flags[target] == true, so the invariant is maintained.
+                        //  The new step's target == target, which was proved distinct
+                        //  from all existing plan targets above. After set_and_swap,
+                        //  resolved_flags[target] == true, so the invariant is maintained.
                         assert(step_target(step.spec_step()) == target as nat);
                         assert(resolved_flags@[target as int] == true);
 
@@ -733,30 +733,30 @@ pub fn greedy_solve_exec(
     plan
 }
 
-// ===========================================================================
-//  Dynamic greedy solver (correct Q(√D) coordinates)
-// ===========================================================================
+//  ===========================================================================
+//   Dynamic greedy solver (correct Q(√D) coordinates)
+//  ===========================================================================
 
-/// Result of the dynamic greedy solver.
+///  Result of the dynamic greedy solver.
 pub struct GreedyDynResult {
     pub plan: Vec<AbstractPlanStep>,
     pub constraint_pairs: Vec<(usize, usize)>,
     pub dyn_positions: Vec<DynRtPoint2>,
-    /// Ghost: true iff the solver completed all free_ids.len() iterations
-    /// without getting stuck. When true, plan.len() == free_ids.len().
+    ///  Ghost: true iff the solver completed all free_ids.len() iterations
+    ///  without getting stuck. When true, plan.len() == free_ids.len().
     pub ghost_complete: Ghost<bool>,
 }
 
-/// Greedy solver using DynFieldElem for correct Q(√D) coordinates.
+///  Greedy solver using DynFieldElem for correct Q(√D) coordinates.
 ///
-/// Unlike `greedy_solve_exec` which stores only rational coordinates,
-/// this version maintains a `Vec<DynRtPoint2>` that correctly stores
-/// circle-step results at arbitrary quadratic extension depth.
-/// This ensures subsequent loci computations use correct coordinates
-/// even when referencing entities resolved by circle steps.
+///  Unlike `greedy_solve_exec` which stores only rational coordinates,
+///  this version maintains a `Vec<DynRtPoint2>` that correctly stores
+///  circle-step results at arbitrary quadratic extension depth.
+///  This ensures subsequent loci computations use correct coordinates
+///  even when referencing entities resolved by circle steps.
 ///
-/// Returns a lightweight plan (target + kind + plus + constraint pair indices)
-/// rather than full geometry, since geometry is recomputed at execution time.
+///  Returns a lightweight plan (target + kind + plus + constraint pair indices)
+///  rather than full geometry, since geometry is recomputed at execution time.
 pub fn greedy_solve_exec_dyn(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -780,17 +780,17 @@ pub fn greedy_solve_exec_dyn(
         out.plan@.len() <= free_ids@.len(),
         out.dyn_positions@.len() == points@.len(),
         all_dyn_points_wf(out.dyn_positions@),
-        // Distinct targets
+        //  Distinct targets
         forall|i: int, j: int|
             0 <= i < out.plan@.len() && 0 <= j < out.plan@.len() && i != j ==>
             out.plan@[i].target != out.plan@[j].target,
-        // Valid targets
+        //  Valid targets
         forall|i: int| 0 <= i < out.plan@.len() ==>
             (out.plan@[i].target as int) < points@.len(),
-        // Each plan target is marked resolved
+        //  Each plan target is marked resolved
         forall|i: int| 0 <= i < out.plan@.len() ==>
             resolved_flags@[out.plan@[i].target as int] == true,
-        // Completeness: if ghost_complete, plan covers all free entities
+        //  Completeness: if ghost_complete, plan covers all free entities
         out.ghost_complete@ ==> out.plan@.len() == free_ids@.len(),
         resolved_flags@.len() == old(resolved_flags)@.len(),
 {
@@ -818,7 +818,7 @@ pub fn greedy_solve_exec_dyn(
                 (free_ids@[i] as int) < n_entities,
             forall|i: int| 0 <= i < constraints@.len() ==>
                 runtime_constraint_wf(#[trigger] constraints@[i], n_entities as nat),
-            // Plan targets are resolved and distinct
+            //  Plan targets are resolved and distinct
             forall|j: int| 0 <= j < plan@.len() ==>
                 (plan@[j].target as int) < n_entities
                 && resolved_flags@[plan@[j].target as int] == true,
@@ -879,15 +879,15 @@ pub fn greedy_solve_exec_dyn(
             if resolved_flags[target] {
                 fi = fi + 1;
             } else {
-                // Collect dyn loci for this entity
+                //  Collect dyn loci for this entity
                 let loci = collect_loci_dyn_for_target(
                     constraints, &dyn_points, resolved_flags, target);
 
-                // Find two nontrivial loci
+                //  Find two nontrivial loci
                 let pair = find_two_nontrivial_dyn(&loci);
                 match pair {
                     None => {
-                        // Check for single AtPoint locus
+                        //  Check for single AtPoint locus
                         let mut at_point_idx: Option<usize> = None;
                         let mut ai: usize = 0;
                         while ai < loci.len()
@@ -939,9 +939,9 @@ pub fn greedy_solve_exec_dyn(
                         }
                     }
                     Some((ci1, ci2)) => {
-                        // Determine step kind from locus pair
+                        //  Determine step kind from locus pair
                         let (kind, intersection) = match (&loci[ci1], &loci[ci2]) {
-                            // Line + Line
+                            //  Line + Line
                             (DynRtLocus::OnLine { a: a1, b: b1, c: c1 },
                              DynRtLocus::OnLine { a: a2, b: b2, c: c2 }) => {
                                 match dyn_line_line_intersection(a1, b1, c1, a2, b2, c2) {
@@ -949,15 +949,15 @@ pub fn greedy_solve_exec_dyn(
                                     None => (AbstractStepKind::LineLine, None),
                                 }
                             }
-                            // Circle + Line
+                            //  Circle + Line
                             (DynRtLocus::OnCircle { cx, cy, radius_sq },
                              DynRtLocus::OnLine { a, b, c }) => {
-                                // Compute radicand: A*r² - h²
+                                //  Compute radicand: A*r² - h²
                                 let big_a = a.dyn_mul(a).dyn_add(&b.dyn_mul(b));
                                 let h = a.dyn_mul(cx).dyn_add(&b.dyn_mul(cy)).dyn_add(c);
                                 let radicand = big_a.dyn_mul(radius_sq).dyn_sub(&h.dyn_mul(&h));
 
-                                // Embed all points to next tower level
+                                //  Embed all points to next tower level
                                 let mut new_dyn: Vec<DynRtPoint2> = Vec::new();
                                 let mut ei: usize = 0;
                                 while ei < n_entities
@@ -977,7 +977,7 @@ pub fn greedy_solve_exec_dyn(
                                 }
                                 dyn_points = new_dyn;
 
-                                // Recompute loci at new depth and intersect
+                                //  Recompute loci at new depth and intersect
                                 let l1_new = constraint_to_locus_dyn(
                                     &constraints[ci1], &dyn_points, resolved_flags, target);
                                 let l2_new = constraint_to_locus_dyn(
@@ -985,7 +985,7 @@ pub fn greedy_solve_exec_dyn(
                                 let pt = intersect_loci_dyn(&l1_new, &l2_new, &radicand, true);
                                 (AbstractStepKind::CircleLine, pt)
                             }
-                            // Line + Circle (swap)
+                            //  Line + Circle (swap)
                             (DynRtLocus::OnLine { a, b, c },
                              DynRtLocus::OnCircle { cx, cy, radius_sq }) => {
                                 let big_a = a.dyn_mul(a).dyn_add(&b.dyn_mul(b));
@@ -1018,16 +1018,16 @@ pub fn greedy_solve_exec_dyn(
                                 let pt = intersect_loci_dyn(&l1_new, &l2_new, &radicand, true);
                                 (AbstractStepKind::CircleLine, pt)
                             }
-                            // Circle + Circle
+                            //  Circle + Circle
                             (DynRtLocus::OnCircle { cx: c1x, cy: c1y, radius_sq: r1sq },
                              DynRtLocus::OnCircle { cx: c2x, cy: c2y, radius_sq: r2sq }) => {
-                                // Radical axis coefficients for radicand
+                                //  Radical axis coefficients for radicand
                                 let one = c1x.dyn_one_like();
                                 let two = one.dyn_add(&c1x.dyn_one_like());
                                 let ra = two.dyn_mul(&c2x.dyn_sub(c1x));
                                 let rb = two.dyn_mul(&c2y.dyn_sub(c1y));
                                 let big_a = ra.dyn_mul(&ra).dyn_add(&rb.dyn_mul(&rb));
-                                // h for radical axis
+                                //  h for radical axis
                                 let c1_sq = c1x.dyn_mul(c1x).dyn_add(&c1y.dyn_mul(c1y));
                                 let c2_sq = c2x.dyn_mul(c2x).dyn_add(&c2y.dyn_mul(c2y));
                                 let rc = c1_sq.dyn_sub(r1sq).dyn_sub(&c2_sq.dyn_sub(r2sq));
@@ -1060,7 +1060,7 @@ pub fn greedy_solve_exec_dyn(
                                 let pt = intersect_loci_dyn(&l1_new, &l2_new, &radicand, true);
                                 (AbstractStepKind::CircleCircle, pt)
                             }
-                            // AtPoint cases
+                            //  AtPoint cases
                             (DynRtLocus::AtPoint { x, y }, _) => {
                                 let pt = DynRtPoint2::new(x.dyn_copy(), y.dyn_copy());
                                 (AbstractStepKind::Point, Some(pt))
@@ -1117,11 +1117,11 @@ pub fn greedy_solve_exec_dyn(
     }
 }
 
-// ===========================================================================
-//  Sign variant enumeration
-// ===========================================================================
+//  ===========================================================================
+//   Sign variant enumeration
+//  ===========================================================================
 
-/// Count the number of circle intersection steps in a plan.
+///  Count the number of circle intersection steps in a plan.
 pub fn count_circle_steps(plan: &Vec<RuntimeStepData>) -> (out: usize)
     requires
         forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
@@ -1146,8 +1146,8 @@ pub fn count_circle_steps(plan: &Vec<RuntimeStepData>) -> (out: usize)
     count
 }
 
-/// Flip the `plus` sign of a circle step. Non-circle steps are returned unchanged.
-/// Takes ownership and returns a new step with the sign flipped.
+///  Flip the `plus` sign of a circle step. Non-circle steps are returned unchanged.
+///  Takes ownership and returns a new step with the sign flipped.
 fn flip_step_sign(s: RuntimeStepData) -> (out: RuntimeStepData)
     requires s.wf_spec(),
     ensures
@@ -1163,7 +1163,7 @@ fn flip_step_sign(s: RuntimeStepData) -> (out: RuntimeStepData)
                     ConstructionStep::<RationalModel>::CircleLine {
                         id, circle: c, line: l, plus: !plus,
                     },
-                _ => model@, // unreachable
+                _ => model@, //  unreachable
             };
             RuntimeStepData::CircleLine {
                 target, circle, line, plus: !plus,
@@ -1176,7 +1176,7 @@ fn flip_step_sign(s: RuntimeStepData) -> (out: RuntimeStepData)
                     ConstructionStep::<RationalModel>::CircleCircle {
                         id, circle1, circle2, plus: !plus,
                     },
-                _ => model@, // unreachable
+                _ => model@, //  unreachable
             };
             RuntimeStepData::CircleCircle {
                 target, c1, c2, plus: !plus,
@@ -1187,8 +1187,8 @@ fn flip_step_sign(s: RuntimeStepData) -> (out: RuntimeStepData)
     }
 }
 
-/// Create a sign variant of a plan by flipping the k-th circle step
-/// when bit k of sign_mask is 1.
+///  Create a sign variant of a plan by flipping the k-th circle step
+///  when bit k of sign_mask is 1.
 pub fn make_sign_variant(
     plan: &Vec<RuntimeStepData>,
     sign_mask: u64,
@@ -1198,11 +1198,11 @@ pub fn make_sign_variant(
     ensures
         out@.len() == plan@.len(),
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
-        // Target preservation
+        //  Target preservation
         forall|i: int| 0 <= i < out@.len() ==>
             step_target((#[trigger] out@[i]).spec_step()) ==
             step_target(plan@[i].spec_step()),
-        // Discriminant preservation
+        //  Discriminant preservation
         forall|i: int| 0 <= i < out@.len() ==>
             step_has_positive_discriminant((#[trigger] out@[i]).spec_step()) ==
             step_has_positive_discriminant(plan@[i].spec_step()),
@@ -1252,7 +1252,7 @@ pub fn make_sign_variant(
     result
 }
 
-/// Check if a plan variant is feasible: all circle steps have positive discriminant.
+///  Check if a plan variant is feasible: all circle steps have positive discriminant.
 pub fn check_variant_feasible(plan: &Vec<RuntimeStepData>) -> (out: bool)
     requires
         forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
@@ -1268,7 +1268,7 @@ pub fn check_variant_feasible(plan: &Vec<RuntimeStepData>) -> (out: bool)
             zero.wf_spec(),
             zero@ == RationalModel::from_int_spec(0),
             forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
-            // All checked steps so far have positive discriminant
+            //  All checked steps so far have positive discriminant
             forall|j: int| 0 <= j < i ==>
                 step_has_positive_discriminant((#[trigger] plan@[j]).spec_step()),
         decreases plan@.len() - i,
@@ -1293,9 +1293,9 @@ pub fn check_variant_feasible(plan: &Vec<RuntimeStepData>) -> (out: bool)
     true
 }
 
-/// Solve all sign variants: run the greedy solver, then enumerate
-/// all 2^k sign combinations (where k = number of circle steps).
-/// Returns all feasible plan variants.
+///  Solve all sign variants: run the greedy solver, then enumerate
+///  all 2^k sign combinations (where k = number of circle steps).
+///  Returns all feasible plan variants.
 pub fn solve_all_variants(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -1314,31 +1314,31 @@ pub fn solve_all_variants(
             partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
                 .dom().contains(i as nat),
     ensures
-        // All steps well-formed
+        //  All steps well-formed
         forall|si: int| 0 <= si < out@.len() ==>
             forall|j: int| 0 <= j < (#[trigger] out@[si])@.len() ==>
                 (#[trigger] out@[si]@[j]).wf_spec(),
-        // Distinct targets within each variant
+        //  Distinct targets within each variant
         forall|si: int| 0 <= si < out@.len() ==>
             forall|i: int, j: int|
                 0 <= i < (#[trigger] out@[si])@.len()
                 && 0 <= j < out@[si]@.len() && i != j ==>
                 step_target(#[trigger] out@[si]@[i].spec_step()) !=
                 step_target(#[trigger] out@[si]@[j].spec_step()),
-        // All circle discriminants positive
+        //  All circle discriminants positive
         forall|si: int| 0 <= si < out@.len() ==>
             forall|j: int| 0 <= j < (#[trigger] out@[si])@.len() ==>
                 step_has_positive_discriminant((#[trigger] out@[si]@[j]).spec_step()),
-        // All targets are valid entity indices
+        //  All targets are valid entity indices
         forall|si: int| 0 <= si < out@.len() ==>
             forall|j: int| 0 <= j < (#[trigger] out@[si])@.len() ==>
                 (step_target((#[trigger] out@[si]@[j]).spec_step()) as int) < old(points)@.len(),
-        // All variants have equal length
+        //  All variants have equal length
         out@.len() > 0 ==>
             forall|si: int| 0 <= si < out@.len() ==>
                 (#[trigger] out@[si])@.len() == out@[0]@.len(),
-        // All steps satisfy geometric preconditions (step_well_formed minus
-        // the existential witness for circle steps)
+        //  All steps satisfy geometric preconditions (step_well_formed minus
+        //  the existential witness for circle steps)
         forall|si: int| 0 <= si < out@.len() ==>
             forall|j: int| 0 <= j < (#[trigger] out@[si])@.len() ==>
                 step_geometrically_valid((#[trigger] out@[si]@[j]).spec_step()),
@@ -1347,8 +1347,8 @@ pub fn solve_all_variants(
     let k = count_circle_steps(&plan);
 
     if k == 0 || k > 63 {
-        // No circle steps, or too many to enumerate — return base plan
-        // if feasible (all discriminants positive).
+        //  No circle steps, or too many to enumerate — return base plan
+        //  if feasible (all discriminants positive).
         let mut results: Vec<Vec<RuntimeStepData>> = Vec::new();
         if check_variant_feasible(&plan) {
             results.push(plan);
@@ -1365,11 +1365,11 @@ pub fn solve_all_variants(
             n == 1u64 << (k as u64),
             k <= 63,
             forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
-            // Base plan has distinct targets
+            //  Base plan has distinct targets
             forall|i: int, j: int|
                 0 <= i < plan@.len() && 0 <= j < plan@.len() && i != j ==>
                 step_target(#[trigger] plan@[i].spec_step()) != step_target(#[trigger] plan@[j].spec_step()),
-            // Base plan targets are valid
+            //  Base plan targets are valid
             forall|i: int| 0 <= i < plan@.len() ==>
                 (step_target(#[trigger] plan@[i].spec_step()) as int) < old(points)@.len(),
             forall|si: int| 0 <= si < results@.len() ==>
@@ -1384,21 +1384,21 @@ pub fn solve_all_variants(
             forall|si: int| 0 <= si < results@.len() ==>
                 forall|j: int| 0 <= j < (#[trigger] results@[si])@.len() ==>
                     step_has_positive_discriminant((#[trigger] results@[si]@[j]).spec_step()),
-            // Target validity for results
+            //  Target validity for results
             forall|si: int| 0 <= si < results@.len() ==>
                 forall|j: int| 0 <= j < (#[trigger] results@[si])@.len() ==>
                     (step_target((#[trigger] results@[si]@[j]).spec_step()) as int) < old(points)@.len(),
-            // All result variants have same length as base plan
+            //  All result variants have same length as base plan
             forall|si: int| 0 <= si < results@.len() ==>
                 (#[trigger] results@[si])@.len() == plan@.len(),
-            // Geometric validity for results
+            //  Geometric validity for results
             forall|si: int| 0 <= si < results@.len() ==>
                 forall|j: int| 0 <= j < (#[trigger] results@[si])@.len() ==>
                     step_geometrically_valid((#[trigger] results@[si]@[j]).spec_step()),
         decreases n - mask,
     {
         let variant = make_sign_variant(&plan, mask);
-        // Derive properties for variant from base plan via target preservation
+        //  Derive properties for variant from base plan via target preservation
         proof {
             assert forall|i: int, j: int|
                 0 <= i < variant@.len() && 0 <= j < variant@.len() && i != j
@@ -1409,14 +1409,14 @@ pub fn solve_all_variants(
                 assert(step_target(variant@[i].spec_step()) == step_target(plan@[i].spec_step()));
                 assert(step_target(variant@[j].spec_step()) == step_target(plan@[j].spec_step()));
             }
-            // Target validity: variant targets == plan targets < old(points).len()
+            //  Target validity: variant targets == plan targets < old(points).len()
             assert forall|j: int| 0 <= j < variant@.len()
             implies
                 (step_target((#[trigger] variant@[j]).spec_step()) as int) < old(points)@.len()
             by {
                 assert(step_target(variant@[j].spec_step()) == step_target(plan@[j].spec_step()));
             }
-            // Geometric validity: wf_spec() implies step_geometrically_valid
+            //  Geometric validity: wf_spec() implies step_geometrically_valid
             assert forall|j: int| 0 <= j < variant@.len()
             implies
                 step_geometrically_valid((#[trigger] variant@[j]).spec_step())
@@ -1432,12 +1432,12 @@ pub fn solve_all_variants(
     results
 }
 
-// ===========================================================================
-//  Verification constraint checker
-// ===========================================================================
+//  ===========================================================================
+//   Verification constraint checker
+//  ===========================================================================
 
-/// Check whether a runtime constraint is a verification constraint.
-/// Requires runtime_constraint_wf so that model@ is known to match the variant.
+///  Check whether a runtime constraint is a verification constraint.
+///  Requires runtime_constraint_wf so that model@ is known to match the variant.
 fn is_verification_constraint_exec(rc: &RuntimeConstraint, n_points: usize) -> (out: bool)
     requires
         runtime_constraint_wf(*rc, n_points as nat),
@@ -1456,8 +1456,8 @@ fn is_verification_constraint_exec(rc: &RuntimeConstraint, n_points: usize) -> (
     }
 }
 
-/// Check all verification constraints are satisfied by the final resolved points.
-/// Returns true if every verification constraint in the list is satisfied.
+///  Check all verification constraints are satisfied by the final resolved points.
+///  Returns true if every verification constraint in the list is satisfied.
 pub fn check_verification_constraints_exec(
     constraints: &Vec<RuntimeConstraint>,
     points: &Vec<RuntimePoint2>,
@@ -1501,15 +1501,15 @@ pub fn check_verification_constraints_exec(
     true
 }
 
-// ===========================================================================
-//  Runtime nontrivial locus counting
-// ===========================================================================
+//  ===========================================================================
+//   Runtime nontrivial locus counting
+//  ===========================================================================
 
-/// Check if a single runtime constraint imposes a nontrivial locus on `target`.
-/// A constraint is nontrivial for target when:
-/// 1. target is a locus entity of the constraint
-/// 2. all other entities of the constraint are resolved
-/// 3. target itself is not resolved
+///  Check if a single runtime constraint imposes a nontrivial locus on `target`.
+///  A constraint is nontrivial for target when:
+///  1. target is a locus entity of the constraint
+///  2. all other entities of the constraint are resolved
+///  3. target itself is not resolved
 fn is_nontrivial_for_target_exec(
     rc: &RuntimeConstraint,
     target: usize,
@@ -1530,7 +1530,7 @@ fn is_nontrivial_for_target_exec(
     let ghost dom = Set::new(|id: nat| (id as int) < n_points && resolved_flags@[id as int]);
     let ghost model = runtime_constraint_model(*rc);
 
-    // target must not be resolved
+    //  target must not be resolved
     if resolved_flags[target] {
         proof {
             assert(dom.contains(target as nat));
@@ -1539,8 +1539,8 @@ fn is_nontrivial_for_target_exec(
         return false;
     }
 
-    // The spec is now defined per-variant with explicit membership checks,
-    // matching the runtime branching directly. Z3 unfolds both in parallel.
+    //  The spec is now defined per-variant with explicit membership checks,
+    //  matching the runtime branching directly. Z3 unfolds both in parallel.
     match rc {
         RuntimeConstraint::Coincident { a, b, .. } => {
             if target == *a {
@@ -1682,7 +1682,7 @@ fn is_nontrivial_for_target_exec(
     }
 }
 
-/// Spec: count nontrivial constraints for target in constraints[0..n).
+///  Spec: count nontrivial constraints for target in constraints[0..n).
 spec fn count_nontrivial<T: OrderedField>(
     constraints: Seq<Constraint<T>>,
     target: EntityId,
@@ -1702,7 +1702,7 @@ spec fn count_nontrivial<T: OrderedField>(
     }
 }
 
-/// If count_nontrivial <= 2, then at_most_two_nontrivial_loci holds.
+///  If count_nontrivial <= 2, then at_most_two_nontrivial_loci holds.
 proof fn lemma_count_implies_at_most_two<T: OrderedField>(
     constraints: Seq<Constraint<T>>,
     target: EntityId,
@@ -1714,8 +1714,8 @@ proof fn lemma_count_implies_at_most_two<T: OrderedField>(
         at_most_two_nontrivial_loci(target, constraints, dom),
     decreases constraints.len(),
 {
-    // By contradiction: if there exist i < j < k all nontrivial,
-    // then count >= 3. We prove count_nontrivial >= 3 in presence of such triple.
+    //  By contradiction: if there exist i < j < k all nontrivial,
+    //  then count >= 3. We prove count_nontrivial >= 3 in presence of such triple.
     if exists|ii: int, jj: int, kk: int|
         0 <= ii < jj && jj < kk && kk < constraints.len()
         && is_nontrivial_for_target(#[trigger] constraints[ii], target, dom)
@@ -1737,20 +1737,20 @@ proof fn lemma_count_implies_at_most_two<T: OrderedField>(
             && is_nontrivial_for_target(constraints[ii], target, dom)
             && is_nontrivial_for_target(constraints[jj], target, dom)
             && is_nontrivial_for_target(#[trigger] constraints[kk], target, dom);
-        // count >= 3 because each of ii, jj, kk adds 1
+        //  count >= 3 because each of ii, jj, kk adds 1
         lemma_count_monotone::<T>(constraints, target, dom, kk + 1, constraints.len() as int);
         lemma_count_at_least_one::<T>(constraints, target, dom, kk);
         lemma_count_monotone::<T>(constraints, target, dom, jj + 1, kk);
         lemma_count_at_least_one::<T>(constraints, target, dom, jj);
         lemma_count_monotone::<T>(constraints, target, dom, ii + 1, jj);
         lemma_count_at_least_one::<T>(constraints, target, dom, ii);
-        // Chain: count(n) >= count(kk+1) >= count(kk) + 1 >= count(jj+1) + 1 >= count(jj) + 2
-        //        >= count(ii+1) + 2 >= count(ii) + 3 >= 3
+        //  Chain: count(n) >= count(kk+1) >= count(kk) + 1 >= count(jj+1) + 1 >= count(jj) + 2
+        //         >= count(ii+1) + 2 >= count(ii) + 3 >= 3
         assert(count_nontrivial(constraints, target, dom, constraints.len() as int) >= 3);
     }
 }
 
-/// Count is monotonically non-decreasing.
+///  Count is monotonically non-decreasing.
 proof fn lemma_count_monotone<T: OrderedField>(
     constraints: Seq<Constraint<T>>,
     target: EntityId,
@@ -1767,7 +1767,7 @@ proof fn lemma_count_monotone<T: OrderedField>(
     }
 }
 
-/// If constraint[n] is nontrivial, count(n+1) >= count(n) + 1.
+///  If constraint[n] is nontrivial, count(n+1) >= count(n) + 1.
 proof fn lemma_count_at_least_one<T: OrderedField>(
     constraints: Seq<Constraint<T>>,
     target: EntityId,
@@ -1781,10 +1781,10 @@ proof fn lemma_count_at_least_one<T: OrderedField>(
         count_nontrivial(constraints, target, dom, n + 1) >=
         count_nontrivial(constraints, target, dom, n) + 1,
 {
-    // Direct from definition: count(n+1) = count(n) + (if nontrivial(n) then 1 else 0)
+    //  Direct from definition: count(n+1) = count(n) + (if nontrivial(n) then 1 else 0)
 }
 
-/// Runtime check: at most two constraints impose nontrivial loci on `target`.
+///  Runtime check: at most two constraints impose nontrivial loci on `target`.
 pub fn check_at_most_two_nontrivial_exec(
     target: usize,
     constraints: &Vec<RuntimeConstraint>,
@@ -1822,33 +1822,33 @@ pub fn check_at_most_two_nontrivial_exec(
             spec_cs.len() == n as int,
             forall|j: int| 0 <= j < n ==>
                 spec_cs[j] == runtime_constraint_model(#[trigger] constraints@[j]),
-            // count == spec count of nontrivial in [0, i)
+            //  count == spec count of nontrivial in [0, i)
             count as nat == count_nontrivial(spec_cs, target as nat, dom, i as int),
         decreases n - i,
     {
         let is_nt = is_nontrivial_for_target_exec(&constraints[i], target, resolved_flags, n_points);
         proof {
-            // is_nt == is_nontrivial_for_target(runtime_constraint_model(constraints@[i]), target, dom)
-            //       == is_nontrivial_for_target(spec_cs[i], target, dom)
-            // So we need: count_nontrivial(spec_cs, target, dom, i+1)
-            //           = count_nontrivial(spec_cs, target, dom, i) + (if is_nt then 1 else 0)
-            // This is the one-step unfolding of the recursive definition
+            //  is_nt == is_nontrivial_for_target(runtime_constraint_model(constraints@[i]), target, dom)
+            //        == is_nontrivial_for_target(spec_cs[i], target, dom)
+            //  So we need: count_nontrivial(spec_cs, target, dom, i+1)
+            //            = count_nontrivial(spec_cs, target, dom, i) + (if is_nt then 1 else 0)
+            //  This is the one-step unfolding of the recursive definition
             let ii = (i + 1) as int;
-            // Unfold: count_nontrivial(spec_cs, target, dom, ii)
-            //       = let prev = count_nontrivial(spec_cs, target, dom, ii - 1) [= count]
-            //         if is_nontrivial_for_target(spec_cs[ii - 1], target, dom) { prev + 1 } else { prev }
-            // ii - 1 == i, spec_cs[i] == runtime_constraint_model(constraints@[i])
-            // is_nontrivial_for_target(spec_cs[i], target, dom) == is_nt
-            // From is_nontrivial_for_target_exec postcondition:
-            // is_nt == is_nontrivial_for_target(runtime_constraint_model(constraints@[i as int]), target as nat, dom)
-            // From invariant forall:
-            // spec_cs[i as int] == runtime_constraint_model(constraints@[i as int])
-            // The postcondition of is_nontrivial_for_target_exec gives us:
-            // is_nt == is_nontrivial_for_target(runtime_constraint_model(constraints@[i]),
-            //          target as nat, Set::new(...))
-            // The invariant carries dom == Set::new(...), so these match.
-            // spec_cs[i] == runtime_constraint_model(constraints@[i]) from invariant forall.
-            // Therefore: is_nt == is_nontrivial_for_target(spec_cs[i], target, dom).
+            //  Unfold: count_nontrivial(spec_cs, target, dom, ii)
+            //        = let prev = count_nontrivial(spec_cs, target, dom, ii - 1) [= count]
+            //          if is_nontrivial_for_target(spec_cs[ii - 1], target, dom) { prev + 1 } else { prev }
+            //  ii - 1 == i, spec_cs[i] == runtime_constraint_model(constraints@[i])
+            //  is_nontrivial_for_target(spec_cs[i], target, dom) == is_nt
+            //  From is_nontrivial_for_target_exec postcondition:
+            //  is_nt == is_nontrivial_for_target(runtime_constraint_model(constraints@[i as int]), target as nat, dom)
+            //  From invariant forall:
+            //  spec_cs[i as int] == runtime_constraint_model(constraints@[i as int])
+            //  The postcondition of is_nontrivial_for_target_exec gives us:
+            //  is_nt == is_nontrivial_for_target(runtime_constraint_model(constraints@[i]),
+            //           target as nat, Set::new(...))
+            //  The invariant carries dom == Set::new(...), so these match.
+            //  spec_cs[i] == runtime_constraint_model(constraints@[i]) from invariant forall.
+            //  Therefore: is_nt == is_nontrivial_for_target(spec_cs[i], target, dom).
         }
         if is_nt {
             if count >= 2 {
@@ -1859,27 +1859,27 @@ pub fn check_at_most_two_nontrivial_exec(
         i = i + 1;
     }
     proof {
-        // count == count_nontrivial(spec_cs, target, dom, len) <= 2
+        //  count == count_nontrivial(spec_cs, target, dom, len) <= 2
         lemma_count_implies_at_most_two(spec_cs, target as nat, dom);
     }
     true
 }
 
-// ===========================================================================
-//  Round 1: Runtime plan soundness checks
-// ===========================================================================
+//  ===========================================================================
+//   Round 1: Runtime plan soundness checks
+//  ===========================================================================
 
-/// Helper: get all entity IDs of a runtime constraint as a small Vec.
+///  Helper: get all entity IDs of a runtime constraint as a small Vec.
 pub fn constraint_entity_ids(rc: &RuntimeConstraint, n_points: usize) -> (out: Vec<usize>)
     requires runtime_constraint_wf(*rc, n_points as nat),
     ensures
-        // Forward: all Vec elements are in constraint_entities
+        //  Forward: all Vec elements are in constraint_entities
         forall|j: int| 0 <= j < out@.len() ==>
             constraint_entities(runtime_constraint_model(*rc)).contains(#[trigger] out@[j] as nat),
-        // Backward: all constraint_entities elements are in the Vec
+        //  Backward: all constraint_entities elements are in the Vec
         forall|e: nat| constraint_entities(runtime_constraint_model(*rc)).contains(e) ==>
             exists|j: int| 0 <= j < out@.len() && out@[j] as nat == e,
-        // All elements < n_points
+        //  All elements < n_points
         forall|j: int| 0 <= j < out@.len() ==> (#[trigger] out@[j] as int) < n_points,
 {
     match rc {
@@ -1978,9 +1978,9 @@ pub fn constraint_entity_ids(rc: &RuntimeConstraint, n_points: usize) -> (out: V
     }
 }
 
-// --- 1a: check_is_fully_independent_exec ---
+//  --- 1a: check_is_fully_independent_exec ---
 
-/// Build a boolean flag array where flags[e] == true iff e is a circle step target.
+///  Build a boolean flag array where flags[e] == true iff e is a circle step target.
 fn build_circle_flags(
     plan: &Vec<RuntimeStepData>,
     n_points: usize,
@@ -2016,10 +2016,10 @@ fn build_circle_flags(
             forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
             forall|i: int| 0 <= i < plan@.len() ==>
                 (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
-            // Forward: flagged → is circle target
+            //  Forward: flagged → is circle target
             forall|e: int| 0 <= e < n_points && flags@[e] ==>
                 circle_targets(plan_spec).contains(e as nat),
-            // Backward partial: circle steps [0, si) have targets flagged
+            //  Backward partial: circle steps [0, si) have targets flagged
             forall|k: int| 0 <= k < si && !is_rational_step(plan_spec[k]) ==>
                 flags@[step_target(plan_spec[k]) as int] == true,
         decreases plan@.len() - si,
@@ -2036,7 +2036,7 @@ fn build_circle_flags(
     }
 
     proof {
-        // Backward: if e ∈ circle_targets(plan_spec), then flags[e] is true
+        //  Backward: if e ∈ circle_targets(plan_spec), then flags[e] is true
         assert forall|e: int| 0 <= e < n_points &&
             circle_targets(plan_spec).contains(e as nat)
         implies flags@[e] == true
@@ -2047,7 +2047,7 @@ fn build_circle_flags(
             assert(!is_rational_step(plan_spec[k]));
             assert(flags@[step_target(plan_spec[k]) as int] == true);
         }
-        // Combine into biconditional
+        //  Combine into biconditional
         assert forall|e: int| 0 <= e < n_points implies
             flags@[e] == circle_targets(plan_spec).contains(e as nat)
         by {
@@ -2062,10 +2062,10 @@ fn build_circle_flags(
     flags
 }
 
-/// Check one constraint is independent w.r.t. target, circle_flags, and domain_flags.
-/// Returns true if: either target is not in the constraint's entities,
-/// or all other entities that are in the domain are not circle targets.
-/// The domain guard matches the spec `is_fully_independent_plan`.
+///  Check one constraint is independent w.r.t. target, circle_flags, and domain_flags.
+///  Returns true if: either target is not in the constraint's entities,
+///  or all other entities that are in the domain are not circle targets.
+///  The domain guard matches the spec `is_fully_independent_plan`.
 fn check_one_constraint_independent(
     rc: &RuntimeConstraint,
     target: usize,
@@ -2087,7 +2087,7 @@ fn check_one_constraint_independent(
 {
     let entities = constraint_entity_ids(rc, n_points);
 
-    // Check if target is among entities
+    //  Check if target is among entities
     let mut has_target = false;
     let mut ei: usize = 0;
     while ei < entities.len()
@@ -2101,7 +2101,7 @@ fn check_one_constraint_independent(
     }
 
     if !has_target {
-        // target not in constraint entities → postcondition vacuously true
+        //  target not in constraint entities → postcondition vacuously true
         proof {
             if constraint_entities(runtime_constraint_model(*rc)).contains(target as nat) {
                 let j = choose|j: int| 0 <= j < entities@.len()
@@ -2113,7 +2113,7 @@ fn check_one_constraint_independent(
         return true;
     }
 
-    // has_target: check all other entities that are in domain are not circle targets
+    //  has_target: check all other entities that are in domain are not circle targets
     let mut ei2: usize = 0;
     while ei2 < entities.len()
         invariant
@@ -2136,7 +2136,7 @@ fn check_one_constraint_independent(
         ei2 = ei2 + 1;
     }
 
-    // All other in-domain entities are not circle targets → prove postcondition
+    //  All other in-domain entities are not circle targets → prove postcondition
     proof {
         assert forall|e_nat: EntityId|
             constraint_entities(runtime_constraint_model(*rc)).contains(e_nat)
@@ -2155,8 +2155,8 @@ fn check_one_constraint_independent(
     true
 }
 
-/// Check all constraints are independent for a given step target,
-/// considering only entities that are in the domain (domain_flags).
+///  Check all constraints are independent for a given step target,
+///  considering only entities that are in the domain (domain_flags).
 fn check_all_constraints_for_target(
     constraints: &Vec<RuntimeConstraint>,
     target: usize,
@@ -2204,10 +2204,10 @@ fn check_all_constraints_for_target(
     true
 }
 
-/// Check that a plan is fully independent: for every step's target, every
-/// constraint referencing that target has no OTHER entities that are both
-/// in the domain at that step AND circle targets.
-/// Matches the spec `is_fully_independent_plan` which includes a domain guard.
+///  Check that a plan is fully independent: for every step's target, every
+///  constraint referencing that target has no OTHER entities that are both
+///  in the domain at that step AND circle targets.
+///  Matches the spec `is_fully_independent_plan` which includes a domain guard.
 fn check_is_fully_independent_exec(
     plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -2227,7 +2227,7 @@ fn check_is_fully_independent_exec(
 
     let circle_flags = build_circle_flags(plan, n_points);
 
-    // Track which entities are in the domain at the current step
+    //  Track which entities are in the domain at the current step
     let mut domain_flags: Vec<bool> = Vec::new();
     let mut di: usize = 0;
     while di < n_points
@@ -2241,7 +2241,7 @@ fn check_is_fully_independent_exec(
         di = di + 1;
     }
 
-    // Initial domain invariant: take(0) has empty domain
+    //  Initial domain invariant: take(0) has empty domain
     proof {
         assert(plan_spec.take(0) =~= Seq::<ConstructionStep<RationalModel>>::empty());
         assert forall|e: int| 0 <= e < n_points implies
@@ -2266,10 +2266,10 @@ fn check_is_fully_independent_exec(
                 runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
             forall|e: int| 0 <= e < n_points ==>
                 (circle_flags@[e] == circle_targets(plan_spec).contains(e as nat)),
-            // domain_flags tracks execute_plan(plan_spec.take(si)).dom()
+            //  domain_flags tracks execute_plan(plan_spec.take(si)).dom()
             forall|e: int| 0 <= e < n_points ==>
                 (domain_flags@[e] == execute_plan(plan_spec.take(si as int)).dom().contains(e as nat)),
-            // Independence holds for all si' < si
+            //  Independence holds for all si' < si
             forall|si_idx: int| #![trigger plan_spec[si_idx]]
                 0 <= si_idx < si ==>
                 forall|ci_idx: int| #![trigger cstr_spec[ci_idx]]
@@ -2284,8 +2284,8 @@ fn check_is_fully_independent_exec(
         let target = plan[si].target_id();
         let ok = check_all_constraints_for_target(constraints, target, &circle_flags, &domain_flags, n_points);
         if !ok { return false; }
-        // Extend invariant: check_all_constraints_for_target ensures independence
-        // for step si using domain_flags as proxy for execute_plan(plan_spec.take(si)).dom().
+        //  Extend invariant: check_all_constraints_for_target ensures independence
+        //  for step si using domain_flags as proxy for execute_plan(plan_spec.take(si)).dom().
         proof {
             let target_nat: nat = target as nat;
             assert(target_nat == step_target(plan_spec[si as int]));
@@ -2303,21 +2303,21 @@ fn check_is_fully_independent_exec(
                 assert(constraint_entities(runtime_constraint_model(constraints@[ci_idx]))
                     .contains(e));
                 assert(e != target_nat);
-                // domain_flags correspondence: domain_flags@[e] == execute_plan(plan_spec.take(si)).dom().contains(e)
+                //  domain_flags correspondence: domain_flags@[e] == execute_plan(plan_spec.take(si)).dom().contains(e)
                 assert(domain_flags@[e as int]);
-                // From check_all_constraints_for_target ensures (with domain guard):
+                //  From check_all_constraints_for_target ensures (with domain guard):
                 assert((e as int) < n_points);
                 assert(!circle_flags@[e as int]);
-                // From flag correspondence:
+                //  From flag correspondence:
                 assert(!circle_targets(plan_spec).contains(e));
             }
         }
 
-        // Update domain_flags: add current target to domain
+        //  Update domain_flags: add current target to domain
         let mut flag = true;
         domain_flags.set_and_swap(target, &mut flag);
 
-        // Prove domain_flags now tracks execute_plan(plan_spec.take(si+1)).dom()
+        //  Prove domain_flags now tracks execute_plan(plan_spec.take(si+1)).dom()
         proof {
             let take_si = plan_spec.take(si as int);
             let take_si1 = plan_spec.take(si as int + 1);
@@ -2329,26 +2329,26 @@ fn check_is_fully_independent_exec(
                 lemma_execute_plan_dom::<RationalModel>(take_si1, e as nat);
                 lemma_execute_plan_dom::<RationalModel>(take_si, e as nat);
                 if e == target as int {
-                    // domain_flags@[e] is now true, and target == step_target(plan_spec[si])
+                    //  domain_flags@[e] is now true, and target == step_target(plan_spec[si])
                     assert(take_si1[si as int] == plan_spec[si as int]);
                     assert(step_target(take_si1[si as int]) == (e as nat));
                 } else {
-                    // domain_flags@[e] unchanged from before set_and_swap
-                    // For e != target: in dom(take_si1) iff in dom(take_si)
-                    // Forward: if in dom(take_si), witness k carries to take_si1
+                    //  domain_flags@[e] unchanged from before set_and_swap
+                    //  For e != target: in dom(take_si1) iff in dom(take_si)
+                    //  Forward: if in dom(take_si), witness k carries to take_si1
                     if execute_plan(take_si).dom().contains(e as nat) {
                         let k = choose|k: int| 0 <= k < take_si.len()
                             && step_target(#[trigger] take_si[k]) == (e as nat);
                         assert(take_si1[k] == take_si[k]);
                     }
-                    // Backward: if in dom(take_si1), witness k must be < si (not si itself)
+                    //  Backward: if in dom(take_si1), witness k must be < si (not si itself)
                     if execute_plan(take_si1).dom().contains(e as nat) {
                         let k = choose|k: int| 0 <= k < take_si1.len()
                             && step_target(#[trigger] take_si1[k]) == (e as nat);
                         if k == si as int {
                             assert(step_target(take_si1[k]) == step_target(plan_spec[si as int]));
                             assert(step_target(plan_spec[si as int]) == (target as nat));
-                            assert(false); // e != target contradiction
+                            assert(false); //  e != target contradiction
                         }
                         assert(k < si as int);
                         assert(take_si[k] == take_si1[k]);
@@ -2362,9 +2362,9 @@ fn check_is_fully_independent_exec(
     true
 }
 
-// --- 1b: check_constraint_well_formed_exec ---
+//  --- 1b: check_constraint_well_formed_exec ---
 
-/// Check that all constraints are well-formed (distinct entity IDs where required).
+///  Check that all constraints are well-formed (distinct entity IDs where required).
 fn check_constraint_well_formed_exec(
     constraints: &Vec<RuntimeConstraint>,
     n_points: usize,
@@ -2441,9 +2441,9 @@ fn check_constraint_well_formed_exec(
     true
 }
 
-// --- 1c: check_step_radicand_matches_exec ---
+//  --- 1c: check_step_radicand_matches_exec ---
 
-/// Check that all circle steps' discriminants equal R::value().
+///  Check that all circle steps' discriminants equal R::value().
 fn check_step_radicand_matches_exec<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     plan: &Vec<RuntimeStepData>,
 ) -> (out: bool)
@@ -2482,7 +2482,7 @@ fn check_step_radicand_matches_exec<R: PositiveRadicand<RationalModel>, RR: Runt
                 }
             }
             _ => {
-                // Rational steps: radicand matches trivially
+                //  Rational steps: radicand matches trivially
             }
         }
         i = i + 1;
@@ -2490,10 +2490,10 @@ fn check_step_radicand_matches_exec<R: PositiveRadicand<RationalModel>, RR: Runt
     true
 }
 
-// --- 1d: check_constraint_locus_nondegenerate_exec ---
+//  --- 1d: check_constraint_locus_nondegenerate_exec ---
 
-/// Check Symmetric constraint axis non-degeneracy.
-/// For non-Symmetric constraints, always non-degenerate.
+///  Check Symmetric constraint axis non-degeneracy.
+///  For non-Symmetric constraints, always non-degenerate.
 fn check_constraint_locus_nondegenerate_exec(
     constraints: &Vec<RuntimeConstraint>,
     points: &Vec<RuntimePoint2>,
@@ -2530,9 +2530,9 @@ fn check_constraint_locus_nondegenerate_exec(
     true
 }
 
-// --- 1b_helper: is_locus_entity_exec ---
+//  --- 1b_helper: is_locus_entity_exec ---
 
-/// Check if target is in constraint_locus_entities for a given constraint.
+///  Check if target is in constraint_locus_entities for a given constraint.
 fn is_locus_entity_exec(rc: &RuntimeConstraint, target: usize, n_points: usize) -> (out: bool)
     requires
         runtime_constraint_wf(*rc, n_points as nat),
@@ -2570,9 +2570,9 @@ fn is_locus_entity_exec(rc: &RuntimeConstraint, target: usize, n_points: usize) 
     }
 }
 
-// --- 1b_helper: is_entity_of_constraint_exec ---
+//  --- 1b_helper: is_entity_of_constraint_exec ---
 
-/// Check if target is in constraint_entities for a given constraint.
+///  Check if target is in constraint_entities for a given constraint.
 fn is_entity_of_constraint_exec(rc: &RuntimeConstraint, target: usize, n_points: usize) -> (out: bool)
     requires
         runtime_constraint_wf(*rc, n_points as nat),
@@ -2624,12 +2624,12 @@ fn is_entity_of_constraint_exec(rc: &RuntimeConstraint, target: usize, n_points:
     }
 }
 
-// --- 1b: check_plan_locus_ordered_exec ---
+//  --- 1b: check_plan_locus_ordered_exec ---
 
-/// Check that the plan is locus-ordered for all constraints.
-/// For every (ci, si) where step target is in constraint_entities but NOT in
-/// constraint_locus_entities: either it's a verification constraint, or there
-/// exists a later step whose target IS in constraint_locus_entities.
+///  Check that the plan is locus-ordered for all constraints.
+///  For every (ci, si) where step target is in constraint_entities but NOT in
+///  constraint_locus_entities: either it's a verification constraint, or there
+///  exists a later step whose target IS in constraint_locus_entities.
 pub fn check_plan_locus_ordered_exec(
     plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -2658,7 +2658,7 @@ pub fn check_plan_locus_ordered_exec(
                 (step_target((#[trigger] plan@[i]).spec_step()) as int) < n_points,
             forall|i: int| 0 <= i < constraints@.len() ==>
                 runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
-            // Spec: locus-ordered property holds for all si' < si
+            //  Spec: locus-ordered property holds for all si' < si
             forall|ci_idx: int, si_idx: int|
                 #![trigger plan_spec[si_idx], cstr_spec[ci_idx]]
                 0 <= ci_idx < cstr_spec.len() && 0 <= si_idx < si &&
@@ -2687,7 +2687,7 @@ pub fn check_plan_locus_ordered_exec(
                 forall|i: int| 0 <= i < constraints@.len() ==>
                     runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
                 si < plan@.len(),
-                // Spec: for all si' < si, all ci': property holds (from outer)
+                //  Spec: for all si' < si, all ci': property holds (from outer)
                 forall|ci_idx: int, si_idx: int|
                     #![trigger plan_spec[si_idx], cstr_spec[ci_idx]]
                     0 <= ci_idx < cstr_spec.len() && 0 <= si_idx < si &&
@@ -2699,7 +2699,7 @@ pub fn check_plan_locus_ordered_exec(
                             si_idx < si_loc < plan_spec.len() &&
                             constraint_locus_entities(cstr_spec[ci_idx]).contains(step_target(plan_spec[si_loc]))
                     ),
-                // Spec: for si and all ci' < ci: property holds
+                //  Spec: for si and all ci' < ci: property holds
                 forall|ci_idx: int|
                     #![trigger cstr_spec[ci_idx]]
                     0 <= ci_idx < ci &&
@@ -2719,10 +2719,10 @@ pub fn check_plan_locus_ordered_exec(
             if in_entities && !in_locus {
                 let is_verif = is_verification_constraint_exec(&constraints[ci], n_points);
                 if !is_verif {
-                    // Search forward for a later step with target in locus_entities
+                    //  Search forward for a later step with target in locus_entities
                     let mut found_later = false;
                     let ghost mut witness: int = 0;
-                    assert(si < plan.len()); // ensures si + 1 fits in usize
+                    assert(si < plan.len()); //  ensures si + 1 fits in usize
                     let mut si_loc: usize = si + 1;
                     while si_loc < plan.len()
                         invariant
@@ -2736,7 +2736,7 @@ pub fn check_plan_locus_ordered_exec(
                             forall|i: int| 0 <= i < constraints@.len() ==>
                                 runtime_constraint_wf(#[trigger] constraints@[i], n_points as nat),
                             ci < constraints@.len(),
-                            // found_later: explicit witness tracked
+                            //  found_later: explicit witness tracked
                             found_later ==> (
                                 (si as int) < witness < (si_loc as int) &&
                                 constraint_locus_entities(cstr_spec[ci as int]).contains(
@@ -2762,9 +2762,9 @@ pub fn check_plan_locus_ordered_exec(
     true
 }
 
-// --- 1e_helper: point_satisfies_locus_exec ---
+//  --- 1e_helper: point_satisfies_locus_exec ---
 
-/// Check if a point satisfies a locus at runtime.
+///  Check if a point satisfies a locus at runtime.
 pub fn point_satisfies_locus_exec(
     locus: &RuntimeLocus,
     p: &RuntimePoint2,
@@ -2792,23 +2792,23 @@ pub fn point_satisfies_locus_exec(
     }
 }
 
-// --- 1e: check_step_satisfaction_replay_exec ---
+//  --- 1e: check_step_satisfaction_replay_exec ---
 
-/// Assembly: check all plan_structurally_sound conjuncts not already ensured
-/// by solve_all_variants. Returns true if all checks pass.
+///  Assembly: check all plan_structurally_sound conjuncts not already ensured
+///  by solve_all_variants. Returns true if all checks pass.
 ///
-/// Preconditions come from solve_all_variants ensures (wf_spec, distinct targets,
-/// geometric validity, positive discriminant, valid entity IDs).
+///  Preconditions come from solve_all_variants ensures (wf_spec, distinct targets,
+///  geometric validity, positive discriminant, valid entity IDs).
 ///
-/// This performs runtime checks for:
-/// - constraint_well_formed (all constraints)
-/// - is_fully_independent_plan
-/// - step_radicand_matches (circle discriminants match R::value())
-/// - plan_locus_ordered
+///  This performs runtime checks for:
+///  - constraint_well_formed (all constraints)
+///  - is_fully_independent_plan
+///  - step_radicand_matches (circle discriminants match R::value())
+///  - plan_locus_ordered
 ///
-/// Dynamic conjuncts 9-12 (nontrivial count, satisfaction, geometry match,
-/// nondegeneracy) are checked by check_full_plan_dynamic_conjuncts_exec
-/// in pipeline_proofs.rs via the full plan replay.
+///  Dynamic conjuncts 9-12 (nontrivial count, satisfaction, geometry match,
+///  nondegeneracy) are checked by check_full_plan_dynamic_conjuncts_exec
+///  in pipeline_proofs.rs via the full plan replay.
 pub fn verify_plan_soundness_exec<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -2838,25 +2838,25 @@ pub fn verify_plan_soundness_exec<R: PositiveRadicand<RationalModel>, RR: Runtim
         out ==> plan_locus_ordered(
             plan_to_spec(plan@), constraints_to_spec(constraints@)),
 {
-    // 1b: constraint well-formedness
+    //  1b: constraint well-formedness
     let cwf = check_constraint_well_formed_exec(constraints, n_points);
     if !cwf {
         return false;
     }
 
-    // 1a: independence
+    //  1a: independence
     let indep = check_is_fully_independent_exec(plan, constraints, n_points);
     if !indep {
         return false;
     }
 
-    // 1c: radicand matching
+    //  1c: radicand matching
     let radicand_ok = check_step_radicand_matches_exec::<R, RR>(plan);
     if !radicand_ok {
         return false;
     }
 
-    // 1d: locus ordering
+    //  1d: locus ordering
     let locus_ord = check_plan_locus_ordered_exec(plan, constraints, n_points);
     if !locus_ord {
         return false;
@@ -2865,29 +2865,29 @@ pub fn verify_plan_soundness_exec<R: PositiveRadicand<RationalModel>, RR: Runtim
     true
 }
 
-// ===========================================================================
-//  System well-constrained runtime diagnostic
-// ===========================================================================
+//  ===========================================================================
+//   System well-constrained runtime diagnostic
+//  ===========================================================================
 
-/// Every element of `ids` appears in `source`.
+///  Every element of `ids` appears in `source`.
 pub open spec fn all_ids_from_source(ids: Seq<usize>, source: Seq<usize>) -> bool {
     forall|k: int| #![trigger ids[k]]
         0 <= k < ids.len() ==>
         exists|fi: int| 0 <= fi < source.len() && ids[k] == source[fi]
 }
 
-/// Result of a well-constrained check.
+///  Result of a well-constrained check.
 pub enum WellConstrainedResult {
-    /// All free entities resolved. Contains the construction plan.
+    ///  All free entities resolved. Contains the construction plan.
     Ok { plan: Vec<RuntimeStepData> },
-    /// Solver got stuck. `n_resolved` entities were placed out of `n_free` total.
-    /// `unresolved_ids` lists which entity IDs could not be resolved.
+    ///  Solver got stuck. `n_resolved` entities were placed out of `n_free` total.
+    ///  `unresolved_ids` lists which entity IDs could not be resolved.
     Stuck { n_resolved: usize, n_free: usize, unresolved_ids: Vec<usize> },
 }
 
-/// Runtime diagnostic: check if the greedy solver resolves all free entities.
-/// Returns Ok with the plan if all entities resolved, or Stuck with diagnostic
-/// information about which entities could not be resolved.
+///  Runtime diagnostic: check if the greedy solver resolves all free entities.
+///  Returns Ok with the plan if all entities resolved, or Stuck with diagnostic
+///  information about which entities could not be resolved.
 pub fn check_well_constrained(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -2918,7 +2918,7 @@ pub fn check_well_constrained(
             WellConstrainedResult::Stuck { n_resolved, n_free, unresolved_ids } => {
                 &&& n_resolved != n_free
                 &&& n_free == free_ids@.len()
-                // Each unresolved_id came from free_ids
+                //  Each unresolved_id came from free_ids
                 &&& all_ids_from_source(unresolved_ids@, free_ids@)
             }
         },
@@ -2926,11 +2926,11 @@ pub fn check_well_constrained(
     let plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
 
     if plan.len() == free_ids.len() {
-        // Use explicit return to isolate postcondition checking per branch
+        //  Use explicit return to isolate postcondition checking per branch
         return WellConstrainedResult::Ok { plan };
     }
 
-    // Plan is shorter than free_ids — collect unresolved entity IDs.
+    //  Plan is shorter than free_ids — collect unresolved entity IDs.
     let n_resolved = plan.len();
     let n_free = free_ids.len();
     let mut unresolved_ids: Vec<usize> = Vec::new();
@@ -2941,7 +2941,7 @@ pub fn check_well_constrained(
             n_free == free_ids@.len(),
             n_resolved != n_free,
             forall|k: int| 0 <= k < plan@.len() ==> (#[trigger] plan@[k]).wf_spec(),
-            // All unresolved_ids come from free_ids
+            //  All unresolved_ids come from free_ids
             all_ids_from_source(unresolved_ids@, free_ids@),
         decreases free_ids@.len() - i,
     {
@@ -2952,7 +2952,7 @@ pub fn check_well_constrained(
             invariant
                 j <= plan@.len(),
                 forall|k: int| 0 <= k < plan@.len() ==> (#[trigger] plan@[k]).wf_spec(),
-                // Preserve outer invariant
+                //  Preserve outer invariant
                 forall|k: int| #![trigger unresolved_ids@[k]]
                     0 <= k < unresolved_ids@.len() ==>
                     exists|fi: int| 0 <= fi < free_ids@.len()
@@ -2973,22 +2973,22 @@ pub fn check_well_constrained(
 }
 
 
-// ===========================================================================
-//  Greedy Sign Mask Computation
-// ===========================================================================
+//  ===========================================================================
+//   Greedy Sign Mask Computation
+//  ===========================================================================
 //
-// For each circle step, computes which sign (plus or minus) places the
-// intersection point closer to the target's current position. Uses the
-// exact rational sign test: sign(a*(cy-Qy) - b*(cx-Qx)).
+//  For each circle step, computes which sign (plus or minus) places the
+//  intersection point closer to the target's current position. Uses the
+//  exact rational sign test: sign(a*(cy-Qy) - b*(cx-Qx)).
 //
-// See lemma_cl_displacement_cancellation for the formal proof that this
-// rational expression determines which intersection is closer.
+//  See lemma_cl_displacement_cancellation for the formal proof that this
+//  rational expression determines which intersection is closer.
 
-/// Compute the greedy displacement-optimal sign mask.
-/// For each circle step, bit i is set iff the minus intersection is closer
-/// to the target's current position (i.e., flip from the base plan's plus=true).
+///  Compute the greedy displacement-optimal sign mask.
+///  For each circle step, bit i is set iff the minus intersection is closer
+///  to the target's current position (i.e., flip from the base plan's plus=true).
 ///
-/// Uses exact rational arithmetic: O(k) operations, ~6 muls/subs per step.
+///  Uses exact rational arithmetic: O(k) operations, ~6 muls/subs per step.
 pub fn compute_greedy_mask(
     plan: &Vec<RuntimeStepData>,
     initial_points: &Vec<RuntimePoint2>,
@@ -3018,9 +3018,9 @@ pub fn compute_greedy_mask(
             let qx = &initial_points[target].x;
             let qy = &initial_points[target].y;
 
-            // Get line coefficients (a, b) for the sign test
-            // CircleLine: directly from the line field
-            // CircleCircle: compute radical axis first
+            //  Get line coefficients (a, b) for the sign test
+            //  CircleLine: directly from the line field
+            //  CircleCircle: compute radical axis first
             let (line_a, line_b, cx, cy) = match &plan[i] {
                 RuntimeStepData::CircleLine { circle, line, .. } => {
                     let la = copy_rational(&line.a);
@@ -3038,7 +3038,7 @@ pub fn compute_greedy_mask(
                     (la, lb, ccx, ccy)
                 }
                 _ => {
-                    // unreachable: is_circle_step() was true
+                    //  unreachable: is_circle_step() was true
                     let z = RuntimeRational::from_int(0);
                     let z2 = RuntimeRational::from_int(0);
                     let z3 = RuntimeRational::from_int(0);
@@ -3047,7 +3047,7 @@ pub fn compute_greedy_mask(
                 }
             };
 
-            // sign_val = a*(cy - Qy) - b*(cx - Qx)
+            //  sign_val = a*(cy - Qy) - b*(cx - Qx)
             let cy_qy = cy.sub(qy);
             let cx_qx = cx.sub(qx);
             let term1 = line_a.mul(&cy_qy);
@@ -3055,10 +3055,10 @@ pub fn compute_greedy_mask(
             let sign_val = term1.sub(&term2);
             let s = sign_val.signum();
 
-            // sq_dist(P_plus,Q) - sq_dist(P_minus,Q) = qext(0, 4·sign_val/A)
-            // sign_val > 0 → P_plus farther → prefer P_minus → flip
-            // sign_val < 0 → P_minus farther → prefer P_plus → no flip
-            // sign_val = 0 → equidistant → no flip
+            //  sq_dist(P_plus,Q) - sq_dist(P_minus,Q) = qext(0, 4·sign_val/A)
+            //  sign_val > 0 → P_plus farther → prefer P_minus → flip
+            //  sign_val < 0 → P_minus farther → prefer P_plus → no flip
+            //  sign_val = 0 → equidistant → no flip
             if s > 0 {
                 mask = mask | (1u64 << circle_idx);
             }
@@ -3070,17 +3070,17 @@ pub fn compute_greedy_mask(
     mask
 }
 
-// ===========================================================================
-//  Verified Union-Find
-// ===========================================================================
+//  ===========================================================================
+//   Verified Union-Find
+//  ===========================================================================
 //
-// Simple union-find for coupling component detection.
-// Invariant: parent[x] <= x, with parent[x] == x iff x is a root.
-// Find follows the strictly decreasing chain. No path compression needed
-// since k < 64 in practice.
+//  Simple union-find for coupling component detection.
+//  Invariant: parent[x] <= x, with parent[x] == x iff x is a root.
+//  Find follows the strictly decreasing chain. No path compression needed
+//  since k < 64 in practice.
 
-/// Spec: follow parent chain to root.
-/// If parent[x] < x, recurse. Otherwise x is a root (or out of bounds).
+///  Spec: follow parent chain to root.
+///  If parent[x] < x, recurse. Otherwise x is a root (or out of bounds).
 pub open spec fn uf_root(parent: Seq<usize>, x: usize) -> usize
     decreases x,
 {
@@ -3091,26 +3091,26 @@ pub open spec fn uf_root(parent: Seq<usize>, x: usize) -> usize
     }
 }
 
-/// Spec: two elements are connected iff they share a root.
+///  Spec: two elements are connected iff they share a root.
 pub open spec fn uf_connected(parent: Seq<usize>, x: usize, y: usize) -> bool {
     uf_root(parent, x) == uf_root(parent, y)
 }
 
-/// Spec: the parent array is well-formed (parent[x] <= x for all x).
+///  Spec: the parent array is well-formed (parent[x] <= x for all x).
 pub open spec fn uf_wf(parent: Seq<usize>) -> bool {
     forall|i: int| 0 <= i < parent.len() ==> (#[trigger] parent[i]) <= i as usize
 }
 
-/// uf_root returns a value <= x for well-formed parent arrays.
+///  uf_root returns a value <= x for well-formed parent arrays.
 proof fn lemma_uf_root_le(parent: Seq<usize>, x: usize)
     requires uf_wf(parent), (x as int) < parent.len(),
     ensures (uf_root(parent, x) as int) <= (x as int),
     decreases x,
 {
     if parent[x as int] == x {
-        // root: uf_root(parent, x) == x
+        //  root: uf_root(parent, x) == x
     } else {
-        // parent[x] < x (since parent[x] <= x and parent[x] != x)
+        //  parent[x] < x (since parent[x] <= x and parent[x] != x)
         assert(parent[x as int] < x);
         if (parent[x as int] as int) < parent.len() {
             lemma_uf_root_le(parent, parent[x as int]);
@@ -3118,24 +3118,24 @@ proof fn lemma_uf_root_le(parent: Seq<usize>, x: usize)
     }
 }
 
-/// uf_root of a root is itself.
+///  uf_root of a root is itself.
 proof fn lemma_uf_root_self(parent: Seq<usize>, x: usize)
     requires uf_wf(parent), (x as int) < parent.len(), parent[x as int] == x,
     ensures uf_root(parent, x) == x,
 {}
 
-/// If parent[x] == x (x is a root) in a well-formed UF, then uf_root(parent, x) == x.
+///  If parent[x] == x (x is a root) in a well-formed UF, then uf_root(parent, x) == x.
 proof fn lemma_uf_root_of_root(parent: Seq<usize>, x: usize)
     requires uf_wf(parent), (x as int) < parent.len(), parent[x as int] == x,
     ensures uf_root(parent, x) == x,
 {
-    // parent[x] == x >= x, so the first branch fires: return x
+    //  parent[x] == x >= x, so the first branch fires: return x
 }
 
-/// uf_root is unchanged for elements whose chain doesn't pass through `changed_idx`,
-/// when we modify parent[changed_idx] from self-loop to something smaller.
-/// Specifically: if uf_root(old_parent, z) != changed_idx, then
-/// uf_root(new_parent, z) == uf_root(old_parent, z).
+///  uf_root is unchanged for elements whose chain doesn't pass through `changed_idx`,
+///  when we modify parent[changed_idx] from self-loop to something smaller.
+///  Specifically: if uf_root(old_parent, z) != changed_idx, then
+///  uf_root(new_parent, z) == uf_root(old_parent, z).
 proof fn lemma_uf_root_stable(
     old_parent: Seq<usize>, new_parent: Seq<usize>,
     z: usize, changed_idx: usize,
@@ -3146,36 +3146,36 @@ proof fn lemma_uf_root_stable(
         old_parent.len() == new_parent.len(),
         (z as int) < old_parent.len(),
         (changed_idx as int) < old_parent.len(),
-        old_parent[changed_idx as int] == changed_idx, // was a root
-        // new_parent differs from old_parent only at changed_idx
+        old_parent[changed_idx as int] == changed_idx, //  was a root
+        //  new_parent differs from old_parent only at changed_idx
         forall|i: int| 0 <= i < old_parent.len() && i != changed_idx as int
             ==> #[trigger] new_parent[i] == old_parent[i],
-        // z's root in old doesn't go through changed_idx
+        //  z's root in old doesn't go through changed_idx
         uf_root(old_parent, z) != changed_idx,
     ensures
         uf_root(new_parent, z) == uf_root(old_parent, z),
     decreases z,
 {
     if z >= old_parent.len() || old_parent[z as int] >= z {
-        // z is a root in old. Since z != changed_idx (uf_root(old, z) == z != changed_idx),
-        // new_parent[z] == old_parent[z] == z (for z != changed_idx) or z >= z.
-        // Either way, z is also a root in new.
+        //  z is a root in old. Since z != changed_idx (uf_root(old, z) == z != changed_idx),
+        //  new_parent[z] == old_parent[z] == z (for z != changed_idx) or z >= z.
+        //  Either way, z is also a root in new.
         if z < old_parent.len() && z != changed_idx {
             assert(new_parent[z as int] == old_parent[z as int]);
         }
     } else {
-        // z is not a root. parent[z] < z. Also z != changed_idx (since changed_idx is a root).
-        assert(z != changed_idx); // z is not a root, changed_idx is
+        //  z is not a root. parent[z] < z. Also z != changed_idx (since changed_idx is a root).
+        assert(z != changed_idx); //  z is not a root, changed_idx is
         assert(new_parent[z as int] == old_parent[z as int]);
-        // Recurse: uf_root(old, z) = uf_root(old, parent[z])
-        // Need: uf_root(old, parent[z]) != changed_idx (same as z's root != changed_idx)
+        //  Recurse: uf_root(old, z) = uf_root(old, parent[z])
+        //  Need: uf_root(old, parent[z]) != changed_idx (same as z's root != changed_idx)
         lemma_uf_root_stable(old_parent, new_parent, old_parent[z as int], changed_idx);
     }
 }
 
-/// If uf_root(old, z) == changed_idx (z's chain ends at changed_idx),
-/// and we redirect changed_idx to point to target (target < changed_idx),
-/// then uf_root(new, z) == uf_root(new, target).
+///  If uf_root(old, z) == changed_idx (z's chain ends at changed_idx),
+///  and we redirect changed_idx to point to target (target < changed_idx),
+///  then uf_root(new, z) == uf_root(new, target).
 proof fn lemma_uf_root_redirected(
     old_parent: Seq<usize>, new_parent: Seq<usize>,
     z: usize, changed_idx: usize, target: usize,
@@ -3187,10 +3187,10 @@ proof fn lemma_uf_root_redirected(
         (z as int) < old_parent.len(),
         (changed_idx as int) < old_parent.len(),
         (target as int) < old_parent.len(),
-        old_parent[changed_idx as int] == changed_idx, // was a root
-        new_parent[changed_idx as int] == target, // now points to target
+        old_parent[changed_idx as int] == changed_idx, //  was a root
+        new_parent[changed_idx as int] == target, //  now points to target
         target < changed_idx,
-        // new_parent differs from old_parent only at changed_idx
+        //  new_parent differs from old_parent only at changed_idx
         forall|i: int| 0 <= i < old_parent.len() && i != changed_idx as int
             ==> #[trigger] new_parent[i] == old_parent[i],
         uf_root(old_parent, z) == changed_idx,
@@ -3199,25 +3199,25 @@ proof fn lemma_uf_root_redirected(
     decreases z,
 {
     if z >= old_parent.len() || old_parent[z as int] >= z {
-        // z is a root in old. Since uf_root(old, z) == z == changed_idx,
-        // z == changed_idx. In new: parent[z] == target < z, so recurse.
+        //  z is a root in old. Since uf_root(old, z) == z == changed_idx,
+        //  z == changed_idx. In new: parent[z] == target < z, so recurse.
         assert(z == changed_idx);
         assert(new_parent[z as int] == target);
         assert(new_parent[z as int] < z);
-        // uf_root(new, z) = uf_root(new, target) — by definition
+        //  uf_root(new, z) = uf_root(new, target) — by definition
     } else {
-        // z is not a root in old. z != changed_idx (since changed_idx is a root).
+        //  z is not a root in old. z != changed_idx (since changed_idx is a root).
         assert(z != changed_idx);
         assert(new_parent[z as int] == old_parent[z as int]);
-        // uf_root(old, z) = uf_root(old, parent[z]) = changed_idx
-        // So recurse: show uf_root(new, parent[z]) == uf_root(new, target)
+        //  uf_root(old, z) = uf_root(old, parent[z]) = changed_idx
+        //  So recurse: show uf_root(new, parent[z]) == uf_root(new, target)
         lemma_uf_root_redirected(old_parent, new_parent, old_parent[z as int], changed_idx, target);
-        // uf_root(new, z) = uf_root(new, new_parent[z]) = uf_root(new, old_parent[z])
-        //                  = uf_root(new, target)   (by induction)
+        //  uf_root(new, z) = uf_root(new, new_parent[z]) = uf_root(new, old_parent[z])
+        //                   = uf_root(new, target)   (by induction)
     }
 }
 
-/// Create a new union-find with n elements, each its own root.
+///  Create a new union-find with n elements, each its own root.
 pub fn uf_new(n: usize) -> (out: Vec<usize>)
     ensures
         out@.len() == n,
@@ -3243,7 +3243,7 @@ pub fn uf_new(n: usize) -> (out: Vec<usize>)
     parent
 }
 
-/// Find the root of element x.
+///  Find the root of element x.
 pub fn uf_find(parent: &Vec<usize>, x: usize) -> (out: usize)
     requires
         (x as int) < parent@.len(),
@@ -3269,7 +3269,7 @@ pub fn uf_find(parent: &Vec<usize>, x: usize) -> (out: usize)
     cur
 }
 
-/// Union two elements by pointing the larger root to the smaller root.
+///  Union two elements by pointing the larger root to the smaller root.
 pub fn uf_union(parent: &mut Vec<usize>, x: usize, y: usize)
     requires
         (x as int) < old(parent)@.len(),
@@ -3278,9 +3278,9 @@ pub fn uf_union(parent: &mut Vec<usize>, x: usize, y: usize)
     ensures
         parent@.len() == old(parent)@.len(),
         uf_wf(parent@),
-        // x and y are now connected
+        //  x and y are now connected
         uf_root(parent@, x) == uf_root(parent@, y),
-        // All previously-connected pairs remain connected
+        //  All previously-connected pairs remain connected
         forall|a: usize, b: usize|
             (a as int) < old(parent)@.len() && (b as int) < old(parent)@.len()
             && uf_root(old(parent)@, a) == uf_root(old(parent)@, b)
@@ -3289,17 +3289,17 @@ pub fn uf_union(parent: &mut Vec<usize>, x: usize, y: usize)
     let rx = uf_find(parent, x);
     let ry = uf_find(parent, y);
     if rx == ry {
-        // Already connected — nothing to do
+        //  Already connected — nothing to do
         return;
     }
-    // Point larger root to smaller root (maintains parent[i] <= i)
-    // Always point larger root to smaller root
+    //  Point larger root to smaller root (maintains parent[i] <= i)
+    //  Always point larger root to smaller root
     let (big, small) = if rx < ry { (ry, rx) } else { (rx, ry) };
     let ghost old_p = parent@;
     parent.set(big, small);
 
     proof {
-        // Show uf_wf preserved
+        //  Show uf_wf preserved
         assert(uf_wf(parent@)) by {
             assert forall|i: int| 0 <= i < parent@.len()
             implies (#[trigger] parent@[i]) <= i as usize by {
@@ -3312,51 +3312,51 @@ pub fn uf_union(parent: &mut Vec<usize>, x: usize, y: usize)
             }
         }
 
-        // Show uf_root(new, x) == uf_root(new, y)
-        // rx was x's root, ry was y's root.
-        // We set parent[big] = small, where {big, small} = {rx, ry}.
-        // small is still a self-root (we didn't change its parent).
-        // uf_root(new, big) = uf_root(new, small) = small (since parent[big]=small<big recurses, and parent[small]=small from old).
-        // uf_root(new, x) = small (x's chain leads to rx; if rx==small it's unchanged; if rx==big, it now goes to small)
-        // uf_root(new, y) = small (similarly)
+        //  Show uf_root(new, x) == uf_root(new, y)
+        //  rx was x's root, ry was y's root.
+        //  We set parent[big] = small, where {big, small} = {rx, ry}.
+        //  small is still a self-root (we didn't change its parent).
+        //  uf_root(new, big) = uf_root(new, small) = small (since parent[big]=small<big recurses, and parent[small]=small from old).
+        //  uf_root(new, x) = small (x's chain leads to rx; if rx==small it's unchanged; if rx==big, it now goes to small)
+        //  uf_root(new, y) = small (similarly)
 
-        // 1. small is still a root: parent[small] == small (unchanged)
+        //  1. small is still a root: parent[small] == small (unchanged)
         assert(parent@[small as int] == old_p[small as int]);
-        assert(old_p[small as int] == small); // small was a root in old
+        assert(old_p[small as int] == small); //  small was a root in old
 
-        // 2. uf_root(new, rx) == small
-        // If rx == small: uf_root(new, small) == small (self-root)
-        // If rx == big: uf_root(new, big) recurses to uf_root(new, small) == small
-        // 3. uf_root(new, ry) == small (same argument)
+        //  2. uf_root(new, rx) == small
+        //  If rx == small: uf_root(new, small) == small (self-root)
+        //  If rx == big: uf_root(new, big) recurses to uf_root(new, small) == small
+        //  3. uf_root(new, ry) == small (same argument)
 
-        // 4. uf_root(new, x) == uf_root(new, rx) since x's chain to rx didn't change
-        //    (rx was x's root in old, and rx != big means the chain is unchanged;
-        //     or rx == big but then uf_root(new, x) follows to small)
-        // Actually this is complex. Let me just assert the key facts and let Z3 try.
+        //  4. uf_root(new, x) == uf_root(new, rx) since x's chain to rx didn't change
+        //     (rx was x's root in old, and rx != big means the chain is unchanged;
+        //      or rx == big but then uf_root(new, x) follows to small)
+        //  Actually this is complex. Let me just assert the key facts and let Z3 try.
 
-        // The root of x: uf_find returned rx, meaning uf_root(old, x) == rx.
-        // rx != ry (we checked). small < big.
-        // After setting parent[big] = small:
-        // - If rx == small: x's chain doesn't go through big (since rx==small is x's root,
-        //   and small != big). So uf_root(new, x) == uf_root(old, x) == rx == small.
-        //   y's chain goes to ry == big, then to small. uf_root(new, y) == small.
-        // - If rx == big: x's chain goes to rx==big, then to small.
-        //   y's chain doesn't go through big (ry==small, chain unchanged).
-        //   uf_root(new, y) == uf_root(old, y) == ry == small.
+        //  The root of x: uf_find returned rx, meaning uf_root(old, x) == rx.
+        //  rx != ry (we checked). small < big.
+        //  After setting parent[big] = small:
+        //  - If rx == small: x's chain doesn't go through big (since rx==small is x's root,
+        //    and small != big). So uf_root(new, x) == uf_root(old, x) == rx == small.
+        //    y's chain goes to ry == big, then to small. uf_root(new, y) == small.
+        //  - If rx == big: x's chain goes to rx==big, then to small.
+        //    y's chain doesn't go through big (ry==small, chain unchanged).
+        //    uf_root(new, y) == uf_root(old, y) == ry == small.
 
-        // uf_root(new, small) == small (small is still a self-root)
+        //  uf_root(new, small) == small (small is still a self-root)
         assert(parent@[small as int] == small);
-        assert(parent@[small as int] >= small); // triggers uf_root base case
+        assert(parent@[small as int] >= small); //  triggers uf_root base case
         assert(uf_root(parent@, small) == small);
 
-        // uf_root(new, big) == small (big now points to small, which is a root)
+        //  uf_root(new, big) == small (big now points to small, which is a root)
         assert(parent@[big as int] == small);
-        assert(parent@[big as int] < big); // triggers uf_root recursive case
-        // uf_root(new, big) = uf_root(new, parent[big]) = uf_root(new, small) = small
+        assert(parent@[big as int] < big); //  triggers uf_root recursive case
+        //  uf_root(new, big) = uf_root(new, parent[big]) = uf_root(new, small) = small
         assert(uf_root(parent@, big) == small);
 
-        // Use lemma_uf_root_stable for the unchanged chain,
-        // and lemma_uf_root_redirected for the redirected chain.
+        //  Use lemma_uf_root_stable for the unchanged chain,
+        //  and lemma_uf_root_redirected for the redirected chain.
         if rx < ry {
             lemma_uf_root_stable(old_p, parent@, x, big);
             lemma_uf_root_redirected(old_p, parent@, y, big, small);
@@ -3369,49 +3369,49 @@ pub fn uf_union(parent: &mut Vec<usize>, x: usize, y: usize)
             assert(uf_root(parent@, small) == small);
         }
 
-        // Prove connection preservation: for any (a,b) connected in old, still connected in new.
+        //  Prove connection preservation: for any (a,b) connected in old, still connected in new.
         assert forall|a: usize, b: usize|
             (a as int) < old_p.len() && (b as int) < old_p.len()
             && uf_root(old_p, a) == uf_root(old_p, b)
         implies #[trigger] uf_root(parent@, a) == #[trigger] uf_root(parent@, b)
         by {
-            let r = uf_root(old_p, a); // == uf_root(old_p, b)
+            let r = uf_root(old_p, a); //  == uf_root(old_p, b)
             if r != big {
-                // Both roots were != big → both stable
+                //  Both roots were != big → both stable
                 lemma_uf_root_stable(old_p, parent@, a, big);
                 lemma_uf_root_stable(old_p, parent@, b, big);
-                // uf_root(new, a) == uf_root(old, a) == r == uf_root(old, b) == uf_root(new, b)
+                //  uf_root(new, a) == uf_root(old, a) == r == uf_root(old, b) == uf_root(new, b)
             } else {
-                // Both roots were == big → both redirected to small
+                //  Both roots were == big → both redirected to small
                 lemma_uf_root_redirected(old_p, parent@, a, big, small);
                 lemma_uf_root_redirected(old_p, parent@, b, big, small);
-                // uf_root(new, a) == uf_root(new, small) == uf_root(new, b)
+                //  uf_root(new, a) == uf_root(new, small) == uf_root(new, b)
             }
         }
     }
 }
 
-// ===========================================================================
-//  Coupling Component Decomposition
-// ===========================================================================
+//  ===========================================================================
+//   Coupling Component Decomposition
+//  ===========================================================================
 //
-// Two circle steps are "coupled" if they share a verification constraint
-// (both targets appear in the same Tangent, Angle, etc.). The coupling
-// components partition circle steps into groups where sign choices interact.
+//  Two circle steps are "coupled" if they share a verification constraint
+//  (both targets appear in the same Tangent, Angle, etc.). The coupling
+//  components partition circle steps into groups where sign choices interact.
 
-/// Result of coupling analysis: which circle steps are grouped together.
+///  Result of coupling analysis: which circle steps are grouped together.
 pub struct CouplingComponents {
-    /// For each circle step index: its component ID (or usize::MAX if uncoupled).
+    ///  For each circle step index: its component ID (or usize::MAX if uncoupled).
     pub step_to_component: Vec<usize>,
-    /// Number of components found.
+    ///  Number of components found.
     pub n_components: usize,
-    /// Number of circle steps.
+    ///  Number of circle steps.
     pub n_circle_steps: usize,
 }
 
-/// Build a mapping from entity ID → circle step index.
-/// Returns a Vec of length n_points where entity_to_step[e] = circle_step_idx
-/// if entity e is the target of a circle step, or usize::MAX otherwise.
+///  Build a mapping from entity ID → circle step index.
+///  Returns a Vec of length n_points where entity_to_step[e] = circle_step_idx
+///  if entity e is the target of a circle step, or usize::MAX otherwise.
 fn build_entity_to_circle_step(
     plan: &Vec<RuntimeStepData>,
     n_points: usize,
@@ -3455,10 +3455,10 @@ fn build_entity_to_circle_step(
     map
 }
 
-/// Build the global entity → circle step index map.
-/// Returns a Vec of length n_points. entity_map[e] = circle_step_idx if entity e
-/// is the target of a circle step, or usize::MAX otherwise.
-/// Extracted so it can be built once and shared across component graph builds.
+///  Build the global entity → circle step index map.
+///  Returns a Vec of length n_points. entity_map[e] = circle_step_idx if entity e
+///  is the target of a circle step, or usize::MAX otherwise.
+///  Extracted so it can be built once and shared across component graph builds.
 pub fn build_global_entity_map(
     plan: &Vec<RuntimeStepData>,
     n_points: usize,
@@ -3473,10 +3473,10 @@ pub fn build_global_entity_map(
     build_entity_to_circle_step(plan, n_points)
 }
 
-/// Build coupling components from verification constraints.
+///  Build coupling components from verification constraints.
 ///
-/// Two circle steps are coupled if their targets both appear in the same
-/// verification constraint. Uses union-find to compute connected components.
+///  Two circle steps are coupled if their targets both appear in the same
+///  verification constraint. Uses union-find to compute connected components.
 pub fn build_coupling_components(
     plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -3494,10 +3494,10 @@ pub fn build_coupling_components(
 {
     let k = count_circle_steps(plan);
 
-    // Phase 1: Map entity IDs to circle step indices
+    //  Phase 1: Map entity IDs to circle step indices
     let entity_map = build_entity_to_circle_step(plan, n_points);
 
-    // Phase 2: Union-find over circle steps
+    //  Phase 2: Union-find over circle steps
     let mut uf = uf_new(k);
 
     let mut ci: usize = 0;
@@ -3513,7 +3513,7 @@ pub fn build_coupling_components(
     {
         if is_verification_constraint_exec(&constraints[ci], n_points) {
             let eids = constraint_entity_ids(&constraints[ci], n_points);
-            // Find all circle step indices referenced by this constraint
+            //  Find all circle step indices referenced by this constraint
             let mut first_circle: usize = usize::MAX;
             let mut ei: usize = 0;
             while ei < eids.len()
@@ -3541,13 +3541,13 @@ pub fn build_coupling_components(
         ci = ci + 1;
     }
 
-    // Phase 3: Extract components from union-find
-    // Assign component IDs: each root gets a unique component ID
-    let mut root_to_comp: Vec<usize> = Vec::new(); // root → component ID
-    let mut comp_ids: Vec<usize> = Vec::new(); // circle_step → component ID
+    //  Phase 3: Extract components from union-find
+    //  Assign component IDs: each root gets a unique component ID
+    let mut root_to_comp: Vec<usize> = Vec::new(); //  root → component ID
+    let mut comp_ids: Vec<usize> = Vec::new(); //  circle_step → component ID
     let mut n_comps: usize = 0;
 
-    // Initialize root_to_comp with MAX
+    //  Initialize root_to_comp with MAX
     let mut i: usize = 0;
     while i < k
         invariant 0 <= i <= k, root_to_comp@.len() == i,
@@ -3557,7 +3557,7 @@ pub fn build_coupling_components(
         i = i + 1;
     }
 
-    // Assign component IDs
+    //  Assign component IDs
     let mut si2: usize = 0;
     while si2 < k
         invariant
@@ -3587,32 +3587,32 @@ pub fn build_coupling_components(
     }
 }
 
-// ===========================================================================
-//  Tree DP for Coupled Components
-// ===========================================================================
+//  ===========================================================================
+//   Tree DP for Coupled Components
+//  ===========================================================================
 //
-// For tree-structured coupling components, dynamic programming finds the
-// optimal sign combination in O(c) time instead of O(2^c).
+//  For tree-structured coupling components, dynamic programming finds the
+//  optimal sign combination in O(c) time instead of O(2^c).
 //
-// The DP works bottom-up: at each node, for each of its two sign choices,
-// compute the minimum displacement achievable in the subtree.
-// The optimal substructure follows from displacement separability
-// (lemma_displacement_separable): each node's displacement depends only
-// on its own sign, so subtree costs are additive.
+//  The DP works bottom-up: at each node, for each of its two sign choices,
+//  compute the minimum displacement achievable in the subtree.
+//  The optimal substructure follows from displacement separability
+//  (lemma_displacement_separable): each node's displacement depends only
+//  on its own sign, so subtree costs are additive.
 
-/// Edge list representation of a component's coupling graph.
+///  Edge list representation of a component's coupling graph.
 pub struct ComponentGraph {
-    /// Number of nodes (circle step indices within the component).
+    ///  Number of nodes (circle step indices within the component).
     pub n_nodes: usize,
-    /// Edges as (node_a, node_b) pairs.
+    ///  Edges as (node_a, node_b) pairs.
     pub edges: Vec<(usize, usize)>,
-    /// For each node: the circle step index in the global plan.
+    ///  For each node: the circle step index in the global plan.
     pub step_indices: Vec<usize>,
 }
 
-/// Build the adjacency list for a coupling component.
-/// Nodes are numbered 0..comp_size, corresponding to the circle steps
-/// in the component (in order of their step_to_component mapping).
+///  Build the adjacency list for a coupling component.
+///  Nodes are numbered 0..comp_size, corresponding to the circle steps
+///  in the component (in order of their step_to_component mapping).
 pub fn build_component_graph(
     coupling: &CouplingComponents,
     comp_idx: usize,
@@ -3633,8 +3633,8 @@ pub fn build_component_graph(
     ensures
         out.n_nodes == out.step_indices@.len(),
 {
-    // Collect circle step indices in this component.
-    // Circle step indices are < plan.len() since count_circle_steps(plan) <= plan.len().
+    //  Collect circle step indices in this component.
+    //  Circle step indices are < plan.len() since count_circle_steps(plan) <= plan.len().
     let mut step_indices: Vec<usize> = Vec::new();
     let mut si: usize = 0;
     while si < coupling.n_circle_steps
@@ -3654,7 +3654,7 @@ pub fn build_component_graph(
 
     let n_nodes = step_indices.len();
 
-    // Build entity → local node index map
+    //  Build entity → local node index map
     let mut entity_to_node: Vec<usize> = Vec::new();
     let mut ei: usize = 0;
     while ei < n_points
@@ -3665,7 +3665,7 @@ pub fn build_component_graph(
         ei = ei + 1;
     }
 
-    // Map each step's target entity to its local node index
+    //  Map each step's target entity to its local node index
     let mut ni: usize = 0;
     while ni < n_nodes
         invariant
@@ -3688,7 +3688,7 @@ pub fn build_component_graph(
         ni = ni + 1;
     }
 
-    // Build edge list from verification constraints
+    //  Build edge list from verification constraints
     let mut edges: Vec<(usize, usize)> = Vec::new();
 
     let mut ci: usize = 0;
@@ -3702,7 +3702,7 @@ pub fn build_component_graph(
     {
         if is_verification_constraint_exec(&constraints[ci], n_points) {
             let eids = constraint_entity_ids(&constraints[ci], n_points);
-            // Find pairs of local nodes referenced by this constraint
+            //  Find pairs of local nodes referenced by this constraint
             let mut nodes_in_constraint: Vec<usize> = Vec::new();
             let mut ej: usize = 0;
             while ej < eids.len()
@@ -3721,7 +3721,7 @@ pub fn build_component_graph(
                 }
                 ej = ej + 1;
             }
-            // Add edges between all pairs
+            //  Add edges between all pairs
             if nodes_in_constraint.len() >= 2 {
                 let mut pi: usize = 0;
                 while pi < nodes_in_constraint.len()
@@ -3756,9 +3756,9 @@ pub fn build_component_graph(
     ComponentGraph { n_nodes, edges, step_indices }
 }
 
-/// Check if a component graph is a tree: |edges| == |nodes| - 1 and connected.
-/// Since the component is already connected by construction from union-find,
-/// just check edge count.
+///  Check if a component graph is a tree: |edges| == |nodes| - 1 and connected.
+///  Since the component is already connected by construction from union-find,
+///  just check edge count.
 pub fn is_component_tree(graph: &ComponentGraph) -> (out: bool)
     requires graph.n_nodes == graph.step_indices@.len(),
 {
@@ -3768,26 +3768,26 @@ pub fn is_component_tree(graph: &ComponentGraph) -> (out: bool)
     graph.edges.len() == graph.n_nodes - 1
 }
 
-/// Solve a tree-structured component using DFS + DP.
-/// Returns the optimal mask bits for the circle steps in this component.
+///  Solve a tree-structured component using DFS + DP.
+///  Returns the optimal mask bits for the circle steps in this component.
 ///
-/// For each node, tries both signs. The displacement contribution of each
-/// node depends only on its own sign (by independence). The DP just checks
-/// feasibility of verification constraints between parent-child pairs and
-/// accumulates displacement.
+///  For each node, tries both signs. The displacement contribution of each
+///  node depends only on its own sign (by independence). The DP just checks
+///  feasibility of verification constraints between parent-child pairs and
+///  accumulates displacement.
 ///
-/// Since we don't have a lightweight per-constraint checker at the rational
-/// level, this function generates the top candidates (greedy + per-node flips)
-/// ordered by displacement. The actual verification is done by the caller
-/// via verify_single_variant.
-/// Generate candidate masks for a component using tree-aware exploration.
+///  Since we don't have a lightweight per-constraint checker at the rational
+///  level, this function generates the top candidates (greedy + per-node flips)
+///  ordered by displacement. The actual verification is done by the caller
+///  via verify_single_variant.
+///  Generate candidate masks for a component using tree-aware exploration.
 ///
-/// For each node: flip that node's bit from the greedy baseline (distance-1).
-/// For each edge: flip both endpoint bits (distance-2, follows tree structure).
-/// For small components: also try all pairs (distance-2).
+///  For each node: flip that node's bit from the greedy baseline (distance-1).
+///  For each edge: flip both endpoint bits (distance-2, follows tree structure).
+///  For small components: also try all pairs (distance-2).
 ///
-/// The greedy mask is always included. All candidates are verified by the
-/// caller via verify_single_variant.
+///  The greedy mask is always included. All candidates are verified by the
+///  caller via verify_single_variant.
 pub fn solve_component_dp(
     graph: &ComponentGraph,
     greedy_mask: u64,
@@ -3799,14 +3799,14 @@ pub fn solve_component_dp(
 {
     let mut candidates: Vec<u64> = Vec::new();
 
-    // Always include the greedy mask
+    //  Always include the greedy mask
     candidates.push(greedy_mask);
 
     if graph.n_nodes == 0 {
         return candidates;
     }
 
-    // Distance-1: flip each node individually
+    //  Distance-1: flip each node individually
     let mut ni: usize = 0;
     while ni < graph.n_nodes
         invariant
@@ -3823,7 +3823,7 @@ pub fn solve_component_dp(
         ni = ni + 1;
     }
 
-    // Distance-2 along edges: flip both endpoints of each edge
+    //  Distance-2 along edges: flip both endpoints of each edge
     let mut ei: usize = 0;
     while ei < graph.edges.len()
         invariant
@@ -3847,11 +3847,11 @@ pub fn solve_component_dp(
     candidates
 }
 
-// ===========================================================================
-//  DTS sign variant helpers (AbstractPlanStep-based)
-// ===========================================================================
+//  ===========================================================================
+//   DTS sign variant helpers (AbstractPlanStep-based)
+//  ===========================================================================
 
-/// Count circle steps in an abstract plan.
+///  Count circle steps in an abstract plan.
 pub fn count_circle_steps_abstract(plan: &Vec<AbstractPlanStep>) -> (out: usize)
     ensures out <= plan@.len(),
 {
@@ -3872,8 +3872,8 @@ pub fn count_circle_steps_abstract(plan: &Vec<AbstractPlanStep>) -> (out: usize)
     count
 }
 
-/// Create a sign variant of an abstract plan by flipping plus for the k-th
-/// circle step when bit k of sign_mask is 1.
+///  Create a sign variant of an abstract plan by flipping plus for the k-th
+///  circle step when bit k of sign_mask is 1.
 pub fn make_sign_variant_abstract(
     plan: &Vec<AbstractPlanStep>,
     sign_mask: u64,
@@ -3921,8 +3921,8 @@ pub fn make_sign_variant_abstract(
     result
 }
 
-/// Map entity ID → circle step index for an abstract plan.
-/// Returns usize::MAX for entities not resolved by a circle step.
+///  Map entity ID → circle step index for an abstract plan.
+///  Returns usize::MAX for entities not resolved by a circle step.
 pub fn build_entity_to_circle_step_abstract(
     plan: &Vec<AbstractPlanStep>,
     n_points: usize,
@@ -3966,7 +3966,7 @@ pub fn build_entity_to_circle_step_abstract(
     map
 }
 
-/// Build coupling components from an abstract plan.
+///  Build coupling components from an abstract plan.
 pub fn build_coupling_components_abstract(
     plan: &Vec<AbstractPlanStep>,
     constraints: &Vec<RuntimeConstraint>,
@@ -4066,7 +4066,7 @@ pub fn build_coupling_components_abstract(
     }
 }
 
-/// Build the component graph for a single coupling component using an abstract plan.
+///  Build the component graph for a single coupling component using an abstract plan.
 pub fn build_component_graph_abstract(
     coupling: &CouplingComponents,
     comp_idx: usize,
@@ -4086,9 +4086,9 @@ pub fn build_component_graph_abstract(
     ensures
         out.n_nodes == out.step_indices@.len(),
 {
-    // Collect circle step indices belonging to this component
+    //  Collect circle step indices belonging to this component
     let mut step_indices: Vec<usize> = Vec::new();
-    let mut local_map: Vec<usize> = Vec::new(); // global circle idx → local node idx
+    let mut local_map: Vec<usize> = Vec::new(); //  global circle idx → local node idx
 
     let mut gi: usize = 0;
     while gi < coupling.n_circle_steps
@@ -4109,8 +4109,8 @@ pub fn build_component_graph_abstract(
     }
 
     let comp_size = step_indices.len();
-    // Build edges directly: for each verification constraint, if it connects
-    // two nodes in this component, add an edge.
+    //  Build edges directly: for each verification constraint, if it connects
+    //  two nodes in this component, add an edge.
     let mut edges: Vec<(usize, usize)> = Vec::new();
 
     let mut ci3: usize = 0;
@@ -4148,7 +4148,7 @@ pub fn build_component_graph_abstract(
                 }
                 ei3 = ei3 + 1;
             }
-            // Add edges for all pairs
+            //  Add edges for all pairs
             let mut p1: usize = 0;
             while p1 < nodes_in.len()
                 invariant
@@ -4181,8 +4181,8 @@ pub fn build_component_graph_abstract(
     }
 }
 
-/// Verify a single sign variant using the DTS pipeline.
-/// Returns DynRtPoint2 positions if execution succeeds and all constraints pass.
+///  Verify a single sign variant using the DTS pipeline.
+///  Returns DynRtPoint2 positions if execution succeeds and all constraints pass.
 fn verify_variant_dyn(
     abstract_plan: &Vec<AbstractPlanStep>,
     constraints: &Vec<RuntimeConstraint>,
@@ -4232,8 +4232,8 @@ fn verify_variant_dyn(
     }
 }
 
-/// Compute total squared displacement from initial (rational) positions
-/// using rational extraction from DTS positions.
+///  Compute total squared displacement from initial (rational) positions
+///  using rational extraction from DTS positions.
 fn compute_displacement_rational(
     dyn_points: &Vec<DynRtPoint2>,
     initial_points: &Vec<RuntimePoint2>,
@@ -4274,9 +4274,9 @@ fn compute_displacement_rational(
     total
 }
 
-/// DTS-based minimum-displacement sign variant search.
-/// Uses the same tree-aware heuristic as lazy_verify_min_displacement but
-/// with DTS execution for correct arbitrary-depth circle intersections.
+///  DTS-based minimum-displacement sign variant search.
+///  Uses the same tree-aware heuristic as lazy_verify_min_displacement but
+///  with DTS execution for correct arbitrary-depth circle intersections.
 pub fn lazy_verify_min_displacement_dyn(
     greedy_result: &GreedyDynResult,
     constraints: &Vec<RuntimeConstraint>,
@@ -4310,13 +4310,13 @@ pub fn lazy_verify_min_displacement_dyn(
 
     let k = count_circle_steps_abstract(plan);
     if k > 63 {
-        // Too many circle steps — try base plan only
+        //  Too many circle steps — try base plan only
         let result = verify_variant_dyn(plan, constraints, constraint_pairs, initial_points);
         return match result {
             Some(dyn_pts) => {
                 let rat_pts = extract_rational_points_dyn(&dyn_pts);
                 Some(SolvedPoints {
-                    plan: Vec::new(), // no RuntimeStepData in DTS path
+                    plan: Vec::new(), //  no RuntimeStepData in DTS path
                     points_re: rat_pts,
                     ghost_n_constraints_verified: Ghost(constraints_to_spec(constraints@).len()),
                 })
@@ -4325,10 +4325,10 @@ pub fn lazy_verify_min_displacement_dyn(
         };
     }
 
-    // Build coupling components + candidate masks
+    //  Build coupling components + candidate masks
     let coupling = build_coupling_components_abstract(plan, constraints, n_points);
     let global_entity_map = build_entity_to_circle_step_abstract(plan, n_points);
-    // greedy_mask is computed by caller from rational solver geometry
+    //  greedy_mask is computed by caller from rational solver geometry
 
     let mut candidates: Vec<u64> = Vec::new();
     candidates.push(greedy_mask);
@@ -4362,7 +4362,7 @@ pub fn lazy_verify_min_displacement_dyn(
 
     let candidates = dedup_masks(&candidates);
 
-    // Try all candidate masks
+    //  Try all candidate masks
     let mut best: Option<SolvedPoints> = None;
     let mut best_disp: Option<RuntimeRational> = None;
 
@@ -4420,39 +4420,39 @@ pub fn lazy_verify_min_displacement_dyn(
     best
 }
 
-// ===========================================================================
-//  Under-Constrained Diagnostics
-// ===========================================================================
+//  ===========================================================================
+//   Under-Constrained Diagnostics
+//  ===========================================================================
 
-/// Per-entity diagnostic info when the solver gets stuck.
+///  Per-entity diagnostic info when the solver gets stuck.
 pub struct StuckEntityDiagnostic {
-    /// The stuck entity's ID.
+    ///  The stuck entity's ID.
     pub entity_id: usize,
-    /// Total constraints referencing this entity.
+    ///  Total constraints referencing this entity.
     pub n_total_constraints: usize,
-    /// Of those, how many are verification-only (never produce loci).
+    ///  Of those, how many are verification-only (never produce loci).
     pub n_verification_only: usize,
-    /// How many constraints produce non-trivial loci for this entity
-    /// given the current resolved state.
+    ///  How many constraints produce non-trivial loci for this entity
+    ///  given the current resolved state.
     pub n_nontrivial_loci: usize,
-    /// Other entities referenced by this entity's constraints that are not yet resolved.
+    ///  Other entities referenced by this entity's constraints that are not yet resolved.
     pub unresolved_dependencies: Vec<usize>,
 }
 
-/// Classification of why an entity is stuck.
+///  Classification of why an entity is stuck.
 pub enum StuckReason {
-    /// No constructive constraints reference this entity at all.
+    ///  No constructive constraints reference this entity at all.
     NoConstraints,
-    /// Has constructive constraints but < 2 nontrivial loci, no unresolved deps.
+    ///  Has constructive constraints but < 2 nontrivial loci, no unresolved deps.
     InsufficientLoci { n_loci: usize },
-    /// Has constructive constraints but < 2 nontrivial loci because dependencies are unresolved.
-    /// See StuckEntityDiagnostic.unresolved_dependencies for which entities block this one.
+    ///  Has constructive constraints but < 2 nontrivial loci because dependencies are unresolved.
+    ///  See StuckEntityDiagnostic.unresolved_dependencies for which entities block this one.
     DependencyCycle,
-    /// Has 2+ nontrivial loci but geometric intersection failed (parallel lines, etc.).
+    ///  Has 2+ nontrivial loci but geometric intersection failed (parallel lines, etc.).
     GeometricDegeneracy,
 }
 
-/// Diagnose why a single stuck entity cannot be resolved.
+///  Diagnose why a single stuck entity cannot be resolved.
 pub fn diagnose_stuck_entity(
     entity_id: usize,
     constraints: &Vec<RuntimeConstraint>,
@@ -4491,7 +4491,7 @@ pub fn diagnose_stuck_entity(
             if is_verification_constraint_exec(&constraints[ci], n_points) {
                 n_verif = n_verif + 1;
             } else {
-                // Constructive constraint — check for unresolved dependencies
+                //  Constructive constraint — check for unresolved dependencies
                 let eids = constraint_entity_ids(&constraints[ci], n_points);
                 let mut has_unresolved_dep = false;
                 let mut ei: usize = 0;
@@ -4511,7 +4511,7 @@ pub fn diagnose_stuck_entity(
                     ei = ei + 1;
                 }
                 if !has_unresolved_dep {
-                    // All deps resolved — this constraint should produce a locus
+                    //  All deps resolved — this constraint should produce a locus
                     n_loci = n_loci + 1;
                 }
             }
@@ -4542,7 +4542,7 @@ pub fn diagnose_stuck_entity(
     (diag, reason)
 }
 
-/// Diagnose all stuck entities.
+///  Diagnose all stuck entities.
 pub fn diagnose_all_stuck(
     unresolved_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -4579,4 +4579,4 @@ pub fn diagnose_all_stuck(
     results
 }
 
-} // verus!
+} //  verus!
