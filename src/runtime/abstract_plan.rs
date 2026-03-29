@@ -1,46 +1,46 @@
-/// Abstract plan and dependency analysis for circle chains.
+///  Abstract plan and dependency analysis for circle chains.
 ///
-/// An AbstractPlanStep records the solver's decisions without resolved geometry:
-/// target entity, step kind, and plus flag. The dependency analysis assigns
-/// each step a "level" indicating how deep in the extension tower its
-/// coordinates live.
+///  An AbstractPlanStep records the solver's decisions without resolved geometry:
+///  target entity, step kind, and plus flag. The dependency analysis assigns
+///  each step a "level" indicating how deep in the extension tower its
+///  coordinates live.
 use vstd::prelude::*;
 use crate::runtime::constraint::RuntimeConstraint;
 use crate::runtime::construction::RuntimeStepData;
 
 verus! {
 
-// ═══════════════════════════════════════════════════════════════════
-//  Abstract plan types
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Abstract plan types
+//  ═══════════════════════════════════════════════════════════════════
 
-/// The kind of a construction step (without geometry data).
+///  The kind of a construction step (without geometry data).
 #[derive(Copy, Clone)]
 pub enum AbstractStepKind {
-    /// Known position (x, y) — level 0.
+    ///  Known position (x, y) — level 0.
     Point,
-    /// Line-line intersection — level 0 (rational).
+    ///  Line-line intersection — level 0 (rational).
     LineLine,
-    /// Circle-line intersection — level ≥ 1.
+    ///  Circle-line intersection — level ≥ 1.
     CircleLine,
-    /// Circle-circle intersection — level ≥ 1.
+    ///  Circle-circle intersection — level ≥ 1.
     CircleCircle,
 }
 
-/// Abstract construction step: records target + kind + plus flag.
+///  Abstract construction step: records target + kind + plus flag.
 ///
-/// Created by `extract_abstract_plan` from a RuntimeStepData plan.
-/// Used for dependency analysis and multi-level execution dispatch.
+///  Created by `extract_abstract_plan` from a RuntimeStepData plan.
+///  Used for dependency analysis and multi-level execution dispatch.
 pub struct AbstractPlanStep {
     pub target: usize,
     pub kind: AbstractStepKind,
     pub plus: bool,
 }
 
-/// Extract an abstract plan from a RuntimeStepData plan.
+///  Extract an abstract plan from a RuntimeStepData plan.
 ///
-/// This is a trivial O(n) extraction that records the target, kind, and plus
-/// flag from each step without copying geometry.
+///  This is a trivial O(n) extraction that records the target, kind, and plus
+///  flag from each step without copying geometry.
 pub fn extract_abstract_plan(plan: &Vec<RuntimeStepData>) -> (out: Vec<AbstractPlanStep>)
     requires
         forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
@@ -77,13 +77,13 @@ pub fn extract_abstract_plan(plan: &Vec<RuntimeStepData>) -> (out: Vec<AbstractP
     result
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Constraint entity extraction
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Constraint entity extraction
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Check if a constraint references a given entity ID.
+///  Check if a constraint references a given entity ID.
 ///
-/// Returns true if entity_id appears among the constraint's entity references.
+///  Returns true if entity_id appears among the constraint's entity references.
 pub fn constraint_references_entity(rc: &RuntimeConstraint, entity_id: usize) -> (out: bool)
 {
     match rc {
@@ -136,11 +136,11 @@ pub fn constraint_references_entity(rc: &RuntimeConstraint, entity_id: usize) ->
     }
 }
 
-/// Check if a constraint references any entity in the given set of targets
-/// (other than exclude_id).
+///  Check if a constraint references any entity in the given set of targets
+///  (other than exclude_id).
 ///
-/// Used for dependency analysis: given a constraint that references target T,
-/// does it also reference any circle step target?
+///  Used for dependency analysis: given a constraint that references target T,
+///  does it also reference any circle step target?
 pub fn constraint_references_any_of(
     rc: &RuntimeConstraint,
     circle_targets: &Vec<usize>,
@@ -161,21 +161,21 @@ pub fn constraint_references_any_of(
     false
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Dependency analysis: compute step levels
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Dependency analysis: compute step levels
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Compute the extension tower level for each step.
+///  Compute the extension tower level for each step.
 ///
-/// Returns a Vec of levels where:
-///   - Level 0: PointStep or LineLine (rational coordinates)
-///   - Level 1: CircleLine/CircleCircle where all input entities are rational
-///   - Level k: CircleLine/CircleCircle where at least one input entity
-///              is a circle step target at level (k-1)
+///  Returns a Vec of levels where:
+///    - Level 0: PointStep or LineLine (rational coordinates)
+///    - Level 1: CircleLine/CircleCircle where all input entities are rational
+///    - Level k: CircleLine/CircleCircle where at least one input entity
+///               is a circle step target at level (k-1)
 ///
-/// Uses conservative analysis: for each circle step at target T, checks
-/// ALL constraints referencing T (not just the paired ones) for references
-/// to other circle step targets.
+///  Uses conservative analysis: for each circle step at target T, checks
+///  ALL constraints referencing T (not just the paired ones) for references
+///  to other circle step targets.
 pub fn compute_step_levels(
     abstract_plan: &Vec<AbstractPlanStep>,
     constraints: &Vec<RuntimeConstraint>,
@@ -184,7 +184,7 @@ pub fn compute_step_levels(
 {
     let n = abstract_plan.len();
 
-    // First pass: collect circle step targets
+    //  First pass: collect circle step targets
     let mut circle_targets: Vec<usize> = Vec::new();
     let mut ci: usize = 0;
     while ci < n
@@ -200,11 +200,11 @@ pub fn compute_step_levels(
         ci = ci + 1;
     }
 
-    // Second pass: compute levels iteratively
-    // levels[i] = level of step i
+    //  Second pass: compute levels iteratively
+    //  levels[i] = level of step i
     let mut levels: Vec<usize> = Vec::new();
 
-    // Initialize all levels
+    //  Initialize all levels
     let mut init_i: usize = 0;
     while init_i < n
         invariant 0 <= init_i <= n, n == abstract_plan@.len(), levels@.len() == init_i
@@ -215,16 +215,16 @@ pub fn compute_step_levels(
                 levels.push(0);
             }
             _ => {
-                levels.push(1); // Default: at least level 1 for circle steps
+                levels.push(1); //  Default: at least level 1 for circle steps
             }
         }
         init_i = init_i + 1;
     }
 
-    // Build target_id → step_index map (linear scan for each lookup)
-    // Iterate: for each circle step, check if any input entity is a circle
-    // target at a higher level, and update accordingly.
-    // Fixed-point iteration (converges in at most `n` passes).
+    //  Build target_id → step_index map (linear scan for each lookup)
+    //  Iterate: for each circle step, check if any input entity is a circle
+    //  target at a higher level, and update accordingly.
+    //  Fixed-point iteration (converges in at most `n` passes).
     let mut changed = true;
     let mut pass: usize = 0;
     while changed && pass < n
@@ -248,7 +248,7 @@ pub fn compute_step_levels(
                     let target = abstract_plan[si].target;
                     let mut max_dep_level: usize = 0;
 
-                    // Check all constraints that reference this target
+                    //  Check all constraints that reference this target
                     let mut cj: usize = 0;
                     while cj < constraints.len()
                         invariant
@@ -258,8 +258,8 @@ pub fn compute_step_levels(
                         decreases constraints@.len() - cj,
                     {
                         if constraint_references_entity(&constraints[cj], target) {
-                            // Check all OTHER entities in this constraint
-                            // Find the max level among circle targets referenced
+                            //  Check all OTHER entities in this constraint
+                            //  Find the max level among circle targets referenced
                             let mut dk: usize = 0;
                             while dk < n
                                 invariant
@@ -288,7 +288,7 @@ pub fn compute_step_levels(
                         cj = cj + 1;
                     }
 
-                    // Saturating add: cap at n (can't have more levels than steps)
+                    //  Saturating add: cap at n (can't have more levels than steps)
                     let new_level = if max_dep_level > 0 && max_dep_level < n {
                         max_dep_level + 1
                     } else if max_dep_level >= n {
@@ -312,7 +312,7 @@ pub fn compute_step_levels(
     levels
 }
 
-/// Compute the maximum extension depth from step levels.
+///  Compute the maximum extension depth from step levels.
 pub fn max_depth(levels: &Vec<usize>) -> (out: usize)
     ensures out == 0 ==> forall|i: int| 0 <= i < levels@.len() ==> levels@[i] == 0,
 {
@@ -333,15 +333,15 @@ pub fn max_depth(levels: &Vec<usize>) -> (out: usize)
     max_val
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Constraint pair extraction
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Constraint pair extraction
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Find two constraint indices that reference a target entity.
+///  Find two constraint indices that reference a target entity.
 ///
-/// Scans through constraints looking for two that reference target_id.
-/// Returns (ci1, ci2) or None if fewer than two constraints reference it.
-/// For non-circle steps, returns (0, 0) as a dummy.
+///  Scans through constraints looking for two that reference target_id.
+///  Returns (ci1, ci2) or None if fewer than two constraints reference it.
+///  For non-circle steps, returns (0, 0) as a dummy.
 fn find_two_constraints_for_target(
     constraints: &Vec<RuntimeConstraint>,
     target_id: usize,
@@ -374,7 +374,7 @@ fn find_two_constraints_for_target(
         return None;
     }
 
-    assert(first < constraints.len()); // from ensures above
+    assert(first < constraints.len()); //  from ensures above
     let mut second: usize = first + 1;
     let mut found_second = false;
     while second < constraints.len()
@@ -400,11 +400,11 @@ fn find_two_constraints_for_target(
     Some((first, second))
 }
 
-/// Extract constraint pairs for each step in the abstract plan.
+///  Extract constraint pairs for each step in the abstract plan.
 ///
-/// For each circle step, finds two constraints that reference its target.
-/// For non-circle steps (Point, LineLine), returns (0, 0) as a dummy.
-/// Returns None if any circle step doesn't have two referencing constraints.
+///  For each circle step, finds two constraints that reference its target.
+///  For non-circle steps (Point, LineLine), returns (0, 0) as a dummy.
+///  Returns None if any circle step doesn't have two referencing constraints.
 pub fn extract_constraint_pairs(
     abstract_plan: &Vec<AbstractPlanStep>,
     constraints: &Vec<RuntimeConstraint>,
@@ -429,7 +429,7 @@ pub fn extract_constraint_pairs(
                 }
             }
             _ => {
-                // Point/LineLine: dummy pair
+                //  Point/LineLine: dummy pair
                 pairs.push((0usize, 0usize));
             }
         }
@@ -438,4 +438,4 @@ pub fn extract_constraint_pairs(
     Some(pairs)
 }
 
-} // verus!
+} //  verus!

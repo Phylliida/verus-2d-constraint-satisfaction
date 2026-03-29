@@ -21,8 +21,8 @@ type RationalModel = verus_rational::rational::Rational;
 
 verus! {
 
-/// Transfer conjuncts 9-12 from partial_resolved_map to execute_plan at a single step.
-/// Extracted to isolate trigger pollution from the main replay loop.
+///  Transfer conjuncts 9-12 from partial_resolved_map to execute_plan at a single step.
+///  Extracted to isolate trigger pollution from the main replay loop.
 proof fn lemma_transfer_step_conjuncts(
     ps: ConstructionPlan<RationalModel>,
     cs: Seq<Constraint<RationalModel>>,
@@ -41,15 +41,15 @@ proof fn lemma_transfer_step_conjuncts(
         is_fully_independent_plan(ps, cs),
         forall|ci: int| 0 <= ci < cs.len() ==>
             constraint_well_formed(#[trigger] cs[ci]),
-        // Nondegeneracy for prm
+        //  Nondegeneracy for prm
         forall|ci: int| 0 <= ci < cs.len() ==>
             constraint_locus_nondegenerate(#[trigger] cs[ci], prm, step_target(ps[si])),
-        // Conjunct 9 for prm
+        //  Conjunct 9 for prm
         at_most_two_nontrivial_loci(step_target(ps[si]), cs, prm.dom()),
-        // Rational: loci satisfied against prm
+        //  Rational: loci satisfied against prm
         is_rational_step(ps[si]) ==>
             step_satisfies_all_constraint_loci(ps[si], cs, prm),
-        // Circle: geometry matches against prm
+        //  Circle: geometry matches against prm
         !is_rational_step(ps[si]) ==>
             step_loci_match_geometry(ps[si], cs, prm),
     ensures
@@ -63,11 +63,11 @@ proof fn lemma_transfer_step_conjuncts(
 {
     let target = step_target(ps[si]);
 
-    // Conjunct 9: at_most_two_nontrivial_loci depends only on domain.
-    // prm.dom() =~= exec_res.dom(), so it's the same.
+    //  Conjunct 9: at_most_two_nontrivial_loci depends only on domain.
+    //  prm.dom() =~= exec_res.dom(), so it's the same.
 
-    // Conjunct 12: nondegeneracy transfer.
-    // For Symmetric constraints: axis values agree via independence.
+    //  Conjunct 12: nondegeneracy transfer.
+    //  For Symmetric constraints: axis values agree via independence.
     assert forall|ci: int| 0 <= ci < cs.len()
     implies constraint_locus_nondegenerate(#[trigger] cs[ci], exec_res, target)
     by {
@@ -76,14 +76,14 @@ proof fn lemma_transfer_step_conjuncts(
                 if target == point
                     && exec_res.dom().contains(axis_a)
                     && exec_res.dom().contains(axis_b) {
-                    // axis_a, axis_b are in constraint_entities and != target
-                    // (from constraint_well_formed: point != axis_a, point != axis_b)
-                    // By independence: they're non-circle targets
-                    // So prm[axis_a] == exec_res[axis_a], etc.
-                    // Trigger is_fully_independent_plan quantifier
-                    // Its triggers are ps[si] and cs[ci]
-                    let _ = ps[si]; // trigger
-                    let _ = cs[ci]; // trigger
+                    //  axis_a, axis_b are in constraint_entities and != target
+                    //  (from constraint_well_formed: point != axis_a, point != axis_b)
+                    //  By independence: they're non-circle targets
+                    //  So prm[axis_a] == exec_res[axis_a], etc.
+                    //  Trigger is_fully_independent_plan quantifier
+                    //  Its triggers are ps[si] and cs[ci]
+                    let _ = ps[si]; //  trigger
+                    let _ = cs[ci]; //  trigger
                     assert(constraint_entities(cs[ci]).contains(axis_a));
                     assert(constraint_entities(cs[ci]).contains(target));
                     assert(axis_a != target);
@@ -100,17 +100,17 @@ proof fn lemma_transfer_step_conjuncts(
         }
     }
 
-    // For conjuncts 10/11: prove locus_eqv per ci via congruence.
-    // Split: if constraint references target, use congruence; else locus is FullPlane.
+    //  For conjuncts 10/11: prove locus_eqv per ci via congruence.
+    //  Split: if constraint references target, use congruence; else locus is FullPlane.
     assert forall|ci: int| 0 <= ci < cs.len()
     implies locus_eqv(
         constraint_to_locus(#[trigger] cs[ci], prm, target),
         constraint_to_locus(cs[ci], exec_res, target))
     by {
         if constraint_entities(cs[ci]).contains(target) {
-            // By independence: all other entities in domain are non-circle targets
-            let _ = ps[si]; // trigger for is_fully_independent_plan
-            let _ = cs[ci]; // trigger for is_fully_independent_plan
+            //  By independence: all other entities in domain are non-circle targets
+            let _ = ps[si]; //  trigger for is_fully_independent_plan
+            let _ = cs[ci]; //  trigger for is_fully_independent_plan
             assert forall|e: EntityId|
                 constraint_entities(cs[ci]).contains(e) && e != target
                 && prm.dom().contains(e)
@@ -124,14 +124,14 @@ proof fn lemma_transfer_step_conjuncts(
             lemma_constraint_to_locus_resolved_congruence(
                 cs[ci], prm, exec_res, target);
         } else {
-            // Target not in constraint → both loci are FullPlane
-            // constraint_to_locus checks if target matches some entity
-            // in each branch; if not, returns FullPlane.
-            // Z3 can unfold this.
+            //  Target not in constraint → both loci are FullPlane
+            //  constraint_to_locus checks if target matches some entity
+            //  in each branch; if not, returns FullPlane.
+            //  Z3 can unfold this.
         }
     }
 
-    // Conjunct 10: rational step satisfaction transfer
+    //  Conjunct 10: rational step satisfaction transfer
     if is_rational_step(ps[si]) {
         assert forall|ci: int| 0 <= ci < cs.len()
         implies point_satisfies_locus(
@@ -146,7 +146,7 @@ proof fn lemma_transfer_step_conjuncts(
         }
     }
 
-    // Conjunct 11: circle step geometry transfer
+    //  Conjunct 11: circle step geometry transfer
     if !is_rational_step(ps[si]) {
         let target = step_target(ps[si]);
         match ps[si] {
@@ -200,13 +200,13 @@ proof fn lemma_transfer_step_conjuncts(
                     }
                 }
             }
-            _ => {} // rational steps handled above
+            _ => {} //  rational steps handled above
         }
     }
 }
 
-/// Prove loop invariants for si+1 after a step update.
-/// Extracted to reduce rlimit in the main loop.
+///  Prove loop invariants for si+1 after a step update.
+///  Extracted to reduce rlimit in the main loop.
 proof fn lemma_loop_step_update(
     ps: ConstructionPlan<RationalModel>,
     cs: Seq<Constraint<RationalModel>>,
@@ -226,39 +226,39 @@ proof fn lemma_loop_step_update(
         target == step_target(ps[si]),
         (target as int) < n_points,
         exec_res == execute_plan(ps.take(si)),
-        // prm domain matches exec_res (both exclude target)
+        //  prm domain matches exec_res (both exclude target)
         prm.dom() =~= exec_res.dom(),
-        // prm values agree with exec_res for non-circle targets
+        //  prm values agree with exec_res for non-circle targets
         forall|id: EntityId| exec_res.dom().contains(id)
             && !circle_targets(ps).contains(id)
             ==> prm[id] == exec_res[id],
-        // Flags just updated: flags[target] is true
+        //  Flags just updated: flags[target] is true
         flags[target as int],
-        // All other flags unchanged from domain invariant
+        //  All other flags unchanged from domain invariant
         forall|id: nat| (id as int) < n_points && id != target ==>
             (flags[id as int] <==> execute_plan(ps.take(si)).dom().contains(id)),
-        // Target was not in old domain
+        //  Target was not in old domain
         !execute_plan(ps.take(si)).dom().contains(target),
-        // Old domain elements are bounded
+        //  Old domain elements are bounded
         forall|id: EntityId| execute_plan(ps.take(si)).dom().contains(id) ==>
             (id as int) < n_points,
-        // Self-consistency of NEW flags
+        //  Self-consistency of NEW flags
         forall|i: int| 0 <= i < n_points ==>
             (#[trigger] flags[i]) ==
             partial_resolved_map(points_view_seq, flags).dom().contains(i as nat),
-        // Value: non-circle targets match for current exec_res
+        //  Value: non-circle targets match for current exec_res
         forall|id: EntityId|
             execute_plan(ps.take(si)).dom().contains(id)
             && !circle_targets(ps).contains(id)
             ==> points_view_seq[id as int] == execute_plan(ps.take(si))[id],
-        // For newly inserted target: rational step → point updated
+        //  For newly inserted target: rational step → point updated
         is_rational_step(ps[si]) ==>
             points_view_seq[target as int] == execute_step(ps[si]),
-        // Preconditions for transfer
+        //  Preconditions for transfer
         is_fully_independent_plan(ps, cs),
         forall|ci: int| 0 <= ci < cs.len() ==>
             constraint_well_formed(#[trigger] cs[ci]),
-        // Conjuncts established against prm
+        //  Conjuncts established against prm
         at_most_two_nontrivial_loci(target, cs, prm.dom()),
         forall|ci: int| 0 <= ci < cs.len() ==>
             constraint_locus_nondegenerate(#[trigger] cs[ci], prm, target),
@@ -267,19 +267,19 @@ proof fn lemma_loop_step_update(
         !is_rational_step(ps[si]) ==>
             step_loci_match_geometry(ps[si], cs, prm),
     ensures
-        // Domain invariant for si+1
+        //  Domain invariant for si+1
         forall|id: nat| (id as int) < n_points ==>
             (flags[id as int] <==>
              execute_plan(ps.take(si + 1)).dom().contains(id)),
         forall|id: EntityId| #![trigger execute_plan(ps.take(si + 1)).dom().contains(id)]
             execute_plan(ps.take(si + 1)).dom().contains(id) ==>
             (id as int) < n_points,
-        // Value invariant for si+1
+        //  Value invariant for si+1
         forall|id: EntityId|
             execute_plan(ps.take(si + 1)).dom().contains(id)
             && !circle_targets(ps).contains(id)
             ==> points_view_seq[id as int] == execute_plan(ps.take(si + 1))[id],
-        // Conjuncts for step si
+        //  Conjuncts for step si
         at_most_two_nontrivial_loci(step_target(ps[si]), cs,
             execute_plan(ps.take(si)).dom()),
         forall|ci: int| 0 <= ci < cs.len() ==>
@@ -295,7 +295,7 @@ proof fn lemma_loop_step_update(
     lemma_execute_plan_take_step::<RationalModel>(ps, si);
     let new_exec_res = execute_plan(ps.take(si + 1));
 
-    // Domain invariant for si+1
+    //  Domain invariant for si+1
     assert forall|id: nat| (id as int) < n_points implies
         (flags[id as int] <==> new_exec_res.dom().contains(id))
     by {
@@ -308,7 +308,7 @@ proof fn lemma_loop_step_update(
         if id == step_target(ps[si]) { } else { }
     }
 
-    // Value invariant update for si+1
+    //  Value invariant update for si+1
     assert forall|id: EntityId|
         new_exec_res.dom().contains(id)
         && !circle_targets(ps).contains(id)
@@ -316,20 +316,20 @@ proof fn lemma_loop_step_update(
         points_view_seq[id as int] == new_exec_res[id]
     by {
         if id == step_target(ps[si]) {
-            // Rational: point updated to execute_step
-            // Circle: circle_targets.contains(target), vacuously true
+            //  Rational: point updated to execute_step
+            //  Circle: circle_targets.contains(target), vacuously true
         } else {
-            // Map.insert preserves others
+            //  Map.insert preserves others
         }
     }
 
-    // Transfer conjuncts from prm to exec_res
-    // prm.dom() =~= exec_res.dom() is a direct precondition
+    //  Transfer conjuncts from prm to exec_res
+    //  prm.dom() =~= exec_res.dom() is a direct precondition
     assert(exec_res.dom() =~= execute_plan(ps.take(si)).dom());
     lemma_transfer_step_conjuncts(ps, cs, si, prm, exec_res);
 }
 
-/// Check that a point satisfies all loci at runtime.
+///  Check that a point satisfies all loci at runtime.
 fn check_point_satisfies_all_loci_exec(
     loci: &Vec<RuntimeLocus>,
     pt: &RuntimePoint2,
@@ -363,7 +363,7 @@ fn check_point_satisfies_all_loci_exec(
     true
 }
 
-/// Check that all nontrivial loci match a circle or line (CircleLine geometry).
+///  Check that all nontrivial loci match a circle or line (CircleLine geometry).
 fn check_all_loci_match_circle_line_exec(
     loci: &Vec<RuntimeLocus>,
     circle: &RuntimeCircle2,
@@ -425,7 +425,7 @@ fn check_all_loci_match_circle_line_exec(
     true
 }
 
-/// Check that all nontrivial loci match one of two circles (CircleCircle geometry).
+///  Check that all nontrivial loci match one of two circles (CircleCircle geometry).
 fn check_all_loci_match_circle_circle_exec(
     loci: &Vec<RuntimeLocus>,
     c1: &RuntimeCircle2,
@@ -486,7 +486,7 @@ fn check_all_loci_match_circle_circle_exec(
     true
 }
 
-/// Check constraint_locus_nondegenerate for all constraints at a given step.
+///  Check constraint_locus_nondegenerate for all constraints at a given step.
 fn check_step_nondegeneracy_all_exec(
     constraints: &Vec<RuntimeConstraint>,
     points: &Vec<RuntimePoint2>,
@@ -566,7 +566,7 @@ fn check_step_nondegeneracy_all_exec(
     true
 }
 
-/// Connect loci results to step_satisfies_all_constraint_loci for rational steps.
+///  Connect loci results to step_satisfies_all_constraint_loci for rational steps.
 proof fn lemma_connect_rational_loci(
     loci: Seq<RuntimeLocus>,
     prm: ResolvedPoints<RationalModel>,
@@ -598,9 +598,9 @@ proof fn lemma_connect_rational_loci(
     }
 }
 
-/// Process a single step of the replay loop. Checks conjuncts 9-12 for step si,
-/// updates points/flags, and proves the loop invariant update.
-/// Takes and returns owned Vecs to avoid &mut borrow limitations in Verus.
+///  Process a single step of the replay loop. Checks conjuncts 9-12 for step si,
+///  updates points/flags, and proves the loop invariant update.
+///  Takes and returns owned Vecs to avoid &mut borrow limitations in Verus.
 fn process_single_step(
     full_plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -617,7 +617,7 @@ fn process_single_step(
         flags@.len() == n_points,
         n_points > 0,
         all_points_wf(points@),
-        // Structural preconditions
+        //  Structural preconditions
         forall|i: int| 0 <= i < full_plan@.len() ==>
             (#[trigger] full_plan@[i]).wf_spec(),
         forall|i: int| 0 <= i < full_plan@.len() ==>
@@ -634,26 +634,26 @@ fn process_single_step(
         forall|i: int| 0 <= i < full_plan@.len() ==>
             step_geometrically_valid((#[trigger] full_plan@[i]).spec_step()),
         is_fully_independent_plan(ps, cs),
-        // Identity
+        //  Identity
         ps.len() == full_plan@.len(),
         cs.len() == constraints@.len(),
         forall|j: int| 0 <= j < full_plan@.len() ==>
             (#[trigger] ps[j]) == full_plan@[j].spec_step(),
         forall|j: int| 0 <= j < constraints@.len() ==>
             (#[trigger] cs[j]) == runtime_constraint_model(constraints@[j]),
-        // Self-consistency
+        //  Self-consistency
         forall|i: int| 0 <= i < n_points as int ==>
             (#[trigger] flags@[i]) ==
             partial_resolved_map(points_view(points@), flags@)
                 .dom().contains(i as nat),
-        // Domain invariant at si
+        //  Domain invariant at si
         forall|id: nat| (id as int) < n_points ==>
             (flags@[id as int] <==>
              execute_plan(ps.take(si as int)).dom().contains(id)),
         forall|id: EntityId|
             execute_plan(ps.take(si as int)).dom().contains(id) ==>
             (id as int) < n_points,
-        // Value invariant at si
+        //  Value invariant at si
         forall|id: EntityId|
             execute_plan(ps.take(si as int)).dom().contains(id)
             && !circle_targets(ps).contains(id)
@@ -665,12 +665,12 @@ fn process_single_step(
             &&& pts@.len() == n_points
             &&& flgs@.len() == n_points
             &&& all_points_wf(pts@)
-            // Self-consistency maintained
+            //  Self-consistency maintained
             &&& forall|i: int| 0 <= i < n_points as int ==>
                 (#[trigger] flgs@[i]) ==
                 partial_resolved_map(points_view(pts@), flgs@)
                     .dom().contains(i as nat)
-            // On success: domain invariant at si+1
+            //  On success: domain invariant at si+1
             &&& (ok ==> forall|id: nat| (id as int) < n_points ==>
                 (flgs@[id as int] <==>
                  execute_plan(ps.take(si + 1)).dom().contains(id)))
@@ -678,13 +678,13 @@ fn process_single_step(
                 #![trigger execute_plan(ps.take(si + 1)).dom().contains(id)]
                 execute_plan(ps.take(si + 1)).dom().contains(id) ==>
                 (id as int) < n_points)
-            // On success: value invariant at si+1
+            //  On success: value invariant at si+1
             &&& (ok ==> forall|id: EntityId|
                 execute_plan(ps.take(si + 1)).dom().contains(id)
                 && !circle_targets(ps).contains(id)
                 ==> points_view(pts@)[id as int]
                     == execute_plan(ps.take(si + 1))[id])
-            // On success: conjuncts for step si
+            //  On success: conjuncts for step si
             &&& (ok ==> at_most_two_nontrivial_loci(step_target(ps[si as int]), cs,
                 execute_plan(ps.take(si as int)).dom()))
             &&& (ok ==> forall|ci: int| 0 <= ci < cs.len() ==>
@@ -712,29 +712,29 @@ fn process_single_step(
         by { }
     }
 
-    // === Conjunct 9: at_most_two_nontrivial_loci ===
+    //  === Conjunct 9: at_most_two_nontrivial_loci ===
     if !check_at_most_two_nontrivial_exec(target, constraints, &flags, n_points) {
         return (false, points, flags);
     }
 
-    // Bridge: check_at_most_two_nontrivial_exec ensures uses Seq::new/Set::new,
-    // but we need at_most_two_nontrivial_loci(target, cs, prm.dom()).
+    //  Bridge: check_at_most_two_nontrivial_exec ensures uses Seq::new/Set::new,
+    //  but we need at_most_two_nontrivial_loci(target, cs, prm.dom()).
     proof {
-        // Connect cs to the Seq::new in the check's ensures
+        //  Connect cs to the Seq::new in the check's ensures
         assert(cs =~= Seq::new(constraints@.len() as nat,
             |i: int| runtime_constraint_model(constraints@[i])));
-        // Connect prm.dom() to the Set::new in the check's ensures
+        //  Connect prm.dom() to the Set::new in the check's ensures
         assert(prm.dom() =~= Set::new(
             |id: nat| (id as int) < n_points && flags@[id as int]));
         assert(at_most_two_nontrivial_loci(target as nat, cs, prm.dom()));
     }
 
-    // === Conjunct 12: Symmetric nondegeneracy ===
+    //  === Conjunct 12: Symmetric nondegeneracy ===
     if !check_step_nondegeneracy_all_exec(constraints, &points, &flags, target, n_points) {
         return (false, points, flags);
     }
 
-    // Bridge: check_step_nondegeneracy_all_exec ensures uses prm at current state
+    //  Bridge: check_step_nondegeneracy_all_exec ensures uses prm at current state
     let ghost nondegen_fact: bool = forall|ci: int| 0 <= ci < cs.len() ==>
         constraint_locus_nondegenerate(#[trigger] cs[ci], prm, target as nat);
     proof {
@@ -746,10 +746,10 @@ fn process_single_step(
         assert(nondegen_fact);
     }
 
-    // === Collect loci ===
+    //  === Collect loci ===
     let loci = collect_loci_exec(constraints, &points, &flags, target);
 
-    // === Conjuncts 10/11: check per step type ===
+    //  === Conjuncts 10/11: check per step type ===
     match &full_plan[si] {
         RuntimeStepData::PointStep { target: _, x, y, .. } => {
             let pt = RuntimePoint2::new(copy_rational(x), copy_rational(y));
@@ -821,12 +821,12 @@ fn process_single_step(
         }
     }
 
-    // === Update flags ===
+    //  === Update flags ===
     let mut flag = true;
     flags.set_and_swap(target, &mut flag);
 
     proof {
-        // Self-consistency after flag update
+        //  Self-consistency after flag update
         assert forall|i: int| 0 <= i < n_points as int implies
             (#[trigger] flags@[i]) ==
             partial_resolved_map(points_view(points@), flags@)
@@ -840,43 +840,43 @@ fn process_single_step(
             assert(step_loci_match_geometry(ps[si as int], cs, prm));
         }
 
-        // Prove target not in old domain (needed by lemma_loop_step_update)
-        // Requires distinct targets on ps
+        //  Prove target not in old domain (needed by lemma_loop_step_update)
+        //  Requires distinct targets on ps
         assert forall|i: int, j: int|
             0 <= i < ps.len() && 0 <= j < ps.len() && i != j
         implies step_target(ps[i]) != step_target(ps[j])
         by {
-            // ps[i] == full_plan@[i].spec_step(), connect distinct targets
+            //  ps[i] == full_plan@[i].spec_step(), connect distinct targets
             assert(ps[i] == full_plan@[i].spec_step());
             assert(ps[j] == full_plan@[j].spec_step());
         }
         lemma_step_target_not_in_prefix::<RationalModel>(ps, si as int);
 
-        // Help Z3 connect post-mutation state to lemma preconditions
+        //  Help Z3 connect post-mutation state to lemma preconditions
         assert(target as nat == step_target(ps[si as int]));
         assert((target as int) < n_points);
         assert(flags@[target as int]);
         assert(!execute_plan(ps.take(si as int)).dom().contains(target as nat));
         assert(points_view(points@).len() == n_points);
 
-        // Value: non-target entries preserved through set_and_swap
+        //  Value: non-target entries preserved through set_and_swap
         assert forall|id: EntityId|
             execute_plan(ps.take(si as int)).dom().contains(id)
             && !circle_targets(ps).contains(id)
         implies
             points_view(points@)[id as int] == execute_plan(ps.take(si as int))[id]
         by {
-            // id in old domain => id != target (target not in old domain)
-            // set_and_swap only changed index target, so points@[id as int] unchanged
+            //  id in old domain => id != target (target not in old domain)
+            //  set_and_swap only changed index target, so points@[id as int] unchanged
         }
 
-        // Rational step: point was updated at target
+        //  Rational step: point was updated at target
         if is_rational_step(ps[si as int]) {
             assert(points_view(points@)[target as int] ==
                 execute_step::<RationalModel>(ps[si as int]));
         }
 
-        // Other flags unchanged
+        //  Other flags unchanged
         assert forall|id: nat| (id as int) < n_points && id != target as nat
         implies
             (flags@[id as int] <==> execute_plan(ps.take(si as int)).dom().contains(id))
@@ -891,8 +891,8 @@ fn process_single_step(
     (true, points, flags)
 }
 
-/// Recursive replay of the plan from step `si`, checking conjuncts 9-12 at each step.
-/// Uses recursion instead of a while loop to avoid expensive loop invariant checking.
+///  Recursive replay of the plan from step `si`, checking conjuncts 9-12 at each step.
+///  Uses recursion instead of a while loop to avoid expensive loop invariant checking.
 fn check_dynamic_conjuncts_recursive(
     full_plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -909,7 +909,7 @@ fn check_dynamic_conjuncts_recursive(
         flags@.len() == n_points,
         n_points > 0,
         all_points_wf(points@),
-        // Forwarded preconditions
+        //  Forwarded preconditions
         forall|i: int| 0 <= i < full_plan@.len() ==>
             (#[trigger] full_plan@[i]).wf_spec(),
         forall|i: int| 0 <= i < full_plan@.len() ==>
@@ -926,26 +926,26 @@ fn check_dynamic_conjuncts_recursive(
         forall|i: int| 0 <= i < full_plan@.len() ==>
             step_geometrically_valid((#[trigger] full_plan@[i]).spec_step()),
         is_fully_independent_plan(ps, cs),
-        // Identity
+        //  Identity
         ps.len() == full_plan@.len(),
         cs.len() == constraints@.len(),
         forall|j: int| 0 <= j < full_plan@.len() ==>
             (#[trigger] ps[j]) == full_plan@[j].spec_step(),
         forall|j: int| 0 <= j < constraints@.len() ==>
             (#[trigger] cs[j]) == runtime_constraint_model(constraints@[j]),
-        // Self-consistency
+        //  Self-consistency
         forall|i: int| 0 <= i < n_points as int ==>
             (#[trigger] flags@[i]) ==
             partial_resolved_map(points_view(points@), flags@)
                 .dom().contains(i as nat),
-        // Domain invariant at si
+        //  Domain invariant at si
         forall|id: nat| (id as int) < n_points ==>
             (flags@[id as int] <==>
              execute_plan(ps.take(si as int)).dom().contains(id)),
         forall|id: EntityId|
             execute_plan(ps.take(si as int)).dom().contains(id) ==>
             (id as int) < n_points,
-        // Value invariant at si
+        //  Value invariant at si
         forall|id: EntityId|
             execute_plan(ps.take(si as int)).dom().contains(id)
             && !circle_targets(ps).contains(id)
@@ -989,9 +989,9 @@ fn check_dynamic_conjuncts_recursive(
         si + 1, n_points, Ghost(ps), Ghost(cs));
     proof {
         if rest {
-            // Step si's conjuncts come from process_single_step.
-            // Steps si+1..len come from the recursive call.
-            // Z3 hint: the recursive call covers si+1..len, and process_single_step covers si.
+            //  Step si's conjuncts come from process_single_step.
+            //  Steps si+1..len come from the recursive call.
+            //  Z3 hint: the recursive call covers si+1..len, and process_single_step covers si.
             assert(at_most_two_nontrivial_loci(step_target(ps[si as int]), cs,
                 execute_plan(ps.take(si as int)).dom()));
         }
@@ -999,7 +999,7 @@ fn check_dynamic_conjuncts_recursive(
     rest
 }
 
-/// Replay the full plan at runtime, checking conjuncts 9-12 at each step.
+///  Replay the full plan at runtime, checking conjuncts 9-12 at each step.
 pub fn check_full_plan_dynamic_conjuncts_exec(
     full_plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -1050,7 +1050,7 @@ pub fn check_full_plan_dynamic_conjuncts_exec(
     let ghost ps = plan_to_spec(full_plan@);
     let ghost cs = constraints_to_spec(constraints@);
 
-    // Initialize working state: all-zero points, all-false flags
+    //  Initialize working state: all-zero points, all-false flags
     let mut points: Vec<RuntimePoint2> = Vec::new();
     let mut flags: Vec<bool> = Vec::new();
     let mut init_i: usize = 0;
@@ -1071,16 +1071,16 @@ pub fn check_full_plan_dynamic_conjuncts_exec(
     }
 
     proof {
-        // Self-consistency: all flags false → prm.dom() empty
+        //  Self-consistency: all flags false → prm.dom() empty
         assert forall|i: int| 0 <= i < n_points as int implies
             (#[trigger] flags@[i]) ==
             partial_resolved_map(points_view(points@), flags@).dom().contains(i as nat)
         by { }
 
-        // Domain invariant at si=0: execute_plan(ps.take(0)) = Map::empty()
+        //  Domain invariant at si=0: execute_plan(ps.take(0)) = Map::empty()
         assert(ps.take(0) =~= Seq::<ConstructionStep<RationalModel>>::empty());
 
-        // plan_to_spec / constraints_to_spec identity
+        //  plan_to_spec / constraints_to_spec identity
         assert(ps.len() == full_plan@.len());
         assert forall|j: int| 0 <= j < full_plan@.len() implies
             (#[trigger] ps[j]) == full_plan@[j].spec_step()
@@ -1096,4 +1096,4 @@ pub fn check_full_plan_dynamic_conjuncts_exec(
         0, n_points, Ghost(ps), Ghost(cs))
 }
 
-} // verus!
+} //  verus!

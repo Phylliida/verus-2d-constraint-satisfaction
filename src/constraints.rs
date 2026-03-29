@@ -8,108 +8,108 @@ use crate::entities::*;
 
 verus! {
 
-// ===========================================================================
-//  Constraint types
-// ===========================================================================
+//  ===========================================================================
+//   Constraint types
+//  ===========================================================================
 
-/// A 2D geometric constraint between entities.
+///  A 2D geometric constraint between entities.
 pub enum Constraint<T: OrderedField> {
-    /// Two points coincide.
+    ///  Two points coincide.
     Coincident { a: EntityId, b: EntityId },
 
-    /// Squared distance between two points equals a value.
+    ///  Squared distance between two points equals a value.
     DistanceSq { a: EntityId, b: EntityId, dist_sq: T },
 
-    /// Fix the x-coordinate of a point.
+    ///  Fix the x-coordinate of a point.
     FixedX { point: EntityId, x: T },
 
-    /// Fix the y-coordinate of a point.
+    ///  Fix the y-coordinate of a point.
     FixedY { point: EntityId, y: T },
 
-    /// Two points share the same x-coordinate.
+    ///  Two points share the same x-coordinate.
     SameX { a: EntityId, b: EntityId },
 
-    /// Two points share the same y-coordinate.
+    ///  Two points share the same y-coordinate.
     SameY { a: EntityId, b: EntityId },
 
-    /// A point lies on the line through two other points.
+    ///  A point lies on the line through two other points.
     PointOnLine { point: EntityId, line_a: EntityId, line_b: EntityId },
 
-    /// Two segments have equal squared length.
+    ///  Two segments have equal squared length.
     EqualLengthSq { a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId },
 
-    /// A point is the midpoint of two other points.
+    ///  A point is the midpoint of two other points.
     Midpoint { mid: EntityId, a: EntityId, b: EntityId },
 
-    /// Two segments are perpendicular: dot product of direction vectors = 0.
+    ///  Two segments are perpendicular: dot product of direction vectors = 0.
     Perpendicular { a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId },
 
-    /// Two segments are parallel: cross product of direction vectors = 0.
+    ///  Two segments are parallel: cross product of direction vectors = 0.
     Parallel { a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId },
 
-    /// Three points are collinear (lie on a common line).
+    ///  Three points are collinear (lie on a common line).
     Collinear { a: EntityId, b: EntityId, c: EntityId },
 
-    /// Point lies on the circle defined by center and a radius-defining point.
-    /// sq_dist(point, center) ≡ sq_dist(radius_point, center)
+    ///  Point lies on the circle defined by center and a radius-defining point.
+    ///  sq_dist(point, center) ≡ sq_dist(radius_point, center)
     PointOnCircle { point: EntityId, center: EntityId, radius_point: EntityId },
 
-    /// Point is the reflection of `original` across the line through `axis_a` and `axis_b`.
+    ///  Point is the reflection of `original` across the line through `axis_a` and `axis_b`.
     Symmetric { point: EntityId, original: EntityId, axis_a: EntityId, axis_b: EntityId },
 
-    /// Fix a point to exact coordinates.
+    ///  Fix a point to exact coordinates.
     FixedPoint { point: EntityId, x: T, y: T },
 
-    /// Ratio of squared distances: |a1-a2|² ≡ ratio_sq * |b1-b2|²
+    ///  Ratio of squared distances: |a1-a2|² ≡ ratio_sq * |b1-b2|²
     Ratio { a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId, ratio_sq: T },
 
-    /// Line-circle tangency: the squared distance from center to the line through
-    /// (line_a, line_b) equals the squared radius (defined by center→radius_point).
-    /// eval² ≡ norm_sq * r_sq where line = line2_from_points(line_a, line_b).
+    ///  Line-circle tangency: the squared distance from center to the line through
+    ///  (line_a, line_b) equals the squared radius (defined by center→radius_point).
+    ///  eval² ≡ norm_sq * r_sq where line = line2_from_points(line_a, line_b).
     Tangent { line_a: EntityId, line_b: EntityId, center: EntityId, radius_point: EntityId },
 
-    /// Circle-circle tangency (external): (D - R1 - R2)² ≡ 4·R1·R2
-    /// where D = sq_dist(c1,c2), Ri = sq_dist(ci, rpi).
+    ///  Circle-circle tangency (external): (D - R1 - R2)² ≡ 4·R1·R2
+    ///  where D = sq_dist(c1,c2), Ri = sq_dist(ci, rpi).
     CircleTangent { c1: EntityId, rp1: EntityId, c2: EntityId, rp2: EntityId },
 
-    /// Angle between two segments via squared cosine:
-    /// dot(d1,d2)² ≡ cos_sq · norm_sq(d1) · norm_sq(d2)
-    /// where d1 = sub2(a2,a1), d2 = sub2(b2,b1).
+    ///  Angle between two segments via squared cosine:
+    ///  dot(d1,d2)² ≡ cos_sq · norm_sq(d1) · norm_sq(d2)
+    ///  where d1 = sub2(a2,a1), d2 = sub2(b2,b1).
     Angle { a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId, cos_sq: T },
 
-    /// Non-degeneracy: two points must NOT coincide.
-    /// Verification-only (no constructive locus).
+    ///  Non-degeneracy: two points must NOT coincide.
+    ///  Verification-only (no constructive locus).
     NotCoincident { a: EntityId, b: EntityId },
 
-    /// Normal to circle: a line segment (line_a, line_b) passes through the center
-    /// of a circle, and line_a lies on the circle.
-    /// Equivalent to: Collinear(line_a, line_b, center) AND PointOnCircle(line_a, center, radius_point).
-    /// Constructive for line_a (locus = circle intersected with line through line_b and center).
+    ///  Normal to circle: a line segment (line_a, line_b) passes through the center
+    ///  of a circle, and line_a lies on the circle.
+    ///  Equivalent to: Collinear(line_a, line_b, center) AND PointOnCircle(line_a, center, radius_point).
+    ///  Constructive for line_a (locus = circle intersected with line through line_b and center).
     NormalToCircle { line_a: EntityId, line_b: EntityId, center: EntityId, radius_point: EntityId },
 
-    /// Point lies on an ellipse defined by center, semi-major axis endpoint, and semi-minor axis endpoint.
-    /// The ellipse passes through semi_a and semi_b with axes along (semi_a - center) and (semi_b - center).
-    /// Check: ((dx·ux + dy·uy)²/a² + (dx·vx + dy·vy)²/b²) ≡ 1
-    /// where d = point - center, u = semi_a - center (unit direction), v = semi_b - center,
-    /// a = |semi_a - center|, b = |semi_b - center|.
-    /// Verification-only (quartic locus, not line/circle).
+    ///  Point lies on an ellipse defined by center, semi-major axis endpoint, and semi-minor axis endpoint.
+    ///  The ellipse passes through semi_a and semi_b with axes along (semi_a - center) and (semi_b - center).
+    ///  Check: ((dx·ux + dy·uy)²/a² + (dx·vx + dy·vy)²/b²) ≡ 1
+    ///  where d = point - center, u = semi_a - center (unit direction), v = semi_b - center,
+    ///  a = |semi_a - center|, b = |semi_b - center|.
+    ///  Verification-only (quartic locus, not line/circle).
     PointOnEllipse { point: EntityId, center: EntityId, semi_a: EntityId, semi_b: EntityId },
 
-    /// Point lies on a circular arc. The arc is defined by center, radius_point (defines radius),
-    /// and two boundary points arc_start and arc_end on the circle.
-    /// Check: point is on the circle AND the signed angle from arc_start to point (around center)
-    /// is between 0 and the signed angle from arc_start to arc_end.
-    /// Uses ordering (not just eqv), so the satisfaction check uses `le` comparisons.
-    /// Verification-only.
+    ///  Point lies on a circular arc. The arc is defined by center, radius_point (defines radius),
+    ///  and two boundary points arc_start and arc_end on the circle.
+    ///  Check: point is on the circle AND the signed angle from arc_start to point (around center)
+    ///  is between 0 and the signed angle from arc_start to arc_end.
+    ///  Uses ordering (not just eqv), so the satisfaction check uses `le` comparisons.
+    ///  Verification-only.
     PointOnArc { point: EntityId, center: EntityId, radius_point: EntityId,
                  arc_start: EntityId, arc_end: EntityId },
 }
 
-// ===========================================================================
-//  Constraint satisfaction predicate
-// ===========================================================================
+//  ===========================================================================
+//   Constraint satisfaction predicate
+//  ===========================================================================
 
-/// Check if a constraint is satisfied by the resolved point positions.
+///  Check if a constraint is satisfied by the resolved point positions.
 pub open spec fn constraint_satisfied<T: OrderedField>(
     c: Constraint<T>, resolved: ResolvedPoints<T>,
 ) -> bool {
@@ -167,7 +167,7 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
             resolved.dom().contains(a) &&
             resolved.dom().contains(b) && {
                 let two = T::one().add(T::one());
-                // mid.x * 2 ≡ a.x + b.x
+                //  mid.x * 2 ≡ a.x + b.x
                 resolved[mid].x.mul(two).eqv(resolved[a].x.add(resolved[b].x)) &&
                 resolved[mid].y.mul(two).eqv(resolved[a].y.add(resolved[b].y))
             }
@@ -176,8 +176,8 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
         Constraint::Perpendicular { a1, a2, b1, b2 } => {
             resolved.dom().contains(a1) && resolved.dom().contains(a2) &&
             resolved.dom().contains(b1) && resolved.dom().contains(b2) && {
-                // dot(sub2(a2, a1), sub2(b2, b1)) ≡ 0, expressed as point_on_line2
-                // to match the locus form and simplify soundness proofs.
+                //  dot(sub2(a2, a1), sub2(b2, b1)) ≡ 0, expressed as point_on_line2
+                //  to match the locus form and simplify soundness proofs.
                 let db = sub2(resolved[b2], resolved[b1]);
                 let c = db.x.mul(resolved[a1].x).add(db.y.mul(resolved[a1].y)).neg();
                 point_on_line2(Line2 { a: db.x, b: db.y, c }, resolved[a2])
@@ -187,7 +187,7 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
         Constraint::Parallel { a1, a2, b1, b2 } => {
             resolved.dom().contains(a1) && resolved.dom().contains(a2) &&
             resolved.dom().contains(b1) && resolved.dom().contains(b2) && {
-                // det2d(sub2(a2, a1), sub2(b2, b1)) ≡ 0, expressed as point_on_line2
+                //  det2d(sub2(a2, a1), sub2(b2, b1)) ≡ 0, expressed as point_on_line2
                 let db = sub2(resolved[b2], resolved[b1]);
                 let c = db.y.mul(resolved[a1].x).add(db.x.neg().mul(resolved[a1].y)).neg();
                 point_on_line2(Line2 { a: db.y, b: db.x.neg(), c }, resolved[a2])
@@ -278,10 +278,10 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
         Constraint::NormalToCircle { line_a, line_b, center, radius_point } => {
             resolved.dom().contains(line_a) && resolved.dom().contains(line_b) &&
             resolved.dom().contains(center) && resolved.dom().contains(radius_point) &&
-            // line_a on circle
+            //  line_a on circle
             sq_dist_2d(resolved[line_a], resolved[center]).eqv(
                 sq_dist_2d(resolved[radius_point], resolved[center])) &&
-            // line_a, line_b, center collinear
+            //  line_a, line_b, center collinear
             point_on_line2(
                 line2_from_points(resolved[line_a], resolved[line_b]),
                 resolved[center])
@@ -290,20 +290,20 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
         Constraint::PointOnEllipse { point, center, semi_a, semi_b } => {
             resolved.dom().contains(point) && resolved.dom().contains(center) &&
             resolved.dom().contains(semi_a) && resolved.dom().contains(semi_b) && {
-                // d = point - center
+                //  d = point - center
                 let d = sub2(resolved[point], resolved[center]);
-                // u = semi_a - center (semi-major axis vector)
+                //  u = semi_a - center (semi-major axis vector)
                 let u = sub2(resolved[semi_a], resolved[center]);
-                // v = semi_b - center (semi-minor axis vector)
+                //  v = semi_b - center (semi-minor axis vector)
                 let vv = sub2(resolved[semi_b], resolved[center]);
-                // a_sq = |u|², b_sq = |v|²
+                //  a_sq = |u|², b_sq = |v|²
                 let a_sq = u.x.mul(u.x).add(u.y.mul(u.y));
                 let b_sq = vv.x.mul(vv.x).add(vv.y.mul(vv.y));
-                // proj_u = dot(d, u), proj_v = dot(d, v)
+                //  proj_u = dot(d, u), proj_v = dot(d, v)
                 let proj_u = d.x.mul(u.x).add(d.y.mul(u.y));
                 let proj_v = d.x.mul(vv.x).add(d.y.mul(vv.y));
-                // Ellipse equation (multiplied through to avoid division):
-                // proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
+                //  Ellipse equation (multiplied through to avoid division):
+                //  proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
                 proj_u.mul(proj_u).mul(b_sq).add(proj_v.mul(proj_v).mul(a_sq))
                     .eqv(a_sq.mul(b_sq))
             }
@@ -313,24 +313,24 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
             resolved.dom().contains(point) && resolved.dom().contains(center) &&
             resolved.dom().contains(radius_point) && resolved.dom().contains(arc_start) &&
             resolved.dom().contains(arc_end) && {
-                // Point must be on the circle
+                //  Point must be on the circle
                 let on_circle = sq_dist_2d(resolved[point], resolved[center]).eqv(
                     sq_dist_2d(resolved[radius_point], resolved[center]));
-                // Angular check using cross products (signed area test).
-                // Point is on the arc from arc_start to arc_end (counterclockwise)
-                // iff orient2d(center, arc_start, point) >= 0
-                // and orient2d(center, point, arc_end) >= 0
-                // and (if the arc is > 180°, handle the reflex case).
+                //  Angular check using cross products (signed area test).
+                //  Point is on the arc from arc_start to arc_end (counterclockwise)
+                //  iff orient2d(center, arc_start, point) >= 0
+                //  and orient2d(center, point, arc_end) >= 0
+                //  and (if the arc is > 180°, handle the reflex case).
                 //
-                // For simplicity, use the "short arc" convention:
-                // orient2d(center, arc_start, point) and orient2d(center, point, arc_end)
-                // must have the same sign as orient2d(center, arc_start, arc_end).
+                //  For simplicity, use the "short arc" convention:
+                //  orient2d(center, arc_start, point) and orient2d(center, point, arc_end)
+                //  must have the same sign as orient2d(center, arc_start, arc_end).
                 let o_se = orient2d(resolved[center], resolved[arc_start], resolved[arc_end]);
                 let o_sp = orient2d(resolved[center], resolved[arc_start], resolved[point]);
                 let o_pe = orient2d(resolved[center], resolved[point], resolved[arc_end]);
-                // All three orient2d values have consistent sign (all >= 0 or all <= 0):
-                // For CCW arc: o_sp >= 0 && o_pe >= 0
-                // We use: o_sp * o_se >= 0 && o_pe * o_se >= 0 (same sign as the arc direction)
+                //  All three orient2d values have consistent sign (all >= 0 or all <= 0):
+                //  For CCW arc: o_sp >= 0 && o_pe >= 0
+                //  We use: o_sp * o_se >= 0 && o_pe * o_se >= 0 (same sign as the arc direction)
                 on_circle &&
                 T::zero().le(o_sp.mul(o_se)) &&
                 T::zero().le(o_pe.mul(o_se))
@@ -339,7 +339,7 @@ pub open spec fn constraint_satisfied<T: OrderedField>(
     }
 }
 
-/// All entities referenced by a constraint.
+///  All entities referenced by a constraint.
 pub open spec fn constraint_entities<T: OrderedField>(c: Constraint<T>) -> Set<EntityId> {
     match c {
         Constraint::Coincident { a, b } => set![a, b],
@@ -371,8 +371,8 @@ pub open spec fn constraint_entities<T: OrderedField>(c: Constraint<T>) -> Set<E
     }
 }
 
-/// A constraint is well-formed: entity IDs are distinct where required
-/// so that the constraint imposes a non-trivial geometric condition.
+///  A constraint is well-formed: entity IDs are distinct where required
+///  so that the constraint imposes a non-trivial geometric condition.
 pub open spec fn constraint_well_formed<T: OrderedField>(c: Constraint<T>) -> bool {
     match c {
         Constraint::Coincident { a, b } => a != b,
@@ -421,10 +421,10 @@ pub open spec fn constraint_well_formed<T: OrderedField>(c: Constraint<T>) -> bo
     }
 }
 
-/// Whether a constraint is a "verification-only" constraint.
-/// These constraints have no locus entities (constraint_locus_entities returns empty set),
-/// meaning the solver cannot constructively place points to satisfy them.
-/// Instead, they are checked after the plan is fully executed.
+///  Whether a constraint is a "verification-only" constraint.
+///  These constraints have no locus entities (constraint_locus_entities returns empty set),
+///  meaning the solver cannot constructively place points to satisfy them.
+///  Instead, they are checked after the plan is fully executed.
 pub open spec fn is_verification_constraint<T: OrderedField>(c: Constraint<T>) -> bool {
     match c {
         Constraint::Tangent { .. } => true,
@@ -438,7 +438,7 @@ pub open spec fn is_verification_constraint<T: OrderedField>(c: Constraint<T>) -
     }
 }
 
-/// Verification constraints have empty locus entities.
+///  Verification constraints have empty locus entities.
 pub proof fn lemma_verification_constraint_iff_empty_locus<T: OrderedField>(c: Constraint<T>)
     ensures
         is_verification_constraint(c) <==> constraint_locus_entities(c) =~= Set::empty(),
@@ -502,9 +502,9 @@ pub proof fn lemma_verification_constraint_iff_empty_locus<T: OrderedField>(c: C
     }
 }
 
-/// The entities for which constraint_to_locus can return a non-trivial locus.
-/// For most constraints, this is all entities. For PointOnLine, only `point`.
-/// For EqualLengthSq, only a1 and a2.
+///  The entities for which constraint_to_locus can return a non-trivial locus.
+///  For most constraints, this is all entities. For PointOnLine, only `point`.
+///  For EqualLengthSq, only a1 and a2.
 pub open spec fn constraint_locus_entities<T: OrderedField>(c: Constraint<T>) -> Set<EntityId> {
     match c {
         Constraint::Coincident { a, b } => set![a, b],
@@ -533,4 +533,4 @@ pub open spec fn constraint_locus_entities<T: OrderedField>(c: Constraint<T>) ->
     }
 }
 
-} // verus!
+} //  verus!

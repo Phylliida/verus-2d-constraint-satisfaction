@@ -19,11 +19,11 @@ type RationalModel = verus_rational::rational::Rational;
 
 verus! {
 
-// ===========================================================================
-//  Runtime locus type
-// ===========================================================================
+//  ===========================================================================
+//   Runtime locus type
+//  ===========================================================================
 
-/// Runtime representation of a geometric locus.
+///  Runtime representation of a geometric locus.
 pub enum RuntimeLocus {
     FullPlane,
     OnLine { line: RuntimeLine2 },
@@ -55,11 +55,11 @@ impl RuntimeLocus {
     }
 }
 
-// ===========================================================================
-//  Line construction helpers (runtime)
-// ===========================================================================
+//  ===========================================================================
+//   Line construction helpers (runtime)
+//  ===========================================================================
 
-/// Runtime vertical line at x-coordinate: mirrors spec-level vertical_line.
+///  Runtime vertical line at x-coordinate: mirrors spec-level vertical_line.
 fn vertical_line_exec(x: &RuntimeRational) -> (out: RuntimeLine2)
     requires x.wf_spec(),
     ensures out.wf_spec(), out@ == vertical_line::<RationalModel>(x@),
@@ -70,7 +70,7 @@ fn vertical_line_exec(x: &RuntimeRational) -> (out: RuntimeLine2)
     RuntimeLine2::new(one, zero, neg_x)
 }
 
-/// Runtime horizontal line at y-coordinate: mirrors spec-level horizontal_line.
+///  Runtime horizontal line at y-coordinate: mirrors spec-level horizontal_line.
 fn horizontal_line_exec(y: &RuntimeRational) -> (out: RuntimeLine2)
     requires y.wf_spec(),
     ensures out.wf_spec(), out@ == horizontal_line::<RationalModel>(y@),
@@ -81,12 +81,12 @@ fn horizontal_line_exec(y: &RuntimeRational) -> (out: RuntimeLine2)
     RuntimeLine2::new(zero, one, neg_y)
 }
 
-// ===========================================================================
-//  Per-constraint locus helpers
-// ===========================================================================
+//  ===========================================================================
+//   Per-constraint locus helpers
+//  ===========================================================================
 
-// Shared requires/ensures for all locus helpers (same as constraint_to_locus_exec).
-// Each helper handles one constraint variant, returning FullPlane for non-matching variants.
+//  Shared requires/ensures for all locus helpers (same as constraint_to_locus_exec).
+//  Each helper handles one constraint variant, returning FullPlane for non-matching variants.
 
 fn locus_coincident_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>, resolved_flags: &Vec<bool>, target: usize) -> (out: RuntimeLocus)
     requires
@@ -583,9 +583,9 @@ fn locus_ratio_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>, resolve
     }
 }
 
-/// Tangent, CircleTangent, and Angle constraints don't impose geometric loci
-/// (they are verification-only constraints). Returns FullPlane for matching
-/// variants, FullPlane for non-matching.
+///  Tangent, CircleTangent, and Angle constraints don't impose geometric loci
+///  (they are verification-only constraints). Returns FullPlane for matching
+///  variants, FullPlane for non-matching.
 fn locus_verification_only_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoint2>, resolved_flags: &Vec<bool>, target: usize) -> (out: RuntimeLocus)
     requires
         runtime_constraint_wf(*rc, points@.len() as nat), all_points_wf(points@),
@@ -598,14 +598,14 @@ fn locus_verification_only_exec(rc: &RuntimeConstraint, points: &Vec<RuntimePoin
     RuntimeLocus::FullPlane
 }
 
-// ===========================================================================
-//  Constraint → Locus at runtime (dispatcher)
-// ===========================================================================
+//  ===========================================================================
+//   Constraint → Locus at runtime (dispatcher)
+//  ===========================================================================
 
-/// Compute the locus a constraint imposes on target, given resolved points.
-/// `resolved_flags[i]` indicates whether entity i is resolved.
-/// Mirrors spec-level `constraint_to_locus`.
-/// Dispatches to per-constraint helpers for efficient verification.
+///  Compute the locus a constraint imposes on target, given resolved points.
+///  `resolved_flags[i]` indicates whether entity i is resolved.
+///  Mirrors spec-level `constraint_to_locus`.
+///  Dispatches to per-constraint helpers for efficient verification.
 pub fn constraint_to_locus_exec(
     rc: &RuntimeConstraint,
     points: &Vec<RuntimePoint2>,
@@ -617,7 +617,7 @@ pub fn constraint_to_locus_exec(
         all_points_wf(points@),
         resolved_flags@.len() == points@.len(),
         (target as int) < points@.len(),
-        // resolved_flags[i] == true iff entity i is in the partial resolved map
+        //  resolved_flags[i] == true iff entity i is in the partial resolved map
         forall|i: int| 0 <= i < resolved_flags@.len() ==>
             (#[trigger] resolved_flags@[i]) ==
             partial_resolved_map(points_view(points@), resolved_flags@).dom().contains(i as nat),
@@ -656,4 +656,4 @@ pub fn constraint_to_locus_exec(
     }
 }
 
-} // verus!
+} //  verus!

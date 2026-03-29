@@ -1,12 +1,12 @@
-/// DynFieldElem-specific pipeline: locus computation, intersection, constraint
-/// checking, and circle step execution using dyn_* methods directly.
+///  DynFieldElem-specific pipeline: locus computation, intersection, constraint
+///  checking, and circle step execution using dyn_* methods directly.
 ///
-/// This bypasses the OrderedField trait entirely, eliminating all assume(false)
-/// from the multi-depth tower path. Each function mirrors its generic_* counterpart
-/// but calls dyn_add/dyn_mul/etc. on DynFieldElem instead of rf_add/rf_mul on F.
+///  This bypasses the OrderedField trait entirely, eliminating all assume(false)
+///  from the multi-depth tower path. Each function mirrors its generic_* counterpart
+///  but calls dyn_add/dyn_mul/etc. on DynFieldElem instead of rf_add/rf_mul on F.
 ///
-/// All functions are fully verified — no external_body or assume. The trust
-/// boundary is the dyn_* primitive methods on DynFieldElem (in dyn_field.rs).
+///  All functions are fully verified — no external_body or assume. The trust
+///  boundary is the dyn_* primitive methods on DynFieldElem (in dyn_field.rs).
 use vstd::prelude::*;
 use verus_rational::runtime_rational::RuntimeRational;
 use verus_geometry::runtime::point2::RuntimePoint2;
@@ -27,11 +27,11 @@ type RationalModel = verus_rational::rational::Rational;
 
 verus! {
 
-// ═══════════════════════════════════════════════════════════════════
-//  DynTowerSpec constraint satisfaction predicate
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   DynTowerSpec constraint satisfaction predicate
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Spec-level squared distance using DynTowerSpec operations.
+///  Spec-level squared distance using DynTowerSpec operations.
 pub open spec fn dts_sq_dist(
     px: DynTowerSpec, py: DynTowerSpec,
     qx: DynTowerSpec, qy: DynTowerSpec,
@@ -41,7 +41,7 @@ pub open spec fn dts_sq_dist(
     dts_add(dts_mul(dx, dx), dts_mul(dy, dy))
 }
 
-/// Spec-level line evaluation: a*x + b*y + c.
+///  Spec-level line evaluation: a*x + b*y + c.
 pub open spec fn dts_line_eval(
     a: DynTowerSpec, b: DynTowerSpec, c: DynTowerSpec,
     x: DynTowerSpec, y: DynTowerSpec,
@@ -49,7 +49,7 @@ pub open spec fn dts_line_eval(
     dts_add(dts_add(dts_mul(a, x), dts_mul(b, y)), c)
 }
 
-/// Spec-level line coefficients from two points.
+///  Spec-level line coefficients from two points.
 pub open spec fn dts_line_from_points(
     px: DynTowerSpec, py: DynTowerSpec,
     qx: DynTowerSpec, qy: DynTowerSpec,
@@ -60,7 +60,7 @@ pub open spec fn dts_line_from_points(
     (a, b, c)
 }
 
-/// Extract spec models from a DynRtPoint2 Vec as (x, y) pairs.
+///  Extract spec models from a DynRtPoint2 Vec as (x, y) pairs.
 pub open spec fn dts_points_x(points: Seq<DynRtPoint2>, i: int) -> DynTowerSpec {
     dts_model(points[i].x)
 }
@@ -69,13 +69,13 @@ pub open spec fn dts_points_y(points: Seq<DynRtPoint2>, i: int) -> DynTowerSpec 
     dts_model(points[i].y)
 }
 
-/// Constraint satisfaction at the DynTowerSpec level.
-/// Mirrors `constraint_satisfied` but uses `dts_*` operations.
+///  Constraint satisfaction at the DynTowerSpec level.
+///  Mirrors `constraint_satisfied` but uses `dts_*` operations.
 ///
-/// For constraints with scalar fields that go through `dyn_embed_rational` or
-/// `dyn_one_like` inside arithmetic (Midpoint, Ratio, CircleTangent, Angle,
-/// Symmetric), we use existential witnesses to avoid requiring mul congruence.
-/// The runtime provides the witness via `dts_model` of the embedded value.
+///  For constraints with scalar fields that go through `dyn_embed_rational` or
+///  `dyn_one_like` inside arithmetic (Midpoint, Ratio, CircleTangent, Angle,
+///  Symmetric), we use existential witnesses to avoid requiring mul congruence.
+///  The runtime provides the witness via `dts_model` of the embedded value.
 pub open spec fn constraint_satisfied_dts(
     rc: RuntimeConstraint,
     points: Seq<DynRtPoint2>,
@@ -123,8 +123,8 @@ pub open spec fn constraint_satisfied_dts(
                     dts_points_x(points, b2 as int), dts_points_y(points, b2 as int)))
         }
         RuntimeConstraint::Midpoint { mid, a, b, .. } => {
-            // Runtime constructs `two` via dyn_one_like + dyn_add, giving dts_eqv to dts_one().
-            // Use existential witness to avoid mul congruence.
+            //  Runtime constructs `two` via dyn_one_like + dyn_add, giving dts_eqv to dts_one().
+            //  Use existential witness to avoid mul congruence.
             exists|two: DynTowerSpec|
                 dts_eqv(two, dts_add(dts_one(), dts_one()))
                 && dts_eqv(
@@ -175,7 +175,7 @@ pub open spec fn constraint_satisfied_dts(
             let py = dts_sub(dts_points_y(points, point as int), dts_points_y(points, original as int));
             let dot = dts_add(dts_mul(px, dx), dts_mul(py, dy));
             let perp = dts_eqv(dot, dts_zero());
-            // Midpoint on axis — uses existential for `two`
+            //  Midpoint on axis — uses existential for `two`
             let mx2 = dts_add(dts_points_x(points, point as int), dts_points_x(points, original as int));
             let my2 = dts_add(dts_points_y(points, point as int), dts_points_y(points, original as int));
             let (la, lb, lc) = dts_line_from_points(
@@ -225,9 +225,9 @@ pub open spec fn constraint_satisfied_dts(
                 dts_points_x(points, c2 as int), dts_points_y(points, c2 as int),
                 dts_points_x(points, rp2 as int), dts_points_y(points, rp2 as int));
             let diff = dts_sub(dts_sub(d, r1), r2);
-            // The `four` witness is provided by the runtime (dts_model of computed four).
-            // Without mul congruence, we can't prove it equals the canonical (1+1)*(1+1),
-            // so we accept any `four` value that makes the equation hold.
+            //  The `four` witness is provided by the runtime (dts_model of computed four).
+            //  Without mul congruence, we can't prove it equals the canonical (1+1)*(1+1),
+            //  so we accept any `four` value that makes the equation hold.
             exists|four: DynTowerSpec| #[trigger] dts_eqv(four, four) &&
                 dts_eqv(dts_mul(diff, diff), dts_mul(dts_mul(four, r1), r2))
         }
@@ -242,8 +242,8 @@ pub open spec fn constraint_satisfied_dts(
             exists|cs: DynTowerSpec| dts_eqv(cs, DynTowerSpec::Rat(cos_sq@))
                 && dts_eqv(dts_mul(dp, dp), dts_mul(dts_mul(cs, n1), n2))
         }
-        // New verification-only constraints: trivially true at DTS level
-        // (they're checked via the runtime checkers, not the DTS spec)
+        //  New verification-only constraints: trivially true at DTS level
+        //  (they're checked via the runtime checkers, not the DTS spec)
         RuntimeConstraint::NotCoincident { .. } => true,
         RuntimeConstraint::NormalToCircle { .. } => true,
         RuntimeConstraint::PointOnEllipse { .. } => true,
@@ -251,9 +251,9 @@ pub open spec fn constraint_satisfied_dts(
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  DynRtPoint2 — 2D point with DynFieldElem coordinates
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   DynRtPoint2 — 2D point with DynFieldElem coordinates
+//  ═══════════════════════════════════════════════════════════════════
 
 pub struct DynRtPoint2 {
     pub x: DynFieldElem,
@@ -282,9 +282,9 @@ impl DynRtPoint2 {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  DynRtLocus — runtime locus with DynFieldElem coordinates
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   DynRtLocus — runtime locus with DynFieldElem coordinates
+//  ═══════════════════════════════════════════════════════════════════
 
 pub enum DynRtLocus {
     FullPlane,
@@ -310,11 +310,11 @@ impl DynRtLocus {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Helpers: line from points, squared distance
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Helpers: line from points, squared distance
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Compute line coefficients (a, b, c) from two points using dyn_* ops.
+///  Compute line coefficients (a, b, c) from two points using dyn_* ops.
 fn dyn_line_from_points(
     p: &DynRtPoint2,
     q: &DynRtPoint2,
@@ -336,7 +336,7 @@ fn dyn_line_from_points(
     (a, b, c)
 }
 
-/// Squared distance between two DynRtPoint2.
+///  Squared distance between two DynRtPoint2.
 fn dyn_sq_dist(
     p: &DynRtPoint2,
     q: &DynRtPoint2,
@@ -354,15 +354,15 @@ fn dyn_sq_dist(
     dx2.dyn_add(&dy2)
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Well-formedness predicate
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Well-formedness predicate
+//  ═══════════════════════════════════════════════════════════════════
 
 pub open spec fn all_dyn_points_wf(points: Seq<DynRtPoint2>) -> bool {
     forall|i: int| 0 <= i < points.len() ==> (#[trigger] points[i]).wf_spec()
 }
 
-/// Wrap a Vec of rational RuntimePoint2 values as DynRtPoint2 (at tower depth 0).
+///  Wrap a Vec of rational RuntimePoint2 values as DynRtPoint2 (at tower depth 0).
 pub fn wrap_rationals_as_dyn(points: &Vec<RuntimePoint2>) -> (out: Vec<DynRtPoint2>)
     requires
         all_points_wf(points@),
@@ -389,11 +389,11 @@ pub fn wrap_rationals_as_dyn(points: &Vec<RuntimePoint2>) -> (out: Vec<DynRtPoin
     result
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Greedy solver helpers for DynRtLocus
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Greedy solver helpers for DynRtLocus
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Collect dyn loci for a target entity from all constraints.
+///  Collect dyn loci for a target entity from all constraints.
 pub fn collect_loci_dyn_for_target(
     constraints: &Vec<RuntimeConstraint>,
     dyn_points: &Vec<DynRtPoint2>,
@@ -410,7 +410,7 @@ pub fn collect_loci_dyn_for_target(
     ensures
         out@.len() == constraints@.len(),
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
-        // Nontriviality bridge: spec-nontrivial constraints produce nontrivial dyn loci
+        //  Nontriviality bridge: spec-nontrivial constraints produce nontrivial dyn loci
         forall|i: int| #![trigger out@[i]] 0 <= i < out@.len() ==>
             (is_nontrivial_for_target(
                 runtime_constraint_model(constraints@[i]),
@@ -448,8 +448,8 @@ pub fn collect_loci_dyn_for_target(
     loci
 }
 
-/// Find the first two nontrivial loci in a Vec<DynRtLocus>.
-/// Returns (index1, index2) or None.
+///  Find the first two nontrivial loci in a Vec<DynRtLocus>.
+///  Returns (index1, index2) or None.
 pub fn find_two_nontrivial_dyn(
     loci: &Vec<DynRtLocus>,
 ) -> (out: Option<(usize, usize)>)
@@ -508,8 +508,8 @@ pub fn find_two_nontrivial_dyn(
     Some((first, second))
 }
 
-/// Line-line intersection using DynFieldElem arithmetic.
-/// Returns None if lines are parallel (det ≡ 0).
+///  Line-line intersection using DynFieldElem arithmetic.
+///  Returns None if lines are parallel (det ≡ 0).
 pub fn dyn_line_line_intersection(
     a1: &DynFieldElem, b1: &DynFieldElem, c1: &DynFieldElem,
     a2: &DynFieldElem, b2: &DynFieldElem, c2: &DynFieldElem,
@@ -525,23 +525,23 @@ pub fn dyn_line_line_intersection(
     if det.dyn_eq(&zero) {
         return None;
     }
-    // x = (b1*c2 - b2*c1) / det
+    //  x = (b1*c2 - b2*c1) / det
     let x_num = b1.dyn_mul(c2).dyn_sub(&b2.dyn_mul(c1));
-    // y = (a2*c1 - a1*c2) / det
+    //  y = (a2*c1 - a1*c2) / det
     let y_num = a2.dyn_mul(c1).dyn_sub(&a1.dyn_mul(c2));
     let x = x_num.dyn_div(&det);
     let y = y_num.dyn_div(&det);
     Some(DynRtPoint2::new(x, y))
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  constraint_to_locus_dyn — 19-arm constraint → locus
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   constraint_to_locus_dyn — 19-arm constraint → locus
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Compute the locus a constraint imposes on a target entity.
+///  Compute the locus a constraint imposes on a target entity.
 ///
-/// Mechanical translation of constraint_to_locus_generic, replacing
-/// rf_* calls with dyn_* calls on DynFieldElem.
+///  Mechanical translation of constraint_to_locus_generic, replacing
+///  rf_* calls with dyn_* calls on DynFieldElem.
 pub fn constraint_to_locus_dyn(
     rc: &RuntimeConstraint,
     points: &Vec<DynRtPoint2>,
@@ -556,14 +556,14 @@ pub fn constraint_to_locus_dyn(
         points@.len() > 0,
     ensures
         out.wf_spec(),
-        // Nontriviality bridge: if spec says nontrivial, dyn locus is nontrivial
+        //  Nontriviality bridge: if spec says nontrivial, dyn locus is nontrivial
         is_nontrivial_for_target(
             runtime_constraint_model(*rc),
             target as nat,
             Set::new(|id: nat| (id as int) < resolved_flags@.len() && resolved_flags@[id as int]))
         ==> out.is_nontrivial(),
 {
-    // Use first point's x for zero_like/one_like/embed_rational context
+    //  Use first point's x for zero_like/one_like/embed_rational context
     let template = &points[0].x;
     match rc {
         RuntimeConstraint::Coincident { a, b, .. } => {
@@ -789,7 +789,7 @@ pub fn constraint_to_locus_dyn(
             } else { DynRtLocus::FullPlane }
         }
 
-        // Verification-only constraints: no geometric locus
+        //  Verification-only constraints: no geometric locus
         RuntimeConstraint::Tangent { .. } => { DynRtLocus::FullPlane }
         RuntimeConstraint::CircleTangent { .. } => { DynRtLocus::FullPlane }
         RuntimeConstraint::Angle { .. } => { DynRtLocus::FullPlane }
@@ -800,14 +800,14 @@ pub fn constraint_to_locus_dyn(
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Circle-line intersection → DynRtPoint2
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Circle-line intersection → DynRtPoint2
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Circle-line intersection producing DynRtPoint2 directly.
+///  Circle-line intersection producing DynRtPoint2 directly.
 ///
-/// Constructs DynFieldElem::Extension nodes directly instead of
-/// going through RuntimeQExt. No OrderedField trait needed.
+///  Constructs DynFieldElem::Extension nodes directly instead of
+///  going through RuntimeQExt. No OrderedField trait needed.
 fn dyn_cl_intersection(
     cx: &DynFieldElem, cy: &DynFieldElem, radius_sq: &DynFieldElem,
     la: &DynFieldElem, lb: &DynFieldElem, lc: &DynFieldElem,
@@ -821,35 +821,35 @@ fn dyn_cl_intersection(
     ensures
         out.wf_spec(),
 {
-    // A = a² + b²
+    //  A = a² + b²
     let a_sq = la.dyn_mul(la);
     let b_sq = lb.dyn_mul(lb);
     let big_a = a_sq.dyn_add(&b_sq);
 
-    // h = a*cx + b*cy + c
+    //  h = a*cx + b*cy + c
     let h = la.dyn_mul(cx).dyn_add(&lb.dyn_mul(cy)).dyn_add(lc);
 
-    // re_x = cx - a*h/A
+    //  re_x = cx - a*h/A
     let re_x = cx.dyn_sub(&la.dyn_mul(&h).dyn_div(&big_a));
 
-    // im_x = ∓b/A  (minus for plus=true)
+    //  im_x = ∓b/A  (minus for plus=true)
     let im_x = if plus {
         lb.dyn_neg().dyn_div(&big_a)
     } else {
         lb.dyn_copy().dyn_div(&big_a)
     };
 
-    // re_y = cy - b*h/A
+    //  re_y = cy - b*h/A
     let re_y = cy.dyn_sub(&lb.dyn_mul(&h).dyn_div(&big_a));
 
-    // im_y = ±a/A
+    //  im_y = ±a/A
     let im_y = if plus {
         la.dyn_copy().dyn_div(&big_a)
     } else {
         la.dyn_neg().dyn_div(&big_a)
     };
 
-    // Construct extension elements directly
+    //  Construct extension elements directly
     let x_ext = DynFieldElem::Extension {
         re: Box::new(re_x),
         im: Box::new(im_x),
@@ -864,7 +864,7 @@ fn dyn_cl_intersection(
     DynRtPoint2 { x: x_ext, y: y_ext }
 }
 
-/// Circle-circle intersection via radical axis → circle-line.
+///  Circle-circle intersection via radical axis → circle-line.
 fn dyn_cc_intersection(
     c1x: &DynFieldElem, c1y: &DynFieldElem, r1sq: &DynFieldElem,
     c2x: &DynFieldElem, c2y: &DynFieldElem, r2sq: &DynFieldElem,
@@ -878,13 +878,13 @@ fn dyn_cc_intersection(
     ensures
         out.wf_spec(),
 {
-    // Radical axis: la = 2(c2x-c1x), lb = 2(c2y-c1y)
+    //  Radical axis: la = 2(c2x-c1x), lb = 2(c2y-c1y)
     let one = c1x.dyn_one_like();
     let two = one.dyn_add(&c1x.dyn_one_like());
     let la = two.dyn_mul(&c2x.dyn_sub(c1x));
     let lb = two.dyn_mul(&c2y.dyn_sub(c1y));
 
-    // lc = c1x²+c1y²-r1sq - (c2x²+c2y²-r2sq)
+    //  lc = c1x²+c1y²-r1sq - (c2x²+c2y²-r2sq)
     let c1_sq = c1x.dyn_mul(c1x).dyn_add(&c1y.dyn_mul(c1y));
     let c2_sq = c2x.dyn_mul(c2x).dyn_add(&c2y.dyn_mul(c2y));
     let lc = c1_sq.dyn_sub(r1sq).dyn_sub(&c2_sq.dyn_sub(r2sq));
@@ -892,12 +892,12 @@ fn dyn_cc_intersection(
     dyn_cl_intersection(c1x, c1y, r1sq, &la, &lb, &lc, radicand, plus)
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Locus intersection
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Locus intersection
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Intersect two loci (circle+line or circle+circle) to produce a
-/// DynRtPoint2 in the extension field.
+///  Intersect two loci (circle+line or circle+circle) to produce a
+///  DynRtPoint2 in the extension field.
 pub fn intersect_loci_dyn(
     locus1: &DynRtLocus,
     locus2: &DynRtLocus,
@@ -912,7 +912,7 @@ pub fn intersect_loci_dyn(
         out.is_some() ==> out.unwrap().wf_spec(),
 {
     match (locus1, locus2) {
-        // Circle + Line
+        //  Circle + Line
         (DynRtLocus::OnCircle { cx, cy, radius_sq },
          DynRtLocus::OnLine { a, b, c }) => {
             let a_sq = a.dyn_mul(a);
@@ -925,7 +925,7 @@ pub fn intersect_loci_dyn(
             Some(dyn_cl_intersection(cx, cy, radius_sq, a, b, c, radicand, plus))
         }
 
-        // Line + Circle (swap)
+        //  Line + Circle (swap)
         (DynRtLocus::OnLine { a, b, c },
          DynRtLocus::OnCircle { cx, cy, radius_sq }) => {
             let a_sq = a.dyn_mul(a);
@@ -938,10 +938,10 @@ pub fn intersect_loci_dyn(
             Some(dyn_cl_intersection(cx, cy, radius_sq, a, b, c, radicand, plus))
         }
 
-        // Circle + Circle
+        //  Circle + Circle
         (DynRtLocus::OnCircle { cx: c1x, cy: c1y, radius_sq: r1sq },
          DynRtLocus::OnCircle { cx: c2x, cy: c2y, radius_sq: r2sq }) => {
-            // Check radical axis non-degeneracy
+            //  Check radical axis non-degeneracy
             let one = c1x.dyn_one_like();
             let two = one.dyn_add(&c1x.dyn_one_like());
             let ra = two.dyn_mul(&c2x.dyn_sub(c1x));
@@ -960,9 +960,9 @@ pub fn intersect_loci_dyn(
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Constraint checking — dyn versions of all 19 checkers
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Constraint checking — dyn versions of all 19 checkers
+//  ═══════════════════════════════════════════════════════════════════
 
 fn d_eqv(a: &DynFieldElem, b: &DynFieldElem) -> (out: bool)
     requires a.dyn_wf(), b.dyn_wf()
@@ -1166,17 +1166,17 @@ fn check_midpoint_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out
             let sy = points[*a].y.dyn_add(&points[*b].y);
             let result = d_eqv(&mx2, &sx) && d_eqv(&my2, &sy);
             proof { if result {
-                // dts_model(two) == dts_add(dts_model(one1), dts_model(one2))
-                // dts_eqv(dts_model(one1), dts_one()) and dts_eqv(dts_model(one2), dts_one())
-                // By add_congruence_left: dts_eqv(dts_add(m1, m2), dts_add(dts_one(), m2))
-                // Then add_commutative + add_congruence_left for m2→dts_one()
+                //  dts_model(two) == dts_add(dts_model(one1), dts_model(one2))
+                //  dts_eqv(dts_model(one1), dts_one()) and dts_eqv(dts_model(one2), dts_one())
+                //  By add_congruence_left: dts_eqv(dts_add(m1, m2), dts_add(dts_one(), m2))
+                //  Then add_commutative + add_congruence_left for m2→dts_one()
                 lemma_dts_add_congruence_left(dts_model(one1), dts_one(), dts_model(one2));
-                // Now: dts_eqv(dts_add(dts_model(one1), dts_model(one2)), dts_add(dts_one(), dts_model(one2)))
-                // = dts_eqv(dts_model(two), dts_add(dts_one(), dts_model(one2)))
+                //  Now: dts_eqv(dts_add(dts_model(one1), dts_model(one2)), dts_add(dts_one(), dts_model(one2)))
+                //  = dts_eqv(dts_model(two), dts_add(dts_one(), dts_model(one2)))
                 lemma_dts_add_commutative(dts_one(), dts_model(one2));
                 lemma_dts_add_commutative(dts_one(), dts_one());
                 lemma_dts_add_congruence_left(dts_model(one2), dts_one(), dts_one());
-                // dts_eqv(dts_add(dts_model(one2), dts_one()), dts_add(dts_one(), dts_one()))
+                //  dts_eqv(dts_add(dts_model(one2), dts_one()), dts_add(dts_one(), dts_one()))
                 lemma_dts_eqv_transitive(
                     dts_add(dts_one(), dts_model(one2)),
                     dts_add(dts_model(one2), dts_one()),
@@ -1281,7 +1281,7 @@ fn check_point_on_circle_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) 
     }
 }
 
-/// Helper: check perpendicularity for Symmetric constraint.
+///  Helper: check perpendicularity for Symmetric constraint.
 fn check_symmetric_perp_dyn(
     pt: &DynRtPoint2, orig: &DynRtPoint2,
     ax_a: &DynRtPoint2, ax_b: &DynRtPoint2,
@@ -1309,7 +1309,7 @@ fn check_symmetric_perp_dyn(
     result
 }
 
-/// Helper: check midpoint-on-axis for Symmetric constraint.
+///  Helper: check midpoint-on-axis for Symmetric constraint.
 fn check_symmetric_axis_dyn(
     pt: &DynRtPoint2, orig: &DynRtPoint2,
     ax_a: &DynRtPoint2, ax_b: &DynRtPoint2,
@@ -1416,10 +1416,10 @@ fn check_ratio_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: b
             let result = d_eqv(&da, &rhs);
             proof {
                 if result {
-                    // Existential witness: r = dts_model(rsq)
-                    // 1. dts_eqv(dts_model(rsq), Rat(ratio_sq@)) — from dyn_embed_rational
-                    // 2. dts_eqv(da_spec, dts_mul(dts_model(rsq), db_spec)) — from d_eqv(da, rhs)
-                    // Both hold directly; provide witness to close the existential.
+                    //  Existential witness: r = dts_model(rsq)
+                    //  1. dts_eqv(dts_model(rsq), Rat(ratio_sq@)) — from dyn_embed_rational
+                    //  2. dts_eqv(da_spec, dts_mul(dts_model(rsq), db_spec)) — from d_eqv(da, rhs)
+                    //  Both hold directly; provide witness to close the existential.
                     assert(dts_eqv(dts_model(rsq), DynTowerSpec::Rat(ratio_sq@)));
                 }
             }
@@ -1450,7 +1450,7 @@ fn check_tangent_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out:
     }
 }
 
-/// Helper: compute circle tangent check with isolated proof context.
+///  Helper: compute circle tangent check with isolated proof context.
 fn check_circle_tangent_inner_dyn(
     c1_pt: &DynRtPoint2, rp1_pt: &DynRtPoint2,
     c2_pt: &DynRtPoint2, rp2_pt: &DynRtPoint2,
@@ -1527,15 +1527,15 @@ fn check_angle_dyn(rc: &RuntimeConstraint, points: &Vec<DynRtPoint2>) -> (out: b
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Dispatcher + check_all loop
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Dispatcher + check_all loop
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Check if a single constraint is satisfied by DynRtPoint2 positions.
-/// Note: DynFieldElem has no spec model connecting it to the algebraic
-/// constraint_satisfied predicate. The correctness of these checks relies
-/// on the dyn_* primitives faithfully implementing field arithmetic.
-/// For formal constraint_satisfied guarantees, use solve_and_verify<R>.
+///  Check if a single constraint is satisfied by DynRtPoint2 positions.
+///  Note: DynFieldElem has no spec model connecting it to the algebraic
+///  constraint_satisfied predicate. The correctness of these checks relies
+///  on the dyn_* primitives faithfully implementing field arithmetic.
+///  For formal constraint_satisfied guarantees, use solve_and_verify<R>.
 pub fn check_constraint_satisfied_dyn(
     rc: &RuntimeConstraint,
     points: &Vec<DynRtPoint2>,
@@ -1567,8 +1567,8 @@ pub fn check_constraint_satisfied_dyn(
         RuntimeConstraint::Tangent { .. } => check_tangent_dyn(rc, points),
         RuntimeConstraint::CircleTangent { .. } => check_circle_tangent_dyn(rc, points),
         RuntimeConstraint::Angle { .. } => check_angle_dyn(rc, points),
-        // New verification-only constraints — trivially true for now
-        // (constraint_satisfied_dts returns true for these)
+        //  New verification-only constraints — trivially true for now
+        //  (constraint_satisfied_dts returns true for these)
         RuntimeConstraint::NotCoincident { .. } => true,
         RuntimeConstraint::NormalToCircle { .. } => true,
         RuntimeConstraint::PointOnEllipse { .. } => true,
@@ -1576,8 +1576,8 @@ pub fn check_constraint_satisfied_dyn(
     }
 }
 
-/// Check if ALL constraints are satisfied by DynRtPoint2 positions.
-/// See check_constraint_satisfied_dyn for trust boundary notes.
+///  Check if ALL constraints are satisfied by DynRtPoint2 positions.
+///  See check_constraint_satisfied_dyn for trust boundary notes.
 pub fn check_all_constraints_dyn(
     constraints: &Vec<RuntimeConstraint>,
     points: &Vec<DynRtPoint2>,
@@ -1612,12 +1612,12 @@ pub fn check_all_constraints_dyn(
     true
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Execute circle steps at one level → DynRtPoint2
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Execute circle steps at one level → DynRtPoint2
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Embed a single DynRtPoint2 to one level deeper by wrapping
-/// coordinates as Extension { re=coord, im=0, radicand }.
+///  Embed a single DynRtPoint2 to one level deeper by wrapping
+///  coordinates as Extension { re=coord, im=0, radicand }.
 pub fn embed_dyn_point(p: &DynRtPoint2, radicand: &DynFieldElem) -> (out: DynRtPoint2)
     requires p.wf_spec(), radicand.dyn_wf()
     ensures out.wf_spec()
@@ -1635,11 +1635,11 @@ pub fn embed_dyn_point(p: &DynRtPoint2, radicand: &DynFieldElem) -> (out: DynRtP
     DynRtPoint2 { x: x_ext, y: y_ext }
 }
 
-/// Execute circle steps at a given level using DynFieldElem directly.
+///  Execute circle steps at a given level using DynFieldElem directly.
 ///
-/// All positions start as DynRtPoint2. Circle step targets get their
-/// coordinates replaced with DynFieldElem::Extension nodes (one level deeper).
-/// Non-circle positions are embedded by wrapping as Extension { re, im=0, radicand }.
+///  All positions start as DynRtPoint2. Circle step targets get their
+///  coordinates replaced with DynFieldElem::Extension nodes (one level deeper).
+///  Non-circle positions are embedded by wrapping as Extension { re, im=0, radicand }.
 pub fn execute_circle_steps_dyn(
     positions: &Vec<DynRtPoint2>,
     abstract_plan: &Vec<AbstractPlanStep>,
@@ -1666,7 +1666,7 @@ pub fn execute_circle_steps_dyn(
 {
     let n_entities = positions.len();
 
-    // Build resolved flags: all true
+    //  Build resolved flags: all true
     let mut resolved_flags: Vec<bool> = Vec::new();
     let mut ri: usize = 0;
     while ri < n_entities
@@ -1680,7 +1680,7 @@ pub fn execute_circle_steps_dyn(
         ri = ri + 1;
     }
 
-    // Compute intersection points for circle steps at this level
+    //  Compute intersection points for circle steps at this level
     let mut circle_results: Vec<(usize, DynRtPoint2)> = Vec::new();
 
     let mut si: usize = 0;
@@ -1714,7 +1714,7 @@ pub fn execute_circle_steps_dyn(
                         return None;
                     }
 
-                    // Compute loci in current field
+                    //  Compute loci in current field
                     let locus1 = constraint_to_locus_dyn(
                         &constraints[ci1], positions, &resolved_flags, target,
                     );
@@ -1722,7 +1722,7 @@ pub fn execute_circle_steps_dyn(
                         &constraints[ci2], positions, &resolved_flags, target,
                     );
 
-                    // Intersect → one level deeper
+                    //  Intersect → one level deeper
                     let intersection = intersect_loci_dyn(
                         &locus1, &locus2, radicand, plus,
                     );
@@ -1734,13 +1734,13 @@ pub fn execute_circle_steps_dyn(
                         }
                     }
                 }
-                _ => {} // Point/LineLine are level 0
+                _ => {} //  Point/LineLine are level 0
             }
         }
         si = si + 1;
     }
 
-    // Embed all positions to the extension level
+    //  Embed all positions to the extension level
     let mut ext_positions: Vec<DynRtPoint2> = Vec::new();
     let mut pi: usize = 0;
     while pi < n_entities
@@ -1759,7 +1759,7 @@ pub fn execute_circle_steps_dyn(
         pi = pi + 1;
     }
 
-    // Overwrite circle step targets with computed intersection points
+    //  Overwrite circle step targets with computed intersection points
     let mut ci: usize = 0;
     while ci < circle_results.len()
         invariant
@@ -1784,12 +1784,12 @@ pub fn execute_circle_steps_dyn(
     Some(ext_positions)
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Compute radicand (discriminant) for a tower level
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Compute radicand (discriminant) for a tower level
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Compute the discriminant D = A·rsq - h² for the first circle step
-/// at a given level, using dyn_* operations directly.
+///  Compute the discriminant D = A·rsq - h² for the first circle step
+///  at a given level, using dyn_* operations directly.
 pub fn compute_radicand_dyn(
     positions: &Vec<DynRtPoint2>,
     abstract_plan: &Vec<AbstractPlanStep>,
@@ -1810,7 +1810,7 @@ pub fn compute_radicand_dyn(
 {
     let n = positions.len();
 
-    // Build all-true resolved flags
+    //  Build all-true resolved flags
     let mut resolved_flags: Vec<bool> = Vec::new();
     let mut rfi: usize = 0;
     while rfi < n
@@ -1824,7 +1824,7 @@ pub fn compute_radicand_dyn(
         rfi = rfi + 1;
     }
 
-    // Find first circle step at target_level
+    //  Find first circle step at target_level
     let mut si: usize = 0;
     while si < abstract_plan.len()
         invariant
@@ -1857,7 +1857,7 @@ pub fn compute_radicand_dyn(
                         &constraints[ci2], positions, &resolved_flags, target,
                     );
 
-                    // Extract discriminant from locus pair
+                    //  Extract discriminant from locus pair
                     match (&locus1, &locus2) {
                         (DynRtLocus::OnCircle { cx, cy, radius_sq },
                          DynRtLocus::OnLine { a, b, c }) => {
@@ -1896,19 +1896,19 @@ pub fn compute_radicand_dyn(
                         _ => { return None; }
                     }
                 }
-                _ => {} // not a circle step
+                _ => {} //  not a circle step
             }
         }
         si = si + 1;
     }
-    None // no circle step found at this level
+    None //  no circle step found at this level
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Convert rational positions to DynRtPoint2
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Convert rational positions to DynRtPoint2
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Wrap rational positions as DynRtPoint2 with DynFieldElem::Rational coords.
+///  Wrap rational positions as DynRtPoint2 with DynFieldElem::Rational coords.
 pub fn rational_to_dyn_rt(
     points: &Vec<RuntimePoint2>,
 ) -> (out: Vec<DynRtPoint2>)
@@ -1939,11 +1939,11 @@ pub fn rational_to_dyn_rt(
     result
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Extract rational approximation from DynRtPoint2
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Extract rational approximation from DynRtPoint2
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Extract rational points from DynRtPoint2 positions.
+///  Extract rational points from DynRtPoint2 positions.
 pub fn extract_rational_points_dyn(
     positions: &Vec<DynRtPoint2>,
 ) -> (out: Vec<RuntimePoint2>)
@@ -1973,15 +1973,15 @@ pub fn extract_rational_points_dyn(
     result
 }
 
-// ═══════════════════════════════════════════════════════════════════
-//  Execute all levels using DynRtPoint2 (no OrderedField trait)
-// ═══════════════════════════════════════════════════════════════════
+//  ═══════════════════════════════════════════════════════════════════
+//   Execute all levels using DynRtPoint2 (no OrderedField trait)
+//  ═══════════════════════════════════════════════════════════════════
 
-/// Execute construction at all tower levels using DynRtPoint2 directly.
+///  Execute construction at all tower levels using DynRtPoint2 directly.
 ///
-/// This replaces execute_all_levels from multi_level.rs. No OrderedField
-/// trait is needed — all arithmetic goes through dyn_* methods.
-/// No assume(false) or assume(expr) anywhere in this path.
+///  This replaces execute_all_levels from multi_level.rs. No OrderedField
+///  trait is needed — all arithmetic goes through dyn_* methods.
+///  No assume(false) or assume(expr) anywhere in this path.
 pub fn execute_all_levels_dyn(
     points: &Vec<RuntimePoint2>,
     abstract_plan: &Vec<AbstractPlanStep>,
@@ -2021,17 +2021,17 @@ pub fn execute_all_levels_dyn(
     {
         let current_level = level + 1;
 
-        // Compute radicand for this tower level
+        //  Compute radicand for this tower level
         let radicand_opt = compute_radicand_dyn(
             &positions, abstract_plan, constraints, constraint_pairs, levels, current_level,
         );
 
         match radicand_opt {
             None => {
-                // No circle step at this level — skip
+                //  No circle step at this level — skip
             }
             Some(radicand) => {
-                // Execute circle steps: positions → one level deeper
+                //  Execute circle steps: positions → one level deeper
                 let result = execute_circle_steps_dyn(
                     &positions, abstract_plan, constraints, constraint_pairs,
                     levels, current_level, &radicand,
@@ -2052,4 +2052,4 @@ pub fn execute_all_levels_dyn(
     Some(positions)
 }
 
-} // verus!
+} //  verus!

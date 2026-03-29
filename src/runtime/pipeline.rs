@@ -28,11 +28,11 @@ type RationalModel = verus_rational::rational::Rational;
 
 verus! {
 
-// ===========================================================================
-//  Spec: Full plan construction
-// ===========================================================================
+//  ===========================================================================
+//   Spec: Full plan construction
+//  ===========================================================================
 
-/// Count the number of initially-resolved entities (flags[i] == true).
+///  Count the number of initially-resolved entities (flags[i] == true).
 pub open spec fn count_initial(flags: Seq<bool>) -> nat
     decreases flags.len(),
 {
@@ -44,8 +44,8 @@ pub open spec fn count_initial(flags: Seq<bool>) -> nat
     }
 }
 
-/// Build PointSteps for initially-resolved entities, in order 0..n-1.
-/// Only entities with flags[i] == true get a step.
+///  Build PointSteps for initially-resolved entities, in order 0..n-1.
+///  Only entities with flags[i] == true get a step.
 pub open spec fn initial_point_steps(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -69,8 +69,8 @@ pub open spec fn initial_point_steps(
     }
 }
 
-/// Build the full plan: initial PointSteps for resolved entities,
-/// followed by solver steps.
+///  Build the full plan: initial PointSteps for resolved entities,
+///  followed by solver steps.
 pub open spec fn build_full_plan(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -79,11 +79,11 @@ pub open spec fn build_full_plan(
     initial_point_steps(points, flags) + solver_plan
 }
 
-// ===========================================================================
-//  Spec: Properties of initial_point_steps
-// ===========================================================================
+//  ===========================================================================
+//   Spec: Properties of initial_point_steps
+//  ===========================================================================
 
-/// All targets of initial_point_steps are distinct.
+///  All targets of initial_point_steps are distinct.
 proof fn lemma_initial_steps_distinct_targets(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -114,32 +114,32 @@ proof fn lemma_initial_steps_distinct_targets(
                     != step_target(#[trigger] full[j])
             by {
                 if i < prefix.len() as int && j < prefix.len() as int {
-                    // Both in prefix: use IH
+                    //  Both in prefix: use IH
                     assert(full[i] == prefix[i]);
                     assert(full[j] == prefix[j]);
                     assert(step_target(prefix[i]) != step_target(prefix[j]));
                 } else if i < prefix.len() as int {
-                    // i in prefix, j is the new step targeting n
+                    //  i in prefix, j is the new step targeting n
                     assert(full[i] == prefix[i]);
                     assert((step_target(prefix[i]) as int) < points.take(n).len());
                     assert(full[j] == (ConstructionStep::PointStep {
                         id: n as nat, position: points[n],
                     }));
                 } else if j < prefix.len() as int {
-                    // j in prefix, i is the new step targeting n
+                    //  j in prefix, i is the new step targeting n
                     assert(full[j] == prefix[j]);
                     assert((step_target(prefix[j]) as int) < points.take(n).len());
                     assert(full[i] == (ConstructionStep::PointStep {
                         id: n as nat, position: points[n],
                     }));
                 }
-                // else both are the new step, but i != j and there's only one
+                //  else both are the new step, but i != j and there's only one
             }
         }
     }
 }
 
-/// All targets of initial_point_steps are < points.len().
+///  All targets of initial_point_steps are < points.len().
 proof fn lemma_initial_steps_targets_bounded(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -158,7 +158,7 @@ proof fn lemma_initial_steps_targets_bounded(
         let full = initial_point_steps(points, flags);
         lemma_initial_steps_targets_bounded(points.take(n), flags.take(n));
         if flags[n] {
-            // full == prefix.push(PointStep { id: n, ... })
+            //  full == prefix.push(PointStep { id: n, ... })
             assert forall|i: int|
                 0 <= i < full.len()
             implies
@@ -168,7 +168,7 @@ proof fn lemma_initial_steps_targets_bounded(
                     assert(full[i] == prefix[i]);
                     assert((step_target(prefix[i]) as int) < points.take(n).len());
                 } else {
-                    // i == prefix.len(), the new step targets n
+                    //  i == prefix.len(), the new step targets n
                     assert(full[i] == (ConstructionStep::PointStep {
                         id: n as nat, position: points[n],
                     }));
@@ -178,7 +178,7 @@ proof fn lemma_initial_steps_targets_bounded(
     }
 }
 
-/// All initial_point_steps are rational (PointStep).
+///  All initial_point_steps are rational (PointStep).
 proof fn lemma_initial_steps_are_rational(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -213,8 +213,8 @@ proof fn lemma_initial_steps_are_rational(
     }
 }
 
-/// Initial steps are all PointSteps, hence trivially geometrically valid,
-/// have positive discriminant, and match any radicand.
+///  Initial steps are all PointSteps, hence trivially geometrically valid,
+///  have positive discriminant, and match any radicand.
 proof fn lemma_initial_steps_trivial_properties<R: PositiveRadicand<RationalModel>>(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -251,8 +251,8 @@ proof fn lemma_initial_steps_trivial_properties<R: PositiveRadicand<RationalMode
     }
 }
 
-/// For each initial step, execute_step_in_ext gives lift_point2(points[target]).
-/// This holds because every initial step is a PointStep with position = points[id].
+///  For each initial step, execute_step_in_ext gives lift_point2(points[target]).
+///  This holds because every initial step is a PointStep with position = points[id].
 proof fn lemma_initial_steps_execute_in_ext<R: PositiveRadicand<RationalModel>>(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -285,22 +285,22 @@ proof fn lemma_initial_steps_execute_in_ext<R: PositiveRadicand<RationalModel>>(
             by {
                 if i < prefix.len() as int {
                     assert(full[i] == prefix[i]);
-                    // From IH: execute_step_in_ext(prefix[i])
-                    //   == lift_point2(points.take(n)[step_target(prefix[i])])
-                    // step_target(prefix[i]) < n from targets_bounded
-                    // points.take(n)[j] == points[j] for j < n
+                    //  From IH: execute_step_in_ext(prefix[i])
+                    //    == lift_point2(points.take(n)[step_target(prefix[i])])
+                    //  step_target(prefix[i]) < n from targets_bounded
+                    //  points.take(n)[j] == points[j] for j < n
                 } else {
-                    // full[i] == PointStep { id: n, position: points[n] }
-                    // execute_step_in_ext = lift_point2(points[n])
-                    // step_target = n
+                    //  full[i] == PointStep { id: n, position: points[n] }
+                    //  execute_step_in_ext = lift_point2(points[n])
+                    //  step_target = n
                 }
             }
         }
-        // !flags[n]: full == prefix, IH applies (with take/full equiv)
+        //  !flags[n]: full == prefix, IH applies (with take/full equiv)
     }
 }
 
-/// Initial step targets always have flags[target] == true.
+///  Initial step targets always have flags[target] == true.
 proof fn lemma_initial_steps_flags_true(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -325,19 +325,19 @@ proof fn lemma_initial_steps_flags_true(
             by {
                 if i < prefix.len() as int {
                     assert(full[i] == prefix[i]);
-                    // IH: flags.take(n)[step_target(prefix[i])] == true
-                    // step_target(prefix[i]) < n, so flags.take(n)[target] == flags[target]
+                    //  IH: flags.take(n)[step_target(prefix[i])] == true
+                    //  step_target(prefix[i]) < n, so flags.take(n)[target] == flags[target]
                 }
-                // else: full[i] = PointStep { id: n, .. }, flags[n] == true
+                //  else: full[i] = PointStep { id: n, .. }, flags[n] == true
             }
         }
-        // !flags[n]: full == prefix, IH applies
+        //  !flags[n]: full == prefix, IH applies
     }
 }
 
-/// Converse of lemma_initial_steps_flags_true: if flags[id] == true, then id
-/// is a target of some initial step. Together with the forward direction, this
-/// gives: flags[id] <==> id is an init step target.
+///  Converse of lemma_initial_steps_flags_true: if flags[id] == true, then id
+///  is a target of some initial step. Together with the forward direction, this
+///  gives: flags[id] <==> id is an init step target.
 proof fn lemma_initial_steps_cover_flags(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -357,32 +357,32 @@ proof fn lemma_initial_steps_cover_flags(
     let prefix = initial_point_steps(points.take(n), flags.take(n));
 
     if id as int == n {
-        // flags[n] == true, so full = prefix.push(PointStep { id: n, ... })
-        // The last step has target n == id
+        //  flags[n] == true, so full = prefix.push(PointStep { id: n, ... })
+        //  The last step has target n == id
         assert(full == prefix.push(ConstructionStep::PointStep {
             id: n as nat, position: points[n],
         }));
         let last = full.len() - 1;
         assert(step_target(full[last]) == id);
     } else {
-        // id < n, recurse on prefix
+        //  id < n, recurse on prefix
         assert(flags.take(n)[id as int] == flags[id as int]);
         lemma_initial_steps_cover_flags(points.take(n), flags.take(n), id);
         let i = choose|i: int| 0 <= i < prefix.len()
             && step_target(prefix[i]) == id;
         if flags[n] {
-            // full = prefix.push(...)  → full[i] == prefix[i]
+            //  full = prefix.push(...)  → full[i] == prefix[i]
             assert(full[i] == prefix[i]);
         } else {
-            // full == prefix (no new step added)
+            //  full == prefix (no new step added)
             assert(full =~= prefix);
         }
         assert(step_target(full[i]) == id);
     }
 }
 
-/// Runtime check: all solver step targets have initial_flags[target] == false.
-/// Needed to prove distinct_targets(full_plan) (no overlap between init and solver targets).
+///  Runtime check: all solver step targets have initial_flags[target] == false.
+///  Needed to prove distinct_targets(full_plan) (no overlap between init and solver targets).
 fn check_solver_targets_unresolved(
     plan: &Vec<RuntimeStepData>,
     flags: &Vec<bool>,
@@ -415,8 +415,8 @@ fn check_solver_targets_unresolved(
     true
 }
 
-/// Runtime check: every constraint entity is either resolved (initial_flags)
-/// or a solver step target. Ensures entity coverage for the full plan.
+///  Runtime check: every constraint entity is either resolved (initial_flags)
+///  or a solver step target. Ensures entity coverage for the full plan.
 fn check_entity_coverage_exec(
     plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -441,7 +441,7 @@ fn check_entity_coverage_exec(
 {
     let n = initial_flags.len();
 
-    // Build coverage vector: starts as copy of initial_flags
+    //  Build coverage vector: starts as copy of initial_flags
     let mut covered: Vec<bool> = Vec::new();
     let mut i: usize = 0;
     while i < n
@@ -456,7 +456,7 @@ fn check_entity_coverage_exec(
         i = i + 1;
     }
 
-    // Mark all solver step targets as covered
+    //  Mark all solver step targets as covered
     let mut j: usize = 0;
     while j < plan.len()
         invariant
@@ -465,13 +465,13 @@ fn check_entity_coverage_exec(
             forall|i: int| 0 <= i < plan@.len() ==> (#[trigger] plan@[i]).wf_spec(),
             forall|i: int| 0 <= i < plan@.len() ==>
                 (step_target((#[trigger] plan@[i]).spec_step()) as int) < n,
-            // Every covered entry is justified
+            //  Every covered entry is justified
             forall|k: int| 0 <= k < n ==>
                 #[trigger] covered@[k] ==> (
                     initial_flags@[k]
                     || exists|jj: int| 0 <= jj < j
                         && step_target(plan@[jj].spec_step()) == k as nat),
-            // All step targets so far are covered
+            //  All step targets so far are covered
             forall|jj: int| 0 <= jj < j ==>
                 covered@[step_target(plan@[jj].spec_step()) as int],
         decreases plan@.len() - j,
@@ -480,13 +480,13 @@ fn check_entity_coverage_exec(
         let mut old_val = true;
         covered.set_and_swap(target, &mut old_val);
         proof {
-            // The new covered[target] is justified by step j
+            //  The new covered[target] is justified by step j
             assert(step_target(plan@[j as int].spec_step()) == target as nat);
         }
         j = j + 1;
     }
 
-    // Check all constraint entities are covered
+    //  Check all constraint entities are covered
     let mut ci: usize = 0;
     while ci < constraints.len()
         invariant
@@ -499,7 +499,7 @@ fn check_entity_coverage_exec(
                     initial_flags@[k]
                     || exists|jj: int| 0 <= jj < plan@.len()
                         && step_target(plan@[jj].spec_step()) == k as nat),
-            // All constraints checked so far have coverage
+            //  All constraints checked so far have coverage
             forall|ci2: int| 0 <= ci2 < ci ==>
                 forall|id: EntityId|
                     constraint_entities(
@@ -527,7 +527,7 @@ fn check_entity_coverage_exec(
                         initial_flags@[kk]
                         || exists|jj: int| 0 <= jj < plan@.len()
                             && step_target(plan@[jj].spec_step()) == kk as nat),
-                // All checked entity IDs so far are covered
+                //  All checked entity IDs so far are covered
                 forall|j: int| 0 <= j < k ==>
                     covered@[ids@[j] as int],
             decreases ids@.len() - k,
@@ -537,8 +537,8 @@ fn check_entity_coverage_exec(
             }
             k = k + 1;
         }
-        // Now we know all entity IDs in the Vec are covered.
-        // Transfer from Vec coverage to constraint_entities coverage.
+        //  Now we know all entity IDs in the Vec are covered.
+        //  Transfer from Vec coverage to constraint_entities coverage.
         proof {
             assert forall|id: EntityId|
                 constraint_entities(
@@ -550,9 +550,9 @@ fn check_entity_coverage_exec(
                         && step_target(plan@[j].spec_step()) == id
                 ))
             by {
-                // constraint_entity_ids backward: e ∈ constraint_entities → exists j, ids[j] == e
+                //  constraint_entity_ids backward: e ∈ constraint_entities → exists j, ids[j] == e
                 let j = choose|j: int| 0 <= j < ids@.len() && ids@[j] as nat == id;
-                // covered[ids[j]] == true → covered[id] == true
+                //  covered[ids[j]] == true → covered[id] == true
                 assert(covered@[ids@[j] as int]);
             }
         }
@@ -561,8 +561,8 @@ fn check_entity_coverage_exec(
     true
 }
 
-/// circle_targets of the full plan equals circle_targets of the solver plan
-/// (since initial steps are all rational).
+///  circle_targets of the full plan equals circle_targets of the solver plan
+///  (since initial steps are all rational).
 proof fn lemma_full_plan_circle_targets(
     points: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -577,29 +577,29 @@ proof fn lemma_full_plan_circle_targets(
     let full = build_full_plan(points, flags, solver_plan);
     lemma_initial_steps_are_rational(points, flags);
 
-    // Prove set equality by showing both containments
+    //  Prove set equality by showing both containments
     assert forall|id: EntityId|
         circle_targets(full).contains(id) <==>
         circle_targets(solver_plan).contains(id)
     by {
-        // Forward: if id ∈ circle_targets(full), exists k with !is_rational(full[k]) && target == id
+        //  Forward: if id ∈ circle_targets(full), exists k with !is_rational(full[k]) && target == id
         if circle_targets(full).contains(id) {
             let k = choose|k: int| 0 <= k < full.len()
                 && !is_rational_step(#[trigger] full[k])
                 && step_target(full[k]) == id;
-            // k must be >= init.len() because all init steps are rational
+            //  k must be >= init.len() because all init steps are rational
             if k < init.len() as int {
                 assert(is_rational_step(init[k]));
                 assert(full[k] == init[k]);
                 assert(false);
             }
-            // So k >= init.len(), meaning full[k] == solver_plan[k - init.len()]
+            //  So k >= init.len(), meaning full[k] == solver_plan[k - init.len()]
             assert((full == init + solver_plan));
             assert(full[k] == solver_plan[k - init.len() as int]);
             assert(!is_rational_step(solver_plan[k - init.len() as int]));
             assert(step_target(solver_plan[k - init.len() as int]) == id);
         }
-        // Backward: if id ∈ circle_targets(solver_plan), exists k with !is_rational(solver_plan[k])
+        //  Backward: if id ∈ circle_targets(solver_plan), exists k with !is_rational(solver_plan[k])
         if circle_targets(solver_plan).contains(id) {
             let k = choose|k: int| 0 <= k < solver_plan.len()
                 && !is_rational_step(#[trigger] solver_plan[k])
@@ -610,12 +610,12 @@ proof fn lemma_full_plan_circle_targets(
     }
 }
 
-// ===========================================================================
-//  Exec: Build initial PointSteps at runtime
-// ===========================================================================
+//  ===========================================================================
+//   Exec: Build initial PointSteps at runtime
+//  ===========================================================================
 
-/// Build a Vec<RuntimeStepData> for the initially-resolved entities.
-/// Iterates 0..n, creating a PointStep for each i where flags[i] == true.
+///  Build a Vec<RuntimeStepData> for the initially-resolved entities.
+///  Iterates 0..n, creating a PointStep for each i where flags[i] == true.
 pub fn build_initial_steps_exec(
     points: &Vec<RuntimePoint2>,
     flags: &Vec<bool>,
@@ -644,7 +644,7 @@ pub fn build_initial_steps_exec(
         decreases n - i,
     {
         proof {
-            // Help Z3 with take(i+1) decomposition
+            //  Help Z3 with take(i+1) decomposition
             assert(pts_spec.take(i as int + 1).take(i as int) =~= pts_spec.take(i as int));
             assert(flags@.take(i as int + 1).take(i as int) =~= flags@.take(i as int));
         }
@@ -665,16 +665,16 @@ pub fn build_initial_steps_exec(
             };
 
             proof {
-                // Show the new step is well-formed
+                //  Show the new step is well-formed
                 assert(step.wf_spec());
-                // Show plan_to_spec correspondence after push
+                //  Show plan_to_spec correspondence after push
                 let old_spec = plan_to_spec(steps@);
                 let new_step_spec = step.spec_step();
                 assert(new_step_spec == (ConstructionStep::PointStep {
                     id: i as nat, position: pts_spec[i as int],
                 }));
-                // initial_point_steps(take(i+1), take(i+1)) = take(i) version .push(...)
-                // since flags@.take(i+1)[i] == flags@[i] == true
+                //  initial_point_steps(take(i+1), take(i+1)) = take(i) version .push(...)
+                //  since flags@.take(i+1)[i] == flags@[i] == true
                 assert(flags@.take(i as int + 1)[i as int] == flags@[i as int]);
                 assert(pts_spec.take(i as int + 1)[i as int] == pts_spec[i as int]);
             }
@@ -682,8 +682,8 @@ pub fn build_initial_steps_exec(
             steps.push(step);
 
             proof {
-                // After push, plan_to_spec(steps@) should equal
-                // initial_point_steps(pts_spec.take(i+1), flags@.take(i+1))
+                //  After push, plan_to_spec(steps@) should equal
+                //  initial_point_steps(pts_spec.take(i+1), flags@.take(i+1))
                 assert(plan_to_spec(steps@) =~=
                     plan_to_spec(steps@.drop_last()).push(steps@.last().spec_step()));
                 assert(plan_to_spec(steps@.drop_last()) =~=
@@ -691,7 +691,7 @@ pub fn build_initial_steps_exec(
             }
         } else {
             proof {
-                // flags[i] == false, so initial_point_steps unchanged
+                //  flags[i] == false, so initial_point_steps unchanged
                 assert(flags@.take(i as int + 1)[i as int] == flags@[i as int]);
             }
         }
@@ -707,7 +707,7 @@ pub fn build_initial_steps_exec(
     steps
 }
 
-/// Concatenate initial steps with solver steps.
+///  Concatenate initial steps with solver steps.
 pub fn concat_plans(
     initial: Vec<RuntimeStepData>,
     solver: &Vec<RuntimeStepData>,
@@ -730,10 +730,10 @@ pub fn concat_plans(
             result@.len() == old_result.len() + i,
             forall|j: int| 0 <= j < result@.len() ==> (#[trigger] result@[j]).wf_spec(),
             forall|j: int| 0 <= j < solver@.len() ==> (#[trigger] solver@[j]).wf_spec(),
-            // First part matches initial
+            //  First part matches initial
             forall|j: int| 0 <= j < old_result.len() ==>
                 (#[trigger] result@[j]).spec_step() == old_result[j].spec_step(),
-            // Appended part matches solver
+            //  Appended part matches solver
             forall|j: int| 0 <= j < i ==>
                 (#[trigger] result@[old_result.len() + j]).spec_step() == solver@[j].spec_step(),
         decreases solver@.len() - i,
@@ -744,7 +744,7 @@ pub fn concat_plans(
     }
 
     proof {
-        // Show plan_to_spec distributes over concatenation
+        //  Show plan_to_spec distributes over concatenation
         assert(plan_to_spec(result@) =~=
             plan_to_spec(old_result) + plan_to_spec(solver@)) by {
             assert forall|j: int| 0 <= j < result@.len()
@@ -752,7 +752,7 @@ pub fn concat_plans(
                 (plan_to_spec(old_result) + plan_to_spec(solver@))[j]
             by {
                 if j < old_result.len() as int {
-                    // result@[j].spec_step() == old_result[j].spec_step()
+                    //  result@[j].spec_step() == old_result[j].spec_step()
                     assert(result@[j].spec_step() == old_result[j].spec_step());
                 } else {
                     let k = j - old_result.len() as int;
@@ -766,9 +766,9 @@ pub fn concat_plans(
     result
 }
 
-// ===========================================================================
-//  Helpers: copy points and flags
-// ===========================================================================
+//  ===========================================================================
+//   Helpers: copy points and flags
+//  ===========================================================================
 
 fn copy_point2(p: &RuntimePoint2) -> (out: RuntimePoint2)
     requires p.wf_spec(),
@@ -833,55 +833,55 @@ fn copy_flags_vec(flags: &Vec<bool>) -> (out: Vec<bool>)
     result
 }
 
-// ===========================================================================
-//  Pipeline: solve_and_verify
-// ===========================================================================
+//  ===========================================================================
+//   Pipeline: solve_and_verify
+//  ===========================================================================
 
-/// A verified solution: the plan, execution results, and ghost constraints.
+///  A verified solution: the plan, execution results, and ghost constraints.
 pub struct VerifiedSolution<R: PositiveRadicand<RationalModel>> {
-    /// The solver plan (steps for free entities only).
+    ///  The solver plan (steps for free entities only).
     pub plan: Vec<RuntimeStepData>,
-    /// Execution results from execute_plan_runtime.
+    ///  Execution results from execute_plan_runtime.
     pub results: Vec<RuntimeConstructionResult<R>>,
-    /// Extension-level resolved points for all entities.
+    ///  Extension-level resolved points for all entities.
     pub ext_points: Vec<RuntimeQExtPoint2<R>>,
-    /// Ghost constraints for the soundness theorem.
+    ///  Ghost constraints for the soundness theorem.
     pub ghost_constraints: Ghost<Seq<Constraint<RationalModel>>>,
-    /// Ghost full plan (initial PointSteps + solver steps) for the soundness theorem.
+    ///  Ghost full plan (initial PointSteps + solver steps) for the soundness theorem.
     pub ghost_full_plan: Ghost<ConstructionPlan<RationalModel>>,
 }
 
-/// A type-erased solution containing rational approximations.
-/// Used by solve_and_verify_auto which dispatches across radicand types.
+///  A type-erased solution containing rational approximations.
+///  Used by solve_and_verify_auto which dispatches across radicand types.
 pub struct SolvedPoints {
-    /// The solver plan (steps for free entities only).
+    ///  The solver plan (steps for free entities only).
     pub plan: Vec<RuntimeStepData>,
-    /// Rational (re) components of the solved points for ALL entities.
-    /// For rational entities, this is the exact position.
-    /// For irrational entities, this is the rational part (re of a + b*sqrt(d)).
+    ///  Rational (re) components of the solved points for ALL entities.
+    ///  For rational entities, this is the exact position.
+    ///  For irrational entities, this is the rational part (re of a + b*sqrt(d)).
     pub points_re: Vec<RuntimePoint2>,
-    /// Ghost: number of constraints verified at the extension level.
-    /// When this equals the input constraint count, all constraints were satisfied.
+    ///  Ghost: number of constraints verified at the extension level.
+    ///  When this equals the input constraint count, all constraints were satisfied.
     pub ghost_n_constraints_verified: Ghost<nat>,
 }
 
-/// Result of solving with minimum-displacement variant selection.
+///  Result of solving with minimum-displacement variant selection.
 pub enum SolveResult {
-    /// A verified solution with minimum displacement among all valid variants.
+    ///  A verified solution with minimum displacement among all valid variants.
     Solved { solution: SolvedPoints },
-    /// The greedy solver couldn't resolve all free entities (under/over-constrained).
-    /// Includes per-entity diagnostics explaining why each entity is stuck.
+    ///  The greedy solver couldn't resolve all free entities (under/over-constrained).
+    ///  Includes per-entity diagnostics explaining why each entity is stuck.
     NoConstruction {
         n_resolved: usize,
         n_free: usize,
         unresolved_ids: Vec<usize>,
         diagnostics: Vec<(StuckEntityDiagnostic, StuckReason)>,
     },
-    /// A construction plan was found, but no sign variant satisfies all constraints.
+    ///  A construction plan was found, but no sign variant satisfies all constraints.
     Unsatisfiable { plan: Vec<RuntimeStepData> },
 }
 
-/// Extract rational parts from ext_points into a Vec<RuntimePoint2>.
+///  Extract rational parts from ext_points into a Vec<RuntimePoint2>.
 fn extract_rational_parts<R: PositiveRadicand<RationalModel>>(
     ext_points: &Vec<RuntimeQExtPoint2<R>>,
 ) -> (out: Vec<RuntimePoint2>)
@@ -913,8 +913,8 @@ fn extract_rational_parts<R: PositiveRadicand<RationalModel>>(
     result
 }
 
-/// Recursive predicate: output contains every value from input[0..n].
-/// Avoids forall-exists quantifiers that Z3 struggles with.
+///  Recursive predicate: output contains every value from input[0..n].
+///  Avoids forall-exists quantifiers that Z3 struggles with.
 pub open spec fn seq_contains_all(output: Seq<u64>, input: Seq<u64>, n: int) -> bool
     decreases n,
 {
@@ -925,14 +925,14 @@ pub open spec fn seq_contains_all(output: Seq<u64>, input: Seq<u64>, n: int) -> 
     }
 }
 
-/// seq_contains_all is monotone in the output: extending the output preserves it.
-/// If output[w] == val, then output.push(v)[w] == val (push preserves existing elements).
+///  seq_contains_all is monotone in the output: extending the output preserves it.
+///  If output[w] == val, then output.push(v)[w] == val (push preserves existing elements).
 proof fn lemma_push_preserves_index(output: Seq<u64>, v: u64, w: int, val: u64)
     requires 0 <= w < output.len(), output[w] == val,
     ensures output.push(v)[w] == val,
 {}
 
-/// seq_contains_all is monotone: extending output preserves containment.
+///  seq_contains_all is monotone: extending output preserves containment.
 proof fn lemma_seq_contains_all_push(output: Seq<u64>, input: Seq<u64>, n: int, v: u64)
     requires
         seq_contains_all(output, input, n),
@@ -943,16 +943,16 @@ proof fn lemma_seq_contains_all_push(output: Seq<u64>, input: Seq<u64>, n: int, 
 {
     if n > 0 {
         lemma_seq_contains_all_push(output, input, n - 1, v);
-        // For k == n-1: need exists|j| output.push(v)[j] == input[n-1]
-        // From seq_contains_all(output, input, n):
-        //   exists|w| output[w] == input[n-1]
-        // output.push(v)[w] == output[w] for w < output.len()
+        //  For k == n-1: need exists|j| output.push(v)[j] == input[n-1]
+        //  From seq_contains_all(output, input, n):
+        //    exists|w| output[w] == input[n-1]
+        //  output.push(v)[w] == output[w] for w < output.len()
         let w = choose|w: int| 0 <= w < output.len() && output[w] == input[n - 1];
         lemma_push_preserves_index(output, v, w, input[n - 1]);
     }
 }
 
-/// Dedup preserving completeness.
+///  Dedup preserving completeness.
 pub fn dedup_masks(input: &Vec<u64>) -> (out: Vec<u64>)
     ensures
         out@.len() <= input@.len(),
@@ -986,24 +986,24 @@ pub fn dedup_masks(input: &Vec<u64>) -> (out: Vec<u64>)
                 lemma_seq_contains_all_push(result@, input@, i as int, m);
             }
             result.push(m);
-            // result@ is now old_result@.push(m), and the lemma gave us
-            // seq_contains_all(old_result@.push(m), input@, i) which is
-            // seq_contains_all(result@, input@, i) ✓
-            // Also: result@[result@.len()-1] == m == input@[i] ✓
+            //  result@ is now old_result@.push(m), and the lemma gave us
+            //  seq_contains_all(old_result@.push(m), input@, i) which is
+            //  seq_contains_all(result@, input@, i) ✓
+            //  Also: result@[result@.len()-1] == m == input@[i] ✓
             proof {
                 assert(result@[result@.len() - 1] == m);
                 assert(m == input@[i as int]);
             }
         } else {
-            // result unchanged, so seq_contains_all(result@, input@, i) still holds
-            // and the inner loop proved exists|j| result@[j] == m == input@[i]
+            //  result unchanged, so seq_contains_all(result@, input@, i) still holds
+            //  and the inner loop proved exists|j| result@[j] == m == input@[i]
         }
         i = i + 1;
     }
     result
 }
 
-/// Convert a VerifiedSolution to SolvedPoints by extracting rational parts.
+///  Convert a VerifiedSolution to SolvedPoints by extracting rational parts.
 fn to_solved_points<R: PositiveRadicand<RationalModel>>(
     solution: &VerifiedSolution<R>,
 ) -> (out: SolvedPoints)
@@ -1021,11 +1021,11 @@ fn to_solved_points<R: PositiveRadicand<RationalModel>>(
     SolvedPoints { plan, points_re, ghost_n_constraints_verified: Ghost(n) }
 }
 
-// ===========================================================================
-//  Proof: execute_plan_in_ext map lookup for distinct-target plans
-// ===========================================================================
+//  ===========================================================================
+//   Proof: execute_plan_in_ext map lookup for distinct-target plans
+//  ===========================================================================
 
-/// For a plan with distinct targets, execute_plan_in_ext(plan)[target_k] == execute_step_in_ext(plan[k]).
+///  For a plan with distinct targets, execute_plan_in_ext(plan)[target_k] == execute_step_in_ext(plan[k]).
 proof fn lemma_execute_plan_in_ext_at_target<R: PositiveRadicand<RationalModel>>(
     plan: ConstructionPlan<RationalModel>,
 )
@@ -1046,7 +1046,7 @@ proof fn lemma_execute_plan_in_ext_at_target<R: PositiveRadicand<RationalModel>>
         let step = plan.last();
         let target = step_target(step);
 
-        // Prefix has distinct targets
+        //  Prefix has distinct targets
         assert forall|i: int, j: int|
             0 <= i < prefix.len() && 0 <= j < prefix.len() && i != j
         implies step_target(prefix[i]) != step_target(prefix[j])
@@ -1057,7 +1057,7 @@ proof fn lemma_execute_plan_in_ext_at_target<R: PositiveRadicand<RationalModel>>
 
         lemma_execute_plan_in_ext_at_target::<R>(prefix);
 
-        // result_map == prefix_map.insert(target, execute_step_in_ext(step))
+        //  result_map == prefix_map.insert(target, execute_step_in_ext(step))
         assert forall|k: int| 0 <= k < plan.len()
         implies execute_plan_in_ext::<RationalModel, R>(plan).dom().contains(
             step_target(#[trigger] plan[k]))
@@ -1073,27 +1073,27 @@ proof fn lemma_execute_plan_in_ext_at_target<R: PositiveRadicand<RationalModel>>
         by {
             if k < prefix.len() as int {
                 assert(plan[k] == prefix[k]);
-                // step_target(plan[k]) != target (distinct targets)
+                //  step_target(plan[k]) != target (distinct targets)
                 assert(step_target(plan[k]) != step_target(plan[(plan.len() - 1) as int]));
             }
         }
     }
 }
 
-/// For a plan with distinct targets, ext_vec_to_resolved_map agrees with
-/// execute_plan_in_ext on all plan targets.
+///  For a plan with distinct targets, ext_vec_to_resolved_map agrees with
+///  execute_plan_in_ext on all plan targets.
 proof fn lemma_ext_vec_agrees_with_plan<R: PositiveRadicand<RationalModel>>(
     ext_points: Seq<RuntimeQExtPoint2<R>>,
     plan: ConstructionPlan<RationalModel>,
 )
     requires
-        // Distinct targets
+        //  Distinct targets
         forall|i: int, j: int| 0 <= i < plan.len() && 0 <= j < plan.len() && i != j
             ==> step_target(plan[i]) != step_target(plan[j]),
-        // All targets < ext_points.len()
+        //  All targets < ext_points.len()
         forall|k: int| 0 <= k < plan.len() ==>
             (step_target(#[trigger] plan[k]) as int) < ext_points.len(),
-        // ext_points matches execute_step_in_ext at each target
+        //  ext_points matches execute_step_in_ext at each target
         forall|k: int| 0 <= k < plan.len() ==>
             ext_points[step_target(#[trigger] plan[k]) as int]@
                 == execute_step_in_ext::<RationalModel, R>(plan[k]),
@@ -1110,13 +1110,13 @@ proof fn lemma_ext_vec_agrees_with_plan<R: PositiveRadicand<RationalModel>>(
         let target = step_target(step);
         let last_idx = (plan.len() - 1) as int;
 
-        // Prefix has distinct targets
+        //  Prefix has distinct targets
         assert forall|i: int, j: int|
             0 <= i < prefix.len() && 0 <= j < prefix.len() && i != j
         implies step_target(prefix[i]) != step_target(prefix[j])
         by { assert(prefix[i] == plan[i]); assert(prefix[j] == plan[j]); }
 
-        // Prefix satisfies ext_points match precondition
+        //  Prefix satisfies ext_points match precondition
         assert forall|k: int| 0 <= k < prefix.len()
         implies ext_points[step_target(#[trigger] prefix[k]) as int]@
             == execute_step_in_ext::<RationalModel, R>(prefix[k])
@@ -1126,7 +1126,7 @@ proof fn lemma_ext_vec_agrees_with_plan<R: PositiveRadicand<RationalModel>>(
         implies (step_target(#[trigger] prefix[k]) as int) < ext_points.len()
         by { assert(prefix[k] == plan[k]); }
 
-        // Inductive hypothesis
+        //  Inductive hypothesis
         lemma_ext_vec_agrees_with_plan::<R>(ext_points, prefix);
 
         let result_map = execute_plan_in_ext::<RationalModel, R>(plan);
@@ -1138,23 +1138,23 @@ proof fn lemma_ext_vec_agrees_with_plan<R: PositiveRadicand<RationalModel>>(
             ext_vec_to_resolved_map::<R>(ext_points)[id] == result_map[id]
         by {
             if id == target {
-                // result_map[target] == execute_step_in_ext(step)
-                // plan.last() == plan[last_idx]
+                //  result_map[target] == execute_step_in_ext(step)
+                //  plan.last() == plan[last_idx]
                 assert(plan[last_idx] == step);
                 assert(ext_points[target as int]@
                     == execute_step_in_ext::<RationalModel, R>(step));
                 assert((target as int) < ext_points.len());
             } else {
-                // id in prefix_map domain, use IH
+                //  id in prefix_map domain, use IH
             }
         }
     }
 }
 
-/// Extend is_fully_independent_plan from solver plan to full plan.
-/// Key idea: circle_targets(full_plan) == circle_targets(solver_plan),
-/// and entities in the domain at any step are either init targets (not circle targets,
-/// since they're PointSteps) or solver targets (covered by solver independence).
+///  Extend is_fully_independent_plan from solver plan to full plan.
+///  Key idea: circle_targets(full_plan) == circle_targets(solver_plan),
+///  and entities in the domain at any step are either init targets (not circle targets,
+///  since they're PointSteps) or solver targets (covered by solver independence).
 proof fn lemma_full_plan_independent(
     pts: Seq<Point2<RationalModel>>,
     flags: Seq<bool>,
@@ -1164,28 +1164,28 @@ proof fn lemma_full_plan_independent(
     requires
         pts.len() == flags.len(),
         is_fully_independent_plan(solver_plan, cstr_spec),
-        // Full plan has distinct targets
+        //  Full plan has distinct targets
         forall|i: int, j: int|
             0 <= i < build_full_plan(pts, flags, solver_plan).len()
             && 0 <= j < build_full_plan(pts, flags, solver_plan).len()
             && i != j ==>
             step_target(build_full_plan(pts, flags, solver_plan)[i])
                 != step_target(build_full_plan(pts, flags, solver_plan)[j]),
-        // Solver targets have flags == false
+        //  Solver targets have flags == false
         forall|j: int| 0 <= j < solver_plan.len() ==>
             !(#[trigger] flags[step_target(solver_plan[j]) as int]),
-        // Init targets have flags == true
+        //  Init targets have flags == true
         forall|i: int|
             0 <= i < initial_point_steps(pts, flags).len() ==>
             flags[step_target(#[trigger] initial_point_steps(pts, flags)[i]) as int],
-        // All init steps are rational
+        //  All init steps are rational
         forall|i: int|
             0 <= i < initial_point_steps(pts, flags).len() ==>
             is_rational_step(#[trigger] initial_point_steps(pts, flags)[i]),
-        // Solver targets bounded
+        //  Solver targets bounded
         forall|j: int| 0 <= j < solver_plan.len() ==>
             (step_target(#[trigger] solver_plan[j]) as int) < flags.len(),
-        // Init targets bounded
+        //  Init targets bounded
         forall|i: int|
             0 <= i < initial_point_steps(pts, flags).len() ==>
             (step_target(#[trigger] initial_point_steps(pts, flags)[i]) as int) < flags.len(),
@@ -1197,7 +1197,7 @@ proof fn lemma_full_plan_independent(
     let init_len: int = init_steps.len() as int;
 
     lemma_full_plan_circle_targets(pts, flags, solver_plan);
-    // Now: circle_targets(full_plan) =~= circle_targets(solver_plan)
+    //  Now: circle_targets(full_plan) =~= circle_targets(solver_plan)
 
     assert forall|i: int| #![trigger full_plan[i]]
         0 <= i < full_plan.len()
@@ -1225,7 +1225,7 @@ proof fn lemma_full_plan_independent(
                 && execute_plan(full_plan.take(i)).dom().contains(e)
             implies !circle_targets(full_plan).contains(e)
             by {
-                // e is in the domain: there exists j < i with step_target(full_plan[j]) == e
+                //  e is in the domain: there exists j < i with step_target(full_plan[j]) == e
                 lemma_execute_plan_dom::<RationalModel>(full_plan.take(i), e);
                 let j = choose|j: int| 0 <= j < full_plan.take(i).len()
                     && step_target(#[trigger] full_plan.take(i)[j]) == e;
@@ -1233,50 +1233,50 @@ proof fn lemma_full_plan_independent(
                 assert(step_target(full_plan[j]) == e);
 
                 if j < init_len {
-                    // e is an init target → flags[e] == true
+                    //  e is an init target → flags[e] == true
                     assert(full_plan[j] == init_steps[j]);
                     assert(flags[e as int]);
-                    // circle targets are solver targets → flags == false
-                    // So e ∉ circle_targets
+                    //  circle targets are solver targets → flags == false
+                    //  So e ∉ circle_targets
                     if circle_targets(full_plan).contains(e) {
-                        // exists k with !is_rational(full_plan[k]) && target(full_plan[k]) == e
+                        //  exists k with !is_rational(full_plan[k]) && target(full_plan[k]) == e
                         let k = choose|k: int| 0 <= k < full_plan.len()
                             && !is_rational_step(#[trigger] full_plan[k])
                             && step_target(full_plan[k]) == e;
-                        // k must be >= init_len (all init steps are rational)
+                        //  k must be >= init_len (all init steps are rational)
                         if k < init_len {
                             assert(full_plan[k] == init_steps[k]);
                         }
-                        // So k >= init_len → solver step → flags[e] == false
+                        //  So k >= init_len → solver step → flags[e] == false
                         assert(full_plan[k] == solver_plan[k - init_len]);
-                        assert(!flags[e as int]); // contradiction with flags[e] == true
+                        assert(!flags[e as int]); //  contradiction with flags[e] == true
                     }
                 } else {
-                    // e is a solver target. j >= init_len, j' = j - init_len.
+                    //  e is a solver target. j >= init_len, j' = j - init_len.
                     let j_solver = j - init_len;
                     assert(full_plan[j] == solver_plan[j_solver]);
 
                     if i < init_len {
-                        // impossible: j < i < init_len, but we're in j >= init_len case
+                        //  impossible: j < i < init_len, but we're in j >= init_len case
                         assert(false);
                     }
 
-                    // i >= init_len, solver step at i' = i - init_len
+                    //  i >= init_len, solver step at i' = i - init_len
                     let i_solver = i - init_len;
-                    // e in execute_plan(solver_plan.take(i_solver)).dom()
+                    //  e in execute_plan(solver_plan.take(i_solver)).dom()
                     assert(j_solver < i_solver);
                     assert(solver_plan.take(i_solver)[j_solver] == solver_plan[j_solver]);
                     lemma_execute_plan_dom::<RationalModel>(solver_plan.take(i_solver), e);
 
-                    // From solver independence: e ∉ circle_targets(solver_plan)
-                    // circle_targets(full_plan) =~= circle_targets(solver_plan)
+                    //  From solver independence: e ∉ circle_targets(solver_plan)
+                    //  circle_targets(full_plan) =~= circle_targets(solver_plan)
                 }
             }
         }
     }
 }
 
-/// Transfer constraint_satisfied for a Tangent constraint.
+///  Transfer constraint_satisfied for a Tangent constraint.
 proof fn lemma_transfer_tangent<R: PositiveRadicand<RationalModel>>(
     line_a: EntityId, line_b: EntityId, center: EntityId, radius_point: EntityId,
     resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
@@ -1294,7 +1294,7 @@ proof fn lemma_transfer_tangent<R: PositiveRadicand<RationalModel>>(
             Constraint::Tangent { line_a, line_b, center, radius_point }), resolved2),
 {}
 
-/// Transfer constraint_satisfied for a CircleTangent constraint.
+///  Transfer constraint_satisfied for a CircleTangent constraint.
 proof fn lemma_transfer_circle_tangent<R: PositiveRadicand<RationalModel>>(
     c1: EntityId, rp1: EntityId, c2: EntityId, rp2: EntityId,
     resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
@@ -1312,7 +1312,7 @@ proof fn lemma_transfer_circle_tangent<R: PositiveRadicand<RationalModel>>(
             Constraint::CircleTangent { c1, rp1, c2, rp2 }), resolved2),
 {}
 
-/// Transfer constraint_satisfied for an Angle constraint.
+///  Transfer constraint_satisfied for an Angle constraint.
 proof fn lemma_transfer_angle<R: PositiveRadicand<RationalModel>>(
     a1: EntityId, a2: EntityId, b1: EntityId, b2: EntityId, cos_sq: RationalModel,
     resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
@@ -1330,7 +1330,7 @@ proof fn lemma_transfer_angle<R: PositiveRadicand<RationalModel>>(
             Constraint::Angle { a1, a2, b1, b2, cos_sq }), resolved2),
 {}
 
-/// Transfer constraint_satisfied for a NotCoincident constraint.
+///  Transfer constraint_satisfied for a NotCoincident constraint.
 proof fn lemma_transfer_not_coincident<R: PositiveRadicand<RationalModel>>(
     a: EntityId, b: EntityId,
     resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
@@ -1346,7 +1346,7 @@ proof fn lemma_transfer_not_coincident<R: PositiveRadicand<RationalModel>>(
             Constraint::NotCoincident { a, b }), resolved2),
 {}
 
-/// Transfer constraint_satisfied for a NormalToCircle constraint.
+///  Transfer constraint_satisfied for a NormalToCircle constraint.
 proof fn lemma_transfer_normal_to_circle<R: PositiveRadicand<RationalModel>>(
     line_a: EntityId, line_b: EntityId, center: EntityId, radius_point: EntityId,
     resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
@@ -1364,7 +1364,7 @@ proof fn lemma_transfer_normal_to_circle<R: PositiveRadicand<RationalModel>>(
             Constraint::NormalToCircle { line_a, line_b, center, radius_point }), resolved2),
 {}
 
-/// Transfer constraint_satisfied for a PointOnEllipse constraint.
+///  Transfer constraint_satisfied for a PointOnEllipse constraint.
 proof fn lemma_transfer_point_on_ellipse<R: PositiveRadicand<RationalModel>>(
     point: EntityId, center: EntityId, semi_a: EntityId, semi_b: EntityId,
     resolved1: ResolvedPoints<SpecQuadExt<RationalModel, R>>,
@@ -1382,7 +1382,7 @@ proof fn lemma_transfer_point_on_ellipse<R: PositiveRadicand<RationalModel>>(
             Constraint::PointOnEllipse { point, center, semi_a, semi_b }), resolved2),
 {}
 
-/// Transfer constraint_satisfied for a PointOnArc constraint.
+///  Transfer constraint_satisfied for a PointOnArc constraint.
 proof fn lemma_transfer_point_on_arc<R: PositiveRadicand<RationalModel>>(
     point: EntityId, center: EntityId, radius_point: EntityId,
     arc_start: EntityId, arc_end: EntityId,
@@ -1402,8 +1402,8 @@ proof fn lemma_transfer_point_on_arc<R: PositiveRadicand<RationalModel>>(
             Constraint::PointOnArc { point, center, radius_point, arc_start, arc_end }), resolved2),
 {}
 
-/// Transfer constraint_satisfied for verification constraints between
-/// two resolved maps that agree on all constraint entity IDs.
+///  Transfer constraint_satisfied for verification constraints between
+///  two resolved maps that agree on all constraint entity IDs.
 #[verifier::rlimit(40)]
 proof fn lemma_verification_constraint_transfer<R: PositiveRadicand<RationalModel>>(
     c: Constraint<RationalModel>,
@@ -1473,7 +1473,7 @@ proof fn lemma_verification_constraint_transfer<R: PositiveRadicand<RationalMode
     }
 }
 
-/// Try to verify a single plan variant. Returns Some(solution) if all checks pass.
+///  Try to verify a single plan variant. Returns Some(solution) if all checks pass.
 fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     variant: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -1514,7 +1514,7 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
                     constraint_satisfied(
                         #[trigger] lift_constraints::<RationalModel, R>(sol.ghost_constraints@)[ci],
                         execute_plan_in_ext::<RationalModel, R>(sol.ghost_full_plan@))
-            // The runtime ext_points agree with the spec-level deterministic execution.
+            //  The runtime ext_points agree with the spec-level deterministic execution.
             &&& forall|id: EntityId|
                     execute_plan_in_ext::<RationalModel, R>(sol.ghost_full_plan@).dom().contains(id) ==>
                     ext_vec_to_resolved_map::<R>(sol.ext_points@)[id]
@@ -1523,32 +1523,32 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
 {
     let n_points = initial_points.len();
 
-    // Step 1: Runtime plan soundness check
+    //  Step 1: Runtime plan soundness check
     let sound = verify_plan_soundness_exec::<R, RR>(
         variant, constraints, n_points,
     );
     if !sound { return None; }
 
-    // Step 1b: Check solver targets are unresolved
+    //  Step 1b: Check solver targets are unresolved
     let targets_unresolved = check_solver_targets_unresolved(variant, initial_flags);
     if !targets_unresolved { return None; }
 
-    // Step 1c: Check entity coverage
+    //  Step 1c: Check entity coverage
     let coverage_ok = check_entity_coverage_exec(variant, constraints, initial_flags);
     if !coverage_ok { return None; }
 
-    // Step 1d: Build full plan at runtime and check locus ordering
+    //  Step 1d: Build full plan at runtime and check locus ordering
     let full_plan_runtime = build_full_plan_runtime(initial_points, initial_flags, variant);
     let locus_ordered = check_plan_locus_ordered_exec(
         &full_plan_runtime, constraints, n_points,
     );
     if !locus_ordered { return None; }
 
-    // Step 1e: Check dynamic conjuncts 9-12 via full plan replay
+    //  Step 1e: Check dynamic conjuncts 9-12 via full plan replay
     if n_points == 0 { return None; }
 
-    // Establish preconditions for check_full_plan_dynamic_conjuncts_exec
-    // by proving facts about full_plan_runtime via its spec correspondence
+    //  Establish preconditions for check_full_plan_dynamic_conjuncts_exec
+    //  by proving facts about full_plan_runtime via its spec correspondence
     let ghost plan_spec = plan_to_spec(variant@);
     let ghost cstr_spec = constraints_to_spec(constraints@);
     let ghost pts_spec = points_view(initial_points@);
@@ -1557,10 +1557,10 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
     let ghost init_len = init_steps.len() as int;
 
     proof {
-        // full_plan_runtime spec correspondence
+        //  full_plan_runtime spec correspondence
         assert(plan_to_spec(full_plan_runtime@) =~= full_plan);
 
-        // Conjunct 1: distinct_targets for full_plan_runtime
+        //  Conjunct 1: distinct_targets for full_plan_runtime
         lemma_initial_steps_distinct_targets(pts_spec, initial_flags@);
         lemma_initial_steps_flags_true(pts_spec, initial_flags@);
         lemma_initial_steps_targets_bounded(pts_spec, initial_flags@);
@@ -1591,7 +1591,7 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
             }
         }
 
-        // Conjuncts 6, 7, 8: geometrically valid, positive discriminant, radicand matches
+        //  Conjuncts 6, 7, 8: geometrically valid, positive discriminant, radicand matches
         lemma_initial_steps_trivial_properties::<R>(pts_spec, initial_flags@);
         assert forall|i: int| 0 <= i < full_plan_runtime@.len()
         implies step_geometrically_valid((#[trigger] full_plan_runtime@[i]).spec_step())
@@ -1605,7 +1605,7 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
             }
         }
 
-        // Conjunct 5: is_fully_independent_plan for full_plan_runtime
+        //  Conjunct 5: is_fully_independent_plan for full_plan_runtime
         lemma_initial_steps_are_rational(pts_spec, initial_flags@);
         assert forall|j: int| 0 <= j < plan_spec.len()
         implies !(#[trigger] initial_flags@[step_target(plan_spec[j]) as int])
@@ -1613,7 +1613,7 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
             assert(plan_spec[j] == variant@[j].spec_step());
         }
         lemma_full_plan_independent(pts_spec, initial_flags@, plan_spec, cstr_spec);
-        // Transfer: plan_to_spec(full_plan_runtime@) =~= full_plan, so independence holds
+        //  Transfer: plan_to_spec(full_plan_runtime@) =~= full_plan, so independence holds
         assert(is_fully_independent_plan(
             plan_to_spec(full_plan_runtime@), constraints_to_spec(constraints@)));
     }
@@ -1622,10 +1622,10 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
         &full_plan_runtime, constraints, n_points);
     if !dynamic_ok { return None; }
 
-    // Step 2: Execute the solver plan to get results
+    //  Step 2: Execute the solver plan to get results
     let results = execute_plan_runtime::<R>(variant);
 
-    // Step 3: Build extension-level resolved points and check verification constraints
+    //  Step 3: Build extension-level resolved points and check verification constraints
     let ext_points = build_ext_resolved_vec::<R, RR>(
         &results, variant, initial_points,
     );
@@ -1634,16 +1634,16 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
     );
     if !ext_ok { return None; }
 
-    // Step 3b: Formal bridge — all constraints satisfied at extension level.
+    //  Step 3b: Formal bridge — all constraints satisfied at extension level.
     proof {
-        // Conjuncts 9-12: from check_full_plan_dynamic_conjuncts_exec ensures
-        // plan_to_spec(full_plan_runtime@) =~= full_plan, so results transfer
+        //  Conjuncts 9-12: from check_full_plan_dynamic_conjuncts_exec ensures
+        //  plan_to_spec(full_plan_runtime@) =~= full_plan, so results transfer
         let fp_spec = plan_to_spec(full_plan_runtime@);
         let cs_spec = constraints_to_spec(constraints@);
         assert(fp_spec =~= full_plan);
         assert(cs_spec =~= cstr_spec);
 
-        // Conjuncts 6, 7, 8 for spec full_plan (needed for plan_structurally_sound)
+        //  Conjuncts 6, 7, 8 for spec full_plan (needed for plan_structurally_sound)
         lemma_initial_steps_trivial_properties::<R>(pts_spec, initial_flags@);
         assert forall|j: int| #![trigger full_plan[j]]
             0 <= j < full_plan.len()
@@ -1659,7 +1659,7 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
             }
         }
 
-        // Distinct targets for spec full_plan
+        //  Distinct targets for spec full_plan
         assert forall|i: int, j: int|
             0 <= i < full_plan.len() && 0 <= j < full_plan.len() && i != j
         implies step_target(full_plan[i]) != step_target(full_plan[j])
@@ -1668,10 +1668,10 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
             assert(full_plan[j] == fp_spec[j]);
         }
 
-        // Conjunct 5: independence for spec full_plan
+        //  Conjunct 5: independence for spec full_plan
         assert(is_fully_independent_plan(full_plan, cstr_spec));
 
-        // === Prove conjunct 3: entity coverage ===
+        //  === Prove conjunct 3: entity coverage ===
         assert forall|ci: int| 0 <= ci < cstr_spec.len()
         implies constraint_entities(#[trigger] cstr_spec[ci])
             .subset_of(execute_plan(full_plan).dom())
@@ -1697,17 +1697,17 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
             }
         }
 
-        // Conjunct 4: plan_locus_ordered (from runtime check on full_plan_runtime)
+        //  Conjunct 4: plan_locus_ordered (from runtime check on full_plan_runtime)
         assert(plan_locus_ordered(full_plan, cstr_spec));
 
-        // Assert sub-predicates in stages to help Z3
+        //  Assert sub-predicates in stages to help Z3
         assert(plan_valid_structure(full_plan, cstr_spec));
         assert(plan_independence(full_plan, cstr_spec));
         assert(plan_geometric_validity::<R>(full_plan));
         assert(plan_dynamic_satisfaction(full_plan, cstr_spec));
         assert(plan_structurally_sound::<R>(full_plan, cstr_spec));
 
-        // === Phase A: Prove verification constraint satisfaction ===
+        //  === Phase A: Prove verification constraint satisfaction ===
         lemma_initial_steps_execute_in_ext::<R>(pts_spec, initial_flags@);
         lemma_initial_steps_targets_bounded(pts_spec, initial_flags@);
 
@@ -1774,7 +1774,7 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
         lemma_solver_to_soundness_det::<R>(full_plan, cstr_spec);
     }
 
-    // Package into VerifiedSolution
+    //  Package into VerifiedSolution
     let ghost cstr_spec = constraints_to_spec(constraints@);
     let solution = VerifiedSolution {
         plan: copy_plan(variant),
@@ -1786,9 +1786,9 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
     Some(solution)
 }
 
-/// Verify pre-computed plan variants against constraints.
-/// For each variant: check plan soundness, execute, check ext constraints.
-/// Returns all verified solutions.
+///  Verify pre-computed plan variants against constraints.
+///  For each variant: check plan soundness, execute, check ext constraints.
+///  Returns all verified solutions.
 fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     variants: &Vec<Vec<RuntimeStepData>>,
     constraints: &Vec<RuntimeConstraint>,
@@ -1878,23 +1878,23 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
             forall|si: int| 0 <= si < variants@.len() ==>
                 forall|j: int| 0 <= j < (#[trigger] variants@[si])@.len() ==>
                     step_geometrically_valid((#[trigger] variants@[si]@[j]).spec_step()),
-            // Output solutions have well-formed fields
+            //  Output solutions have well-formed fields
             forall|si: int| 0 <= si < solutions@.len() ==>
                 forall|i: int| 0 <= i < (#[trigger] solutions@[si]).ext_points@.len() ==>
                     (#[trigger] solutions@[si].ext_points@[i]).wf_spec(),
             forall|si: int| 0 <= si < solutions@.len() ==>
                 forall|j: int| 0 <= j < (#[trigger] solutions@[si]).plan@.len() ==>
                     (#[trigger] solutions@[si].plan@[j]).wf_spec(),
-            // Ghost constraints match input
+            //  Ghost constraints match input
             forall|si: int| 0 <= si < solutions@.len() ==>
                 (#[trigger] solutions@[si]).ghost_constraints@ == constraints_to_spec(constraints@),
-            // All constraints satisfied at extension level
+            //  All constraints satisfied at extension level
             forall|si: int| 0 <= si < solutions@.len() ==>
                 forall|ci: int| 0 <= ci < (#[trigger] solutions@[si]).ghost_constraints@.len() ==>
                     constraint_satisfied(
                         #[trigger] lift_constraints::<RationalModel, R>(solutions@[si].ghost_constraints@)[ci],
                         execute_plan_in_ext::<RationalModel, R>(solutions@[si].ghost_full_plan@)),
-            // Runtime ext_points agree with spec-level deterministic execution
+            //  Runtime ext_points agree with spec-level deterministic execution
             forall|si: int| 0 <= si < solutions@.len() ==>
                 forall|id: EntityId|
                     execute_plan_in_ext::<RationalModel, R>((#[trigger] solutions@[si]).ghost_full_plan@).dom().contains(id) ==>
@@ -1917,8 +1917,8 @@ fn verify_variants<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     solutions
 }
 
-/// Solve all sign variants, verify plan soundness and constraint satisfaction.
-/// Returns all verified solutions (runtime-validated, not yet formally certified).
+///  Solve all sign variants, verify plan soundness and constraint satisfaction.
+///  Returns all verified solutions (runtime-validated, not yet formally certified).
 pub fn solve_and_verify<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -1937,7 +1937,7 @@ pub fn solve_and_verify<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<
             partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
                 .dom().contains(i as nat),
     ensures
-        // Every returned solution has all constraints satisfied at the extension level.
+        //  Every returned solution has all constraints satisfied at the extension level.
         forall|si: int| 0 <= si < out@.len() ==>
             (#[trigger] out@[si]).ghost_constraints@ == constraints_to_spec(constraints@),
         forall|si: int| 0 <= si < out@.len() ==>
@@ -1945,25 +1945,25 @@ pub fn solve_and_verify<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<
                 constraint_satisfied(
                     #[trigger] lift_constraints::<RationalModel, R>(out@[si].ghost_constraints@)[ci],
                     execute_plan_in_ext::<RationalModel, R>(out@[si].ghost_full_plan@)),
-        // The runtime ext_points agree with the spec-level deterministic execution.
+        //  The runtime ext_points agree with the spec-level deterministic execution.
         forall|si: int| 0 <= si < out@.len() ==>
             forall|id: EntityId|
                 execute_plan_in_ext::<RationalModel, R>((#[trigger] out@[si]).ghost_full_plan@).dom().contains(id) ==>
                 ext_vec_to_resolved_map::<R>(out@[si].ext_points@)[id]
                     == execute_plan_in_ext::<RationalModel, R>(out@[si].ghost_full_plan@)[id],
 {
-    // Save initial state
+    //  Save initial state
     let initial_points = copy_points_vec(points);
     let initial_flags = copy_flags_vec(resolved_flags);
 
-    // Solve all sign variants
+    //  Solve all sign variants
     let variants = solve_all_variants(free_ids, constraints, points, resolved_flags);
 
-    // Verify each variant
+    //  Verify each variant
     verify_variants::<R, RR>(&variants, constraints, &initial_points, &initial_flags)
 }
 
-/// Copy an entire plan (Vec<RuntimeStepData>).
+///  Copy an entire plan (Vec<RuntimeStepData>).
 fn copy_plan(plan: &Vec<RuntimeStepData>) -> (out: Vec<RuntimeStepData>)
     requires
         forall|j: int| 0 <= j < plan@.len() ==> (#[trigger] plan@[j]).wf_spec(),
@@ -2000,7 +2000,7 @@ fn copy_plan(plan: &Vec<RuntimeStepData>) -> (out: Vec<RuntimeStepData>)
     result
 }
 
-/// Helper: take(m).take(n) =~= take(n) for n <= m.
+///  Helper: take(m).take(n) =~= take(n) for n <= m.
 proof fn lemma_take_take<A>(s: Seq<A>, m: int, n: int)
     requires 0 <= n <= m <= s.len(),
     ensures s.take(m).take(n) =~= s.take(n),
@@ -2010,7 +2010,7 @@ proof fn lemma_take_take<A>(s: Seq<A>, m: int, n: int)
     by {}
 }
 
-/// Helper: plan_to_spec distributes over concatenation.
+///  Helper: plan_to_spec distributes over concatenation.
 proof fn lemma_plan_to_spec_concat(a: Seq<RuntimeStepData>, b: Seq<RuntimeStepData>)
     ensures plan_to_spec(a + b) =~= plan_to_spec(a) + plan_to_spec(b),
 {
@@ -2032,9 +2032,9 @@ proof fn lemma_plan_to_spec_concat(a: Seq<RuntimeStepData>, b: Seq<RuntimeStepDa
     }
 }
 
-/// Build the full plan at runtime: init PointSteps for resolved entities,
-/// followed by copies of the solver plan steps. Ensures spec correspondence
-/// with build_full_plan.
+///  Build the full plan at runtime: init PointSteps for resolved entities,
+///  followed by copies of the solver plan steps. Ensures spec correspondence
+///  with build_full_plan.
 fn build_full_plan_runtime(
     initial_points: &Vec<RuntimePoint2>,
     initial_flags: &Vec<bool>,
@@ -2059,7 +2059,7 @@ fn build_full_plan_runtime(
     let n = initial_points.len();
     let ghost pts_spec = points_view(initial_points@);
 
-    // Phase 1: Build init steps for resolved entities
+    //  Phase 1: Build init steps for resolved entities
     let mut init_steps: Vec<RuntimeStepData> = Vec::new();
     let mut i: usize = 0;
     while i < n
@@ -2091,13 +2091,13 @@ fn build_full_plan_runtime(
                 }),
             };
             proof {
-                // wf_spec: x@/y@ match position via point wf + pts_spec[i] == initial_points@[i]@
+                //  wf_spec: x@/y@ match position via point wf + pts_spec[i] == initial_points@[i]@
                 assert(initial_points@[i as int].wf_spec());
                 assert(pts_spec[i as int] == initial_points@[i as int]@);
                 assert(step.wf_spec());
 
-                // Show plan_to_spec(init_steps@.push(step))
-                //   == plan_to_spec(init_steps@).push(step.spec_step())
+                //  Show plan_to_spec(init_steps@.push(step))
+                //    == plan_to_spec(init_steps@).push(step.spec_step())
                 let old_spec = plan_to_spec(init_steps@);
                 let new_seq = init_steps@.push(step);
                 assert forall|j: int| 0 <= j < plan_to_spec(new_seq).len()
@@ -2109,14 +2109,14 @@ fn build_full_plan_runtime(
                 }
                 assert(plan_to_spec(new_seq) =~= old_spec.push(step.spec_step()));
 
-                // Help Z3 with take nesting: take(i+1).take(i) =~= take(i)
+                //  Help Z3 with take nesting: take(i+1).take(i) =~= take(i)
                 lemma_take_take::<Point2<RationalModel>>(pts_spec, i as int + 1, i as int);
                 lemma_take_take::<bool>(initial_flags@, i as int + 1, i as int);
             }
             init_steps.push(step);
         } else {
             proof {
-                // flags[i] == false: initial_point_steps unchanged
+                //  flags[i] == false: initial_point_steps unchanged
                 lemma_take_take::<Point2<RationalModel>>(pts_spec, i as int + 1, i as int);
                 lemma_take_take::<bool>(initial_flags@, i as int + 1, i as int);
             }
@@ -2125,12 +2125,12 @@ fn build_full_plan_runtime(
     }
 
     proof {
-        // At end of loop: i == n, so take(n) == full sequence
+        //  At end of loop: i == n, so take(n) == full sequence
         assert(pts_spec.take(n as int) =~= pts_spec);
         assert(initial_flags@.take(n as int) =~= initial_flags@);
     }
 
-    // Phase 2: Append solver plan copies
+    //  Phase 2: Append solver plan copies
     let mut j: usize = 0;
     while j < solver_plan.len()
         invariant
@@ -2140,7 +2140,7 @@ fn build_full_plan_runtime(
                 (#[trigger] solver_plan@[k]).wf_spec(),
             forall|k: int| 0 <= k < solver_plan@.len() ==>
                 (step_target((#[trigger] solver_plan@[k]).spec_step()) as int) < n,
-            // init_steps portion unchanged
+            //  init_steps portion unchanged
             forall|k: int| 0 <= k < init_steps@.len() ==>
                 (#[trigger] init_steps@[k]).wf_spec(),
             forall|k: int| 0 <= k < init_steps@.len() ==>
@@ -2148,7 +2148,7 @@ fn build_full_plan_runtime(
             plan_to_spec(init_steps@.take(
                 (init_steps@.len() - j) as int)) =~=
                 initial_point_steps(pts_spec, initial_flags@),
-            // appended solver steps match
+            //  appended solver steps match
             init_steps@.len() >= j,
             forall|k: int|
                 (init_steps@.len() - j) as int <= k < init_steps@.len() ==>
@@ -2162,17 +2162,17 @@ fn build_full_plan_runtime(
     }
 
     proof {
-        // Show plan_to_spec(init_steps@) =~= build_full_plan(...)
+        //  Show plan_to_spec(init_steps@) =~= build_full_plan(...)
         let init_len = (init_steps@.len() - solver_plan@.len()) as int;
         let init_part = init_steps@.take(init_len);
         let solver_part = init_steps@.skip(init_len);
 
-        // plan_to_spec distributes: plan_to_spec(init ++ solver) == plan_to_spec(init) ++ plan_to_spec(solver)
+        //  plan_to_spec distributes: plan_to_spec(init ++ solver) == plan_to_spec(init) ++ plan_to_spec(solver)
         assert(init_steps@ =~= init_part + solver_part);
         lemma_plan_to_spec_concat(init_part, solver_part);
 
-        // plan_to_spec(init_part) =~= initial_point_steps(pts_spec, flags)
-        // plan_to_spec(solver_part) =~= plan_to_spec(solver_plan@)
+        //  plan_to_spec(init_part) =~= initial_point_steps(pts_spec, flags)
+        //  plan_to_spec(solver_part) =~= plan_to_spec(solver_plan@)
         assert forall|k: int| 0 <= k < solver_part.len()
         implies plan_to_spec(solver_part)[k] == plan_to_spec(solver_plan@)[k]
         by {
@@ -2185,13 +2185,13 @@ fn build_full_plan_runtime(
     init_steps
 }
 
-// ===========================================================================
-//  Radicand detection + concrete dispatch
-// ===========================================================================
+//  ===========================================================================
+//   Radicand detection + concrete dispatch
+//  ===========================================================================
 
-/// Detect the common discriminant of all circle steps in a plan variant set.
-/// Returns 0 if no circle steps, or if discriminants are mixed/unrecognized.
-/// Returns 2, 3, or 5 if all circle steps share that discriminant.
+///  Detect the common discriminant of all circle steps in a plan variant set.
+///  Returns 0 if no circle steps, or if discriminants are mixed/unrecognized.
+///  Returns 2, 3, or 5 if all circle steps share that discriminant.
 fn detect_discriminant(
     variants: &Vec<Vec<RuntimeStepData>>,
 ) -> (out: u8)
@@ -2210,7 +2210,7 @@ fn detect_discriminant(
     let d10 = RuntimeRational::from_int(10);
     let d11 = RuntimeRational::from_int(11);
     let d13 = RuntimeRational::from_int(13);
-    let mut found: u8 = 0; // 0 = none seen yet
+    let mut found: u8 = 0; //  0 = none seen yet
     let mut i: usize = 0;
 
     while i < plan.len()
@@ -2232,7 +2232,7 @@ fn detect_discriminant(
                 else if disc.eq(&d10) { 10u8 }
                 else if disc.eq(&d11) { 11u8 }
                 else if disc.eq(&d13) { 13u8 }
-                else { return 0; } // Unrecognized discriminant
+                else { return 0; } //  Unrecognized discriminant
             }
             RuntimeStepData::CircleCircle { c1, c2, .. } => {
                 let disc = cc_discriminant_exec(c1, c2);
@@ -2246,14 +2246,14 @@ fn detect_discriminant(
                 else if disc.eq(&d13) { 13u8 }
                 else { return 0; }
             }
-            _ => { 0u8 } // Rational step, skip
+            _ => { 0u8 } //  Rational step, skip
         };
 
         if disc_val > 0 {
             if found == 0 {
                 found = disc_val;
             } else if found != disc_val {
-                return 0; // Mixed discriminants
+                return 0; //  Mixed discriminants
             }
         }
         i = i + 1;
@@ -2262,7 +2262,7 @@ fn detect_discriminant(
     found
 }
 
-/// Convert all verified solutions to erased SolvedPoints.
+///  Convert all verified solutions to erased SolvedPoints.
 fn collect_solved_points<R: PositiveRadicand<RationalModel>>(
     solutions: &Vec<VerifiedSolution<R>>,
 ) -> (out: Vec<SolvedPoints>)
@@ -2303,11 +2303,11 @@ fn collect_solved_points<R: PositiveRadicand<RationalModel>>(
     result
 }
 
-/// Top-level solve-and-verify with automatic radicand detection.
-/// Detects whether all circle steps share a common square-free discriminant
-/// (2, 3, 5, 6, 7, 10, 11, or 13), then dispatches to the appropriate
-/// generic instantiation.
-/// Returns solved point sets (rational approximations) for each valid variant.
+///  Top-level solve-and-verify with automatic radicand detection.
+///  Detects whether all circle steps share a common square-free discriminant
+///  (2, 3, 5, 6, 7, 10, 11, or 13), then dispatches to the appropriate
+///  generic instantiation.
+///  Returns solved point sets (rational approximations) for each valid variant.
 pub fn solve_and_verify_auto(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -2326,27 +2326,27 @@ pub fn solve_and_verify_auto(
             partial_resolved_map(points_view(old(points)@), old(resolved_flags)@)
                 .dom().contains(i as nat),
     ensures
-        // Every returned solution verified all input constraints
-        // at the extension level (radicand type-erased).
+        //  Every returned solution verified all input constraints
+        //  at the extension level (radicand type-erased).
         forall|si: int| 0 <= si < out@.len() ==>
             (#[trigger] out@[si]).ghost_n_constraints_verified@
                 == constraints_to_spec(constraints@).len(),
 {
-    // Save initial state before solve_all_variants mutates it
+    //  Save initial state before solve_all_variants mutates it
     let initial_points = copy_points_vec(points);
     let initial_flags = copy_flags_vec(resolved_flags);
 
-    // Solve all sign variants (mutates points/resolved_flags)
+    //  Solve all sign variants (mutates points/resolved_flags)
     let variants = solve_all_variants(free_ids, constraints, points, resolved_flags);
 
     if variants.len() == 0 {
         return Vec::new();
     }
 
-    // Detect discriminant from variants (no mutation)
+    //  Detect discriminant from variants (no mutation)
     let disc = detect_discriminant(&variants);
 
-    // Dispatch to the appropriate generic instantiation
+    //  Dispatch to the appropriate generic instantiation
     match disc {
         2 => {
             let solutions = verify_variants::<Sqrt2, RuntimeSqrt2>(
@@ -2397,8 +2397,8 @@ pub fn solve_and_verify_auto(
             collect_solved_points(&solutions)
         }
         _ => {
-            // No circle steps (pure rational) or unrecognized discriminant.
-            // Use Sqrt2 — radicand check passes trivially for rational-only plans.
+            //  No circle steps (pure rational) or unrecognized discriminant.
+            //  Use Sqrt2 — radicand check passes trivially for rational-only plans.
             let solutions = verify_variants::<Sqrt2, RuntimeSqrt2>(
                 &variants, constraints, &initial_points, &initial_flags,
             );
@@ -2407,12 +2407,12 @@ pub fn solve_and_verify_auto(
     }
 }
 
-// ===========================================================================
-//  Lazy variant generation with early termination
-// ===========================================================================
+//  ===========================================================================
+//   Lazy variant generation with early termination
+//  ===========================================================================
 
-/// Detect discriminant from a single plan (not a vec of variants).
-/// Used by lazy generation to detect before enumerating variants.
+///  Detect discriminant from a single plan (not a vec of variants).
+///  Used by lazy generation to detect before enumerating variants.
 fn detect_discriminant_single(
     plan: &Vec<RuntimeStepData>,
 ) -> (out: u8)
@@ -2479,8 +2479,8 @@ fn detect_discriminant_single(
     found
 }
 
-/// Lazily generate variants and return the first verified solution.
-/// Generates one variant at a time, avoiding upfront 2^k allocation.
+///  Lazily generate variants and return the first verified solution.
+///  Generates one variant at a time, avoiding upfront 2^k allocation.
 fn lazy_verify_first<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     base_plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -2508,7 +2508,7 @@ fn lazy_verify_first<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>
             out.unwrap().ghost_n_constraints_verified@
                 == constraints_to_spec(constraints@).len(),
 {
-    // Check base plan feasibility once — discriminants don't change with sign flips
+    //  Check base plan feasibility once — discriminants don't change with sign flips
     if !check_variant_feasible(base_plan) {
         return None;
     }
@@ -2516,7 +2516,7 @@ fn lazy_verify_first<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>
     let k = count_circle_steps(base_plan);
 
     if k > 63 {
-        // Too many circle steps to enumerate; try base plan only
+        //  Too many circle steps to enumerate; try base plan only
         proof {
             assert forall|j: int| 0 <= j < base_plan@.len()
             implies step_geometrically_valid((#[trigger] base_plan@[j]).spec_step())
@@ -2539,7 +2539,7 @@ fn lazy_verify_first<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>
             0 <= mask <= n,
             n == 1u64 << (k as u64),
             k <= 63,
-            // Base plan properties
+            //  Base plan properties
             forall|j: int| 0 <= j < base_plan@.len() ==> (#[trigger] base_plan@[j]).wf_spec(),
             forall|i: int, j: int|
                 0 <= i < base_plan@.len() && 0 <= j < base_plan@.len() && i != j ==>
@@ -2549,7 +2549,7 @@ fn lazy_verify_first<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>
                 (step_target((#[trigger] base_plan@[j]).spec_step()) as int) < initial_points@.len(),
             forall|j: int| 0 <= j < base_plan@.len() ==>
                 step_has_positive_discriminant((#[trigger] base_plan@[j]).spec_step()),
-            // Initial state properties
+            //  Initial state properties
             initial_points@.len() == initial_flags@.len(),
             all_points_wf(initial_points@),
             forall|i: int| 0 <= i < constraints@.len() ==>
@@ -2562,7 +2562,7 @@ fn lazy_verify_first<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>
     {
         let variant = make_sign_variant(base_plan, mask);
         proof {
-            // Derive variant properties from base plan + make_sign_variant ensures
+            //  Derive variant properties from base plan + make_sign_variant ensures
             assert forall|i: int, j: int|
                 0 <= i < variant@.len() && 0 <= j < variant@.len() && i != j
             implies
@@ -2607,10 +2607,10 @@ fn lazy_verify_first<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>
     None
 }
 
-/// Top-level solve-and-verify with early termination.
-/// Returns the first valid solution found, or None.
-/// Uses lazy variant generation: generates one variant at a time instead of
-/// pre-computing all 2^k variants upfront.
+///  Top-level solve-and-verify with early termination.
+///  Returns the first valid solution found, or None.
+///  Uses lazy variant generation: generates one variant at a time instead of
+///  pre-computing all 2^k variants upfront.
 pub fn solve_and_verify_first_auto(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -2633,17 +2633,17 @@ pub fn solve_and_verify_first_auto(
             out.unwrap().ghost_n_constraints_verified@
                 == constraints_to_spec(constraints@).len(),
 {
-    // Save initial state before greedy_solve_exec mutates
+    //  Save initial state before greedy_solve_exec mutates
     let initial_points = copy_points_vec(points);
     let initial_flags = copy_flags_vec(resolved_flags);
 
-    // Run greedy solver (mutates points/resolved_flags)
+    //  Run greedy solver (mutates points/resolved_flags)
     let base_plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
 
-    // Detect discriminant from base plan
+    //  Detect discriminant from base plan
     let disc = detect_discriminant_single(&base_plan);
 
-    // Dispatch to appropriate generic instantiation with lazy verification
+    //  Dispatch to appropriate generic instantiation with lazy verification
     match disc {
         2 => lazy_verify_first::<Sqrt2, RuntimeSqrt2>(
             &base_plan, constraints, &initial_points, &initial_flags),
@@ -2666,20 +2666,20 @@ pub fn solve_and_verify_first_auto(
     }
 }
 
-// ===========================================================================
-//  Minimum-displacement solve-and-verify
-// ===========================================================================
+//  ===========================================================================
+//   Minimum-displacement solve-and-verify
+//  ===========================================================================
 
-/// Solve with minimum-displacement variant selection using a smart search order.
+///  Solve with minimum-displacement variant selection using a smart search order.
 ///
-/// Instead of exhaustively trying all 2^k sign variants, uses a heuristic:
-/// 1. Try the base plan (mask=0) — most likely correct when points are near a solution
-/// 2. Try Hamming-distance-1 neighbors (k variants, flipping one circle step at a time)
-/// 3. For small k (≤20), fall back to exhaustive search over remaining untried masks
-/// 4. For large k, stop after distance-1 neighbors
+///  Instead of exhaustively trying all 2^k sign variants, uses a heuristic:
+///  1. Try the base plan (mask=0) — most likely correct when points are near a solution
+///  2. Try Hamming-distance-1 neighbors (k variants, flipping one circle step at a time)
+///  3. For small k (≤20), fall back to exhaustive search over remaining untried masks
+///  4. For large k, stop after distance-1 neighbors
 ///
-/// Among all tried variants that pass verification, returns the one with minimum
-/// total squared displacement from initial positions.
+///  Among all tried variants that pass verification, returns the one with minimum
+///  total squared displacement from initial positions.
 fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     base_plan: &Vec<RuntimeStepData>,
     constraints: &Vec<RuntimeConstraint>,
@@ -2715,7 +2715,7 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
     let n_points = initial_points.len();
 
     if k > 63 {
-        // Too many circle steps — try base plan only
+        //  Too many circle steps — try base plan only
         proof {
             assert forall|j: int| 0 <= j < base_plan@.len()
             implies step_geometrically_valid((#[trigger] base_plan@[j]).spec_step())
@@ -2730,20 +2730,20 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         };
     }
 
-    // === Phase 1: Compute greedy mask (O(k) rational ops) ===
+    //  === Phase 1: Compute greedy mask (O(k) rational ops) ===
     let greedy_mask = compute_greedy_mask(base_plan, initial_points);
 
-    // === Phase 2: Build coupling components ===
+    //  === Phase 2: Build coupling components ===
     let coupling = build_coupling_components(base_plan, constraints, n_points);
 
-    // === Phase 3: Collect candidate masks ===
-    // Build global entity map once (shared across component graph builds)
+    //  === Phase 3: Collect candidate masks ===
+    //  Build global entity map once (shared across component graph builds)
     let global_entity_map = build_global_entity_map(base_plan, n_points);
 
-    // Use tree-aware exploration for each coupled component.
+    //  Use tree-aware exploration for each coupled component.
     let mut candidates: Vec<u64> = Vec::new();
     candidates.push(greedy_mask);
-    candidates.push(0u64); // base plan as fallback
+    candidates.push(0u64); //  base plan as fallback
 
     let mut comp: usize = 0;
     while comp < coupling.n_components
@@ -2762,7 +2762,7 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         let graph = build_component_graph(
             &coupling, comp, base_plan, constraints, n_points, &global_entity_map);
         let comp_candidates = solve_component_dp(&graph, greedy_mask);
-        // Append all component candidates
+        //  Append all component candidates
         let mut ci2: usize = 0;
         while ci2 < comp_candidates.len()
             invariant 0 <= ci2 <= comp_candidates@.len(),
@@ -2774,10 +2774,10 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
         comp = comp + 1;
     }
 
-    // === Phase 3b: Deduplicate candidates ===
+    //  === Phase 3b: Deduplicate candidates ===
     let candidates = dedup_masks(&candidates);
 
-    // === Phase 4: Try all candidate masks, track best ===
+    //  === Phase 4: Try all candidate masks, track best ===
     let mut best: Option<SolvedPoints> = None;
     let mut best_disp: Option<RuntimeQExtRat<R>> = None;
 
@@ -2875,12 +2875,12 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
     best
 }
 
-/// Solve constraints with minimum-displacement variant selection.
+///  Solve constraints with minimum-displacement variant selection.
 ///
-/// Returns a `SolveResult` distinguishing three outcomes:
-/// - `Solved`: verified solution with minimum displacement from initial positions
-/// - `NoConstruction`: greedy solver couldn't build a construction plan
-/// - `Unsatisfiable`: plan found but no sign variant satisfies all constraints
+///  Returns a `SolveResult` distinguishing three outcomes:
+///  - `Solved`: verified solution with minimum displacement from initial positions
+///  - `NoConstruction`: greedy solver couldn't build a construction plan
+///  - `Unsatisfiable`: plan found but no sign variant satisfies all constraints
 pub fn solve_min_displacement_auto(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -2906,16 +2906,16 @@ pub fn solve_min_displacement_auto(
             _ => true,
         },
 {
-    // Save initial state before greedy_solve_exec mutates
+    //  Save initial state before greedy_solve_exec mutates
     let initial_points = copy_points_vec(points);
     let initial_flags = copy_flags_vec(resolved_flags);
 
-    // Run greedy solver (mutates points/resolved_flags)
+    //  Run greedy solver (mutates points/resolved_flags)
     let base_plan = greedy_solve_exec(free_ids, constraints, points, resolved_flags);
 
-    // Check well-constrained: if plan doesn't cover all free entities, solver got stuck
+    //  Check well-constrained: if plan doesn't cover all free entities, solver got stuck
     if base_plan.len() != free_ids.len() {
-        // Collect unresolved entity IDs: free entities whose flag is still false
+        //  Collect unresolved entity IDs: free entities whose flag is still false
         let mut unresolved: Vec<usize> = Vec::new();
         let mut fi: usize = 0;
         while fi < free_ids.len()
@@ -2946,7 +2946,7 @@ pub fn solve_min_displacement_auto(
         };
     }
 
-    // Detect discriminant and dispatch to appropriate generic instantiation
+    //  Detect discriminant and dispatch to appropriate generic instantiation
     let disc = detect_discriminant_single(&base_plan);
 
     let result = match disc {
@@ -2976,29 +2976,29 @@ pub fn solve_min_displacement_auto(
     }
 }
 
-// ===========================================================================
-//  Arbitrary-depth solve-and-verify using dynamic field tower
-// ===========================================================================
+//  ===========================================================================
+//   Arbitrary-depth solve-and-verify using dynamic field tower
+//  ===========================================================================
 
-/// Solve constraints and verify using the arbitrary-depth dynamic field tower.
+///  Solve constraints and verify using the arbitrary-depth dynamic field tower.
 ///
-/// Unlike `solve_and_verify_auto` which dispatches to fixed radicand types (Sqrt2, Sqrt3, etc.)
-/// and only handles depth-1 extensions, this function handles ANY depth by using DynFieldElem
-/// to type-erase the tower level.
+///  Unlike `solve_and_verify_auto` which dispatches to fixed radicand types (Sqrt2, Sqrt3, etc.)
+///  and only handles depth-1 extensions, this function handles ANY depth by using DynFieldElem
+///  to type-erase the tower level.
 ///
-/// Flow:
-/// 1. Greedy solver → construction plan
-/// 2. Compute tower levels + constraint pairs
-/// 3. Execute all levels: rational → Q(√d₁) → Q(√d₁)(√d₂) → ... (arbitrary depth)
-/// 4. Runtime-check ALL constraints at the deepest level
-/// 5. Extract rational approximations
+///  Flow:
+///  1. Greedy solver → construction plan
+///  2. Compute tower levels + constraint pairs
+///  3. Execute all levels: rational → Q(√d₁) → Q(√d₁)(√d₂) → ... (arbitrary depth)
+///  4. Runtime-check ALL constraints at the deepest level
+///  5. Extract rational approximations
 ///
-/// **Spec guarantee:** When this function returns Some, all constraints are satisfied
-/// at the DynTowerSpec level (`constraint_satisfied_dts`). This is a weaker guarantee
-/// than `solve_and_verify<R>` (which ensures `constraint_satisfied` on
-/// `execute_plan_in_ext`), but it is fully verified: each `check_*_dyn` function
-/// has ensures connecting its runtime arithmetic to the `dts_*` spec operations.
-/// The trust boundary is the `dyn_*` primitive methods on DynFieldElem.
+///  **Spec guarantee:** When this function returns Some, all constraints are satisfied
+///  at the DynTowerSpec level (`constraint_satisfied_dts`). This is a weaker guarantee
+///  than `solve_and_verify<R>` (which ensures `constraint_satisfied` on
+///  `execute_plan_in_ext`), but it is fully verified: each `check_*_dyn` function
+///  has ensures connecting its runtime arithmetic to the `dts_*` spec operations.
+///  The trust boundary is the `dyn_*` primitive methods on DynFieldElem.
 pub fn solve_and_verify_chain(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -3021,8 +3021,8 @@ pub fn solve_and_verify_chain(
             let r = out.unwrap();
             &&& r@.len() == old(points)@.len()
             &&& all_points_wf(r@)
-            // All constraints verified at the DynTowerSpec level:
-            // there exist deep tower positions satisfying all constraints.
+            //  All constraints verified at the DynTowerSpec level:
+            //  there exist deep tower positions satisfying all constraints.
             &&& exists|deep: Seq<DynRtPoint2>|
                     #[trigger] all_dyn_points_wf(deep) && deep.len() > 0
                     && forall|ci: int| 0 <= ci < constraints@.len() ==>
@@ -3033,16 +3033,16 @@ pub fn solve_and_verify_chain(
         return None;
     }
 
-    // Run dyn greedy solver (uses DynRtPoint2 for correct Q(√D) coordinates)
+    //  Run dyn greedy solver (uses DynRtPoint2 for correct Q(√D) coordinates)
     let dyn_result = greedy_solve_exec_dyn(free_ids, constraints, &*points, resolved_flags);
     let abstract_plan = dyn_result.plan;
     let pairs = dyn_result.constraint_pairs;
 
-    // Compute tower levels
+    //  Compute tower levels
     let levels = compute_step_levels(&abstract_plan, constraints);
     let depth = crate::runtime::abstract_plan::max_depth(&levels);
 
-    // If no circle steps, all positions are rational — return directly.
+    //  If no circle steps, all positions are rational — return directly.
     if depth == 0 {
         let result = copy_points_vec(points);
         let dyn_pts = wrap_rationals_as_dyn(points);
@@ -3058,7 +3058,7 @@ pub fn solve_and_verify_chain(
         return Some(result);
     }
 
-    // Execute all tower levels using dyn_pipeline
+    //  Execute all tower levels using dyn_pipeline
     let deep_positions = match execute_all_levels_dyn(
         &*points, &abstract_plan, constraints, &pairs, &levels, depth,
     ) {
@@ -3066,21 +3066,21 @@ pub fn solve_and_verify_chain(
         Some(pos) => pos,
     };
 
-    // Runtime-check ALL constraints at the deepest level (dyn-specific, no assumes)
+    //  Runtime-check ALL constraints at the deepest level (dyn-specific, no assumes)
     let all_ok = check_all_constraints_dyn(constraints, &deep_positions);
 
     if !all_ok {
         return None;
     }
 
-    // Capture deep positions as ghost witness for the ensures
+    //  Capture deep positions as ghost witness for the ensures
     let ghost deep_witness = deep_positions@;
 
-    // Extract rational approximations (innermost re.re.re...)
+    //  Extract rational approximations (innermost re.re.re...)
     let rational_pts = extract_rational_points_dyn(&deep_positions);
 
     proof {
-        // Provide the existential witness: deep_positions@ satisfies all constraints
+        //  Provide the existential witness: deep_positions@ satisfies all constraints
         assert(all_dyn_points_wf(deep_witness));
         assert(deep_witness.len() > 0);
         assert(forall|ci: int| 0 <= ci < constraints@.len() ==>
@@ -3090,13 +3090,13 @@ pub fn solve_and_verify_chain(
     Some(rational_pts)
 }
 
-/// Solve constraints with minimum-displacement variant selection using the
-/// arbitrary-depth DTS pipeline. Supports multiple circle-circle intersections
-/// at different tower levels (unlike `solve_min_displacement_auto` which is
-/// limited to depth-1).
+///  Solve constraints with minimum-displacement variant selection using the
+///  arbitrary-depth DTS pipeline. Supports multiple circle-circle intersections
+///  at different tower levels (unlike `solve_min_displacement_auto` which is
+///  limited to depth-1).
 ///
-/// Uses the same tree-aware sign variant heuristics (coupling components,
-/// component graph DP) as the depth-1 version.
+///  Uses the same tree-aware sign variant heuristics (coupling components,
+///  component graph DP) as the depth-1 version.
 pub fn solve_min_displacement_dyn(
     free_ids: &Vec<usize>,
     constraints: &Vec<RuntimeConstraint>,
@@ -3126,7 +3126,7 @@ pub fn solve_min_displacement_dyn(
     let initial_points = copy_points_vec(points);
     let initial_flags = copy_flags_vec(resolved_flags);
 
-    // Run rational greedy solver on copies to get geometry for greedy mask
+    //  Run rational greedy solver on copies to get geometry for greedy mask
     let mut rat_points = copy_points_vec(points);
     let mut rat_flags = copy_flags_vec(resolved_flags);
     let rat_plan = greedy_solve_exec(free_ids, constraints, &mut rat_points, &mut rat_flags);
@@ -3136,7 +3136,7 @@ pub fn solve_min_displacement_dyn(
         free_ids, constraints, points, resolved_flags);
 
     if dyn_result.plan.len() != free_ids.len() {
-        // Solver got stuck — not well-constrained
+        //  Solver got stuck — not well-constrained
         let mut unresolved: Vec<usize> = Vec::new();
         let mut fi: usize = 0;
         let n_points = points.len();
@@ -3176,4 +3176,4 @@ pub fn solve_min_displacement_dyn(
     }
 }
 
-} // verus!
+} //  verus!
