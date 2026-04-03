@@ -1,4 +1,5 @@
 ///  DynFieldElem-specific pipeline: locus computation, intersection, constraint
+use super::{RuntimePoint2};
 ///  checking, and circle step execution using dyn_* methods directly.
 ///
 ///  This bypasses the OrderedField trait entirely, eliminating all assume(false)
@@ -381,8 +382,8 @@ pub fn wrap_rationals_as_dyn(points: &Vec<RuntimePoint2>) -> (out: Vec<DynRtPoin
             forall|j: int| 0 <= j < result@.len() ==> (#[trigger] result@[j]).wf_spec(),
         decreases points@.len() - i,
     {
-        let x = DynFieldElem::Rational(verus_linalg::runtime::copy_rational(&points[i].x));
-        let y = DynFieldElem::Rational(verus_linalg::runtime::copy_rational(&points[i].y));
+        let x = DynFieldElem::Rational(verus_rational::runtime_rational::copy_rational(&points[i].x));
+        let y = DynFieldElem::Rational(verus_rational::runtime_rational::copy_rational(&points[i].y));
         result.push(DynRtPoint2::new(x, y));
         i = i + 1;
     }
@@ -1929,8 +1930,8 @@ pub fn rational_to_dyn_rt(
             forall|j: int| 0 <= j < result@.len() ==> (#[trigger] result@[j]).wf_spec(),
         decreases points@.len() - i,
     {
-        let rx = verus_linalg::runtime::copy_rational(&points[i].x);
-        let ry = verus_linalg::runtime::copy_rational(&points[i].y);
+        let rx = verus_rational::runtime_rational::copy_rational(&points[i].x);
+        let ry = verus_rational::runtime_rational::copy_rational(&points[i].y);
         let x = DynFieldElem::Rational(rx);
         let y = DynFieldElem::Rational(ry);
         result.push(DynRtPoint2 { x, y });

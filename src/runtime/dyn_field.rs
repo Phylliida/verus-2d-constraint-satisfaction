@@ -316,7 +316,7 @@ impl DynFieldElem {
     {
         match self {
             DynFieldElem::Rational(r) =>
-                DynFieldElem::Rational(verus_linalg::runtime::copy_rational(r)),
+                DynFieldElem::Rational(verus_rational::runtime_rational::copy_rational(r)),
             DynFieldElem::Extension { re, im, radicand } =>
                 DynFieldElem::Extension {
                     re: Box::new(re.dyn_copy()),
@@ -386,7 +386,7 @@ impl DynFieldElem {
     {
         match self {
             DynFieldElem::Rational(_) =>
-                DynFieldElem::Rational(verus_linalg::runtime::copy_rational(v)),
+                DynFieldElem::Rational(verus_rational::runtime_rational::copy_rational(v)),
             DynFieldElem::Extension { re, radicand, .. } => {
                 let re_out = re.dyn_embed_rational(v);
                 let im_out = re.dyn_zero_like();
@@ -416,7 +416,7 @@ pub fn extract_rational_part(elem: &DynFieldElem) -> (out: RuntimeRational)
     decreases *elem,
 {
     match elem {
-        DynFieldElem::Rational(r) => verus_linalg::runtime::copy_rational(r),
+        DynFieldElem::Rational(r) => verus_rational::runtime_rational::copy_rational(r),
         DynFieldElem::Extension { re, .. } => extract_rational_part(re),
     }
 }

@@ -1,9 +1,10 @@
 use vstd::prelude::*;
+use super::{RuntimePoint2};
 use verus_algebra::traits::*;
 use verus_geometry::point2::*;
 use verus_geometry::runtime::point2::*;
 use verus_rational::runtime_rational::RuntimeRational;
-use verus_linalg::runtime::copy_rational;
+use verus_rational::runtime_rational::copy_rational;
 use verus_quadratic_extension::radicand::PositiveRadicand;
 use verus_quadratic_extension::spec::SpecQuadExt;
 use verus_geometry::constructed_scalar::lift_point2;
@@ -1623,7 +1624,8 @@ fn verify_single_variant<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand
     if !dynamic_ok { return None; }
 
     //  Step 2: Execute the solver plan to get results
-    let results = execute_plan_runtime::<R>(variant);
+    let radicand_rt = RR::exec_value();
+    let results = execute_plan_runtime::<R>(variant, &radicand_rt);
 
     //  Step 3: Build extension-level resolved points and check verification constraints
     let ext_points = build_ext_resolved_vec::<R, RR>(
@@ -2857,7 +2859,7 @@ fn lazy_verify_min_displacement<R: PositiveRadicand<RationalModel>, RR: RuntimeR
                             best_disp = Some(disp);
                         }
                         Some(bd) => {
-                            if disp.lt_exec::<RR>(&bd) {
+                            if disp.lt_exec(&bd) {
                                 best = Some(sp);
                                 best_disp = Some(disp);
                             } else {

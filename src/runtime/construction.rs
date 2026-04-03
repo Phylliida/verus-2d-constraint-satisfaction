@@ -22,8 +22,9 @@ use crate::construction_ext::is_rational_step;
 use crate::entities::*;
 
 use verus_rational::runtime_rational::RuntimeRational;
-use verus_linalg::runtime::copy_rational;
+use verus_rational::runtime_rational::copy_rational;
 type RationalModel = verus_rational::rational::Rational;
+use super::{RuntimePoint2, RuntimeLine2, RuntimeCircle2};
 
 verus! {
 
@@ -102,12 +103,15 @@ impl<R: Radicand<RationalModel>> RuntimeQExtPoint2<R> {
 pub fn execute_circle_line_step<R: PositiveRadicand<RationalModel>>(
     circle: &RuntimeCircle2,
     line: &RuntimeLine2,
+    radicand_rt: &RuntimeRational,
     plus: bool,
 ) -> (out: RuntimeQExtPoint2<R>)
     requires
         circle.wf_spec(),
         line.wf_spec(),
         line2_nondegenerate(line@),
+        radicand_rt.wf_spec(),
+        radicand_rt@ == R::value(),
     ensures
         out.wf_spec(),
         out@ == cl_intersection_point::<RationalModel, R>(circle@, line@, plus),
@@ -123,8 +127,8 @@ pub fn execute_circle_line_step<R: PositiveRadicand<RationalModel>>(
             cl_quad_a::<RationalModel>(line@),
         );
     }
-    let x = cl_intersection_x_exec::<R>(circle, line, plus);
-    let y = cl_intersection_y_exec::<R>(circle, line, plus);
+    let x = cl_intersection_x_exec::<RationalModel, R, RuntimeRational>(circle, line, radicand_rt, plus);
+    let y = cl_intersection_y_exec::<RationalModel, R, RuntimeRational>(circle, line, radicand_rt, plus);
     let ghost model = cl_intersection_point::<RationalModel, R>(circle@, line@, plus);
     RuntimeQExtPoint2 { x, y, model: Ghost(model) }
 }
@@ -134,18 +138,21 @@ pub fn execute_circle_line_step<R: PositiveRadicand<RationalModel>>(
 pub fn execute_circle_circle_step<R: PositiveRadicand<RationalModel>>(
     c1: &RuntimeCircle2,
     c2: &RuntimeCircle2,
+    radicand_rt: &RuntimeRational,
     plus: bool,
 ) -> (out: RuntimeQExtPoint2<R>)
     requires
         c1.wf_spec(),
         c2.wf_spec(),
         !c1@.center.eqv(c2@.center),
+        radicand_rt.wf_spec(),
+        radicand_rt@ == R::value(),
     ensures
         out.wf_spec(),
         out@ == cc_intersection_point::<RationalModel, R>(c1@, c2@, plus),
 {
-    let x = cc_intersection_x_exec::<R>(c1, c2, plus);
-    let y = cc_intersection_y_exec::<R>(c1, c2, plus);
+    let x = cc_intersection_x_exec::<RationalModel, R, RuntimeRational>(c1, c2, radicand_rt, plus);
+    let y = cc_intersection_y_exec::<RationalModel, R, RuntimeRational>(c1, c2, radicand_rt, plus);
     let ghost model = cc_intersection_point::<RationalModel, R>(c1@, c2@, plus);
     RuntimeQExtPoint2 { x, y, model: Ghost(model) }
 }
@@ -333,10 +340,13 @@ impl<R: Radicand<RationalModel>> RuntimeConstructionResult<R> {
 ///  - For rational steps (PointStep/LineLine), the output point == execute_step(spec_step)
 pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
     step: &RuntimeStepData,
+    radicand_rt: &RuntimeRational,
 ) -> (out: RuntimeConstructionResult<R>)
     requires
         step.wf_spec(),
         step_radicand_matches::<R>(step.spec_step()),
+        radicand_rt.wf_spec(),
+        radicand_rt@ == R::value(),
     ensures
         out.wf_spec(),
         out.entity_id() == step_target(step.spec_step()),
@@ -355,7 +365,7 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
             RuntimeConstructionResult::RationalPoint { point, entity_id: Ghost(eid) }
         }
         RuntimeStepData::CircleLine { target, circle, line, plus, model } => {
-            let point = execute_circle_line_step::<R>(circle, line, *plus);
+            let point = execute_circle_line_step::<R>(circle, line, radicand_rt, *plus);
             proof {
                 lemma_cl_intersection_on_line::<RationalModel, R>(circle@, line@, *plus);
                 lemma_cl_intersection_on_circle::<RationalModel, R>(circle@, line@, *plus);
@@ -364,7 +374,7 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
             RuntimeConstructionResult::QExtPoint { point, entity_id: Ghost(eid) }
         }
         RuntimeStepData::CircleCircle { target, c1, c2, plus, model } => {
-            let point = execute_circle_circle_step::<R>(c1, c2, *plus);
+            let point = execute_circle_circle_step::<R>(c1, c2, radicand_rt, *plus);
             proof {
                 lemma_cc_intersection_on_c1::<RationalModel, R>(c1@, c2@, *plus);
                 lemma_cc_intersection_on_c2::<RationalModel, R>(c1@, c2@, *plus);
@@ -380,10 +390,13 @@ pub fn execute_step_runtime<R: PositiveRadicand<RationalModel>>(
 ///  If the spec-level steps have distinct targets, the output entity IDs are distinct.
 pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
     steps: &Vec<RuntimeStepData>,
+    radicand_rt: &RuntimeRational,
 ) -> (out: Vec<RuntimeConstructionResult<R>>)
     requires
         forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
         forall|i: int| 0 <= i < steps@.len() ==> step_radicand_matches::<R>(#[trigger] steps@[i].spec_step()),
+        radicand_rt.wf_spec(),
+        radicand_rt@ == R::value(),
     ensures
         out@.len() == steps@.len(),
         forall|i: int| 0 <= i < out@.len() ==> (#[trigger] out@[i]).wf_spec(),
@@ -418,7 +431,7 @@ pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
             forall|i: int| 0 <= i < steps@.len() ==> step_radicand_matches::<R>(#[trigger] steps@[i].spec_step()),
         decreases steps@.len() - idx,
     {
-        let result = execute_step_runtime::<R>(&steps[idx]);
+        let result = execute_step_runtime::<R>(&steps[idx], radicand_rt);
         results.push(result);
         idx = idx + 1;
     }

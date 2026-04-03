@@ -1,4 +1,5 @@
 use vstd::prelude::*;
+use super::{RuntimePoint2};
 use verus_algebra::traits::*;
 use verus_geometry::point2::*;
 use verus_geometry::line2::*;
@@ -7,7 +8,7 @@ use verus_geometry::orient2d::orient2d;
 use verus_geometry::constructed_scalar::{qext_from_rational, lift_point2};
 use verus_geometry::runtime::point2::*;
 use verus_rational::runtime_rational::RuntimeRational;
-use verus_linalg::runtime::copy_rational;
+use verus_rational::runtime_rational::copy_rational;
 use verus_quadratic_extension::radicand::*;
 use verus_quadratic_extension::spec::*;
 use verus_quadratic_extension::ordered::{qe_nonneg, qe_le};
@@ -77,24 +78,27 @@ proof fn lemma_nonneg_implies_zero_le<F: OrderedField, R: PositiveRadicand<F>>(
 ///  Embed a rational value into Q(√d): v ↦ v + 0·√d
 pub fn embed_rational<R: Radicand<RationalModel>>(
     v: &RuntimeRational,
+    radicand_rt: &RuntimeRational,
 ) -> (out: RuntimeQExtRat<R>)
-    requires v.wf_spec(),
+    requires v.wf_spec(), radicand_rt.wf_spec(), radicand_rt@ == R::value(),
     ensures out.wf_spec(), out@ == qext_from_rational::<RationalModel, R>(v@),
 {
     let re = copy_rational(v);
     let im = RuntimeRational::from_int(0);
-    RuntimeQExtRat::<R>::new(re, im)
+    let rad = copy_rational(radicand_rt);
+    RuntimeQExtRat::<R>::new(re, im, rad)
 }
 
 ///  Embed a rational point into Q(√d): (x, y) ↦ (x + 0·√d, y + 0·√d)
 pub fn embed_rational_point<R: Radicand<RationalModel>>(
     p: &RuntimePoint2,
+    radicand_rt: &RuntimeRational,
 ) -> (out: RuntimeQExtPoint2<R>)
-    requires p.wf_spec(),
+    requires p.wf_spec(), radicand_rt.wf_spec(), radicand_rt@ == R::value(),
     ensures out.wf_spec(), out@ == lift_point2::<RationalModel, R>(p@),
 {
-    let x = embed_rational::<R>(&p.x);
-    let y = embed_rational::<R>(&p.y);
+    let x = embed_rational::<R>(&p.x, radicand_rt);
+    let y = embed_rational::<R>(&p.y, radicand_rt);
     RuntimeQExtPoint2 { x, y, model: Ghost(lift_point2::<RationalModel, R>(p@)) }
 }
 
@@ -112,8 +116,8 @@ pub fn qext_sq_dist_2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R
 {
     let dx = a.x.sub_exec(&b.x);
     let dy = a.y.sub_exec(&b.y);
-    let dx2 = dx.mul_exec::<RR>(&dx);
-    let dy2 = dy.mul_exec::<RR>(&dy);
+    let dx2 = dx.mul_exec(&dx);
+    let dy2 = dy.mul_exec(&dy);
     dx2.add_exec(&dy2)
 }
 
@@ -136,8 +140,8 @@ fn qext_line2_from_points<R: PositiveRadicand<RationalModel>, RR: RuntimeRadican
     let a = q.y.sub_exec(&p.y).neg_exec();
     let b = q.x.sub_exec(&p.x);
     //  c = -(a * p.x + b * p.y)
-    let ax = a.mul_exec::<RR>(&p.x);
-    let by = b.mul_exec::<RR>(&p.y);
+    let ax = a.mul_exec(&p.x);
+    let by = b.mul_exec(&p.y);
     let sum = ax.add_exec(&by);
     let c = sum.neg_exec();
     (a, b, c)
@@ -156,8 +160,8 @@ fn qext_line2_eval<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
         out@ == line2_eval::<SpecQuadExt<RationalModel, R>>(
             Line2 { a: la@, b: lb@, c: lc@ }, p@),
 {
-    let ax = la.mul_exec::<RR>(&p.x);
-    let by = lb.mul_exec::<RR>(&p.y);
+    let ax = la.mul_exec(&p.x);
+    let by = lb.mul_exec(&p.y);
     let sum = ax.add_exec(&by);
     sum.add_exec(lc)
 }
@@ -225,7 +229,8 @@ pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
                 ext_points@[j]@ == lift_point2::<RationalModel, R>(initial_points@[j]@),
         decreases n - i,
     {
-        let pt = embed_rational_point::<R>(&initial_points[i]);
+        let rad = RR::exec_value();
+        let pt = embed_rational_point::<R>(&initial_points[i], &rad);
         ext_points.push(pt);
         i = i + 1;
     }
@@ -261,7 +266,8 @@ pub fn build_ext_resolved_vec<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
         let idx = steps[ri].target_id();
         match &results[ri] {
             RuntimeConstructionResult::RationalPoint { point, entity_id } => {
-                let embedded = embed_rational_point::<R>(point);
+                let rad = RR::exec_value();
+                let embedded = embed_rational_point::<R>(point, &rad);
                 let mut swap = embedded;
                 ext_points.set_and_swap(idx, &mut swap);
             }
@@ -309,13 +315,13 @@ fn check_tangent_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>
 {
     let (la, lb, lc) = qext_line2_from_points::<R, RR>(line_a_pt, line_b_pt);
     let eval = qext_line2_eval::<R, RR>(&la, &lb, &lc, center);
-    let eval_sq = eval.mul_exec::<RR>(&eval);
-    let a_sq = la.mul_exec::<RR>(&la);
-    let b_sq = lb.mul_exec::<RR>(&lb);
+    let eval_sq = eval.mul_exec(&eval);
+    let a_sq = la.mul_exec(&la);
+    let b_sq = lb.mul_exec(&lb);
     let norm_sq = a_sq.add_exec(&b_sq);
     let r_sq = qext_sq_dist_2d::<R, RR>(center, radius_point);
     let lhs = eval_sq;
-    let rhs = norm_sq.mul_exec::<RR>(&r_sq);
+    let rhs = norm_sq.mul_exec(&r_sq);
     lhs.eq_exec(&rhs)
 }
 
@@ -344,13 +350,14 @@ fn check_circle_tangent_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadic
     let r1 = qext_sq_dist_2d::<R, RR>(c1, rp1);
     let r2 = qext_sq_dist_2d::<R, RR>(c2, rp2);
     //  four = 1+1+1+1 = (1+1)*(1+1)
-    let one = RuntimeQExtRat::<R>::one_exec();
+    let rad = RR::exec_value();
+    let one = RuntimeQExtRat::<R>::one_with_radicand(rad);
     let two = one.add_exec(&one);
-    let four = two.mul_exec::<RR>(&two);
+    let four = two.mul_exec(&two);
     //  diff = d - r1 - r2
     let diff = d.sub_exec(&r1).sub_exec(&r2);
-    let lhs = diff.mul_exec::<RR>(&diff);
-    let rhs = four.mul_exec::<RR>(&r1).mul_exec::<RR>(&r2);
+    let lhs = diff.mul_exec(&diff);
+    let rhs = four.mul_exec(&r1).mul_exec(&r2);
     lhs.eq_exec(&rhs)
 }
 
@@ -386,15 +393,16 @@ fn check_angle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     let dx2 = b2.x.sub_exec(&b1.x);
     let dy2 = b2.y.sub_exec(&b1.y);
     //  dp = d1.x * d2.x + d1.y * d2.y
-    let dp = dx1.mul_exec::<RR>(&dx2).add_exec(&dy1.mul_exec::<RR>(&dy2));
+    let dp = dx1.mul_exec(&dx2).add_exec(&dy1.mul_exec(&dy2));
     //  n1 = d1.x² + d1.y²
-    let n1 = dx1.mul_exec::<RR>(&dx1).add_exec(&dy1.mul_exec::<RR>(&dy1));
+    let n1 = dx1.mul_exec(&dx1).add_exec(&dy1.mul_exec(&dy1));
     //  n2 = d2.x² + d2.y²
-    let n2 = dx2.mul_exec::<RR>(&dx2).add_exec(&dy2.mul_exec::<RR>(&dy2));
+    let n2 = dx2.mul_exec(&dx2).add_exec(&dy2.mul_exec(&dy2));
     //  cos_sq embedded into QExt
-    let cos_sq_ext = embed_rational::<R>(cos_sq);
-    let lhs = dp.mul_exec::<RR>(&dp);
-    let rhs = cos_sq_ext.mul_exec::<RR>(&n1).mul_exec::<RR>(&n2);
+    let rad = RR::exec_value();
+    let cos_sq_ext = embed_rational::<R>(cos_sq, &rad);
+    let lhs = dp.mul_exec(&dp);
+    let rhs = cos_sq_ext.mul_exec(&n1).mul_exec(&n2);
     lhs.eq_exec(&rhs)
 }
 
@@ -412,7 +420,7 @@ fn qext_orient2d<R: PositiveRadicand<RationalModel>, RR: RuntimeRadicand<R>>(
     let by_ay = b.y.sub_exec(&a.y);
     let cx_ax = c.x.sub_exec(&a.x);
     let cy_ay = c.y.sub_exec(&a.y);
-    bx_ax.mul_exec::<RR>(&cy_ay).sub_exec(&by_ay.mul_exec::<RR>(&cx_ax))
+    bx_ax.mul_exec(&cy_ay).sub_exec(&by_ay.mul_exec(&cx_ax))
 }
 
 //  ===========================================================================
@@ -437,7 +445,8 @@ pub fn compute_total_displacement<R: PositiveRadicand<RationalModel>, RR: Runtim
         //  Non-negativity: total displacement is always ≥ 0
         SpecQuadExt::<RationalModel, R>::zero().le(out@),
 {
-    let mut total = RuntimeQExtRat::<R>::zero_exec();
+    let rad = RR::exec_value();
+    let mut total = RuntimeQExtRat::<R>::zero_with_radicand(rad);
     let mut idx: usize = 0;
     proof {
         //  zero.le(zero) by reflexivity
@@ -456,7 +465,8 @@ pub fn compute_total_displacement<R: PositiveRadicand<RationalModel>, RR: Runtim
         decreases ext_points@.len() - idx,
     {
         if !initial_flags[idx] {
-            let embedded = embed_rational_point::<R>(&initial_points[idx]);
+            let rad = RR::exec_value();
+            let embedded = embed_rational_point::<R>(&initial_points[idx], &rad);
             let dist = qext_sq_dist_2d::<R, RR>(&ext_points[idx], &embedded);
             proof {
                 //  sq_dist = (dx)² + (dy)² is nonneg
@@ -515,7 +525,8 @@ fn check_normal_to_circle_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
     //  Check collinear
     let (la, lb, lc) = qext_line2_from_points::<R, RR>(line_a, line_b);
     let eval = qext_line2_eval::<R, RR>(&la, &lb, &lc, center);
-    let zero = RuntimeQExtRat::<R>::zero_exec();
+    let rad = RR::exec_value();
+    let zero = RuntimeQExtRat::<R>::zero_with_radicand(rad);
     eval.eq_exec(&zero) && on_circle
 }
 
@@ -550,17 +561,17 @@ fn check_point_on_ellipse_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRad
     let vx = semi_b.x.sub_exec(&center.x);
     let vy = semi_b.y.sub_exec(&center.y);
     //  a_sq = |u|²
-    let a_sq = ux.mul_exec::<RR>(&ux).add_exec(&uy.mul_exec::<RR>(&uy));
+    let a_sq = ux.mul_exec(&ux).add_exec(&uy.mul_exec(&uy));
     //  b_sq = |v|²
-    let b_sq = vx.mul_exec::<RR>(&vx).add_exec(&vy.mul_exec::<RR>(&vy));
+    let b_sq = vx.mul_exec(&vx).add_exec(&vy.mul_exec(&vy));
     //  proj_u = dot(d, u)
-    let proj_u = dx.mul_exec::<RR>(&ux).add_exec(&dy.mul_exec::<RR>(&uy));
+    let proj_u = dx.mul_exec(&ux).add_exec(&dy.mul_exec(&uy));
     //  proj_v = dot(d, v)
-    let proj_v = dx.mul_exec::<RR>(&vx).add_exec(&dy.mul_exec::<RR>(&vy));
+    let proj_v = dx.mul_exec(&vx).add_exec(&dy.mul_exec(&vy));
     //  Check: proj_u² * b_sq + proj_v² * a_sq ≡ a_sq * b_sq
-    let lhs = proj_u.mul_exec::<RR>(&proj_u).mul_exec::<RR>(&b_sq)
-        .add_exec(&proj_v.mul_exec::<RR>(&proj_v).mul_exec::<RR>(&a_sq));
-    let rhs = a_sq.mul_exec::<RR>(&b_sq);
+    let lhs = proj_u.mul_exec(&proj_u).mul_exec(&b_sq)
+        .add_exec(&proj_v.mul_exec(&proj_v).mul_exec(&a_sq));
+    let rhs = a_sq.mul_exec(&b_sq);
     lhs.eq_exec(&rhs)
 }
 
@@ -598,10 +609,10 @@ fn check_point_on_arc_ext<R: PositiveRadicand<RationalModel>, RR: RuntimeRadican
     let o_se = qext_orient2d::<R, RR>(center, arc_start, arc_end);
     let o_sp = qext_orient2d::<R, RR>(center, arc_start, point);
     let o_pe = qext_orient2d::<R, RR>(center, point, arc_end);
-    let prod1 = o_sp.mul_exec::<RR>(&o_se);
-    let prod2 = o_pe.mul_exec::<RR>(&o_se);
-    let nn1 = prod1.nonneg_exec::<RR>();
-    let nn2 = prod2.nonneg_exec::<RR>();
+    let prod1 = o_sp.mul_exec(&o_se);
+    let prod2 = o_pe.mul_exec(&o_se);
+    let nn1 = prod1.nonneg_exec();
+    let nn2 = prod2.nonneg_exec();
     proof {
         if nn1 {
             lemma_nonneg_implies_zero_le::<RationalModel, R>(prod1@);
