@@ -1,4 +1,5 @@
 use vstd::prelude::*;
+use super::{RuntimePoint2, RuntimeLine2, RuntimeCircle2};
 use verus_algebra::traits::*;
 use verus_geometry::point2::*;
 use verus_geometry::line2::*;
@@ -12,7 +13,7 @@ use verus_geometry::runtime::circle2::*;
 use verus_geometry::runtime::circle_circle::radical_axis_exec;
 use verus_geometry::runtime::line_intersection::*;
 use verus_rational::runtime_rational::RuntimeRational;
-use verus_linalg::runtime::copy_rational;
+use verus_rational::runtime_rational::copy_rational;
 use crate::entities::*;
 use crate::constraints::*;
 use crate::locus::*;
