@@ -429,6 +429,8 @@ pub fn execute_plan_runtime<R: PositiveRadicand<RationalModel>>(
                     == execute_step_in_ext::<RationalModel, R>(steps@[j].spec_step()),
             forall|i: int| 0 <= i < steps@.len() ==> (#[trigger] steps@[i]).wf_spec(),
             forall|i: int| 0 <= i < steps@.len() ==> step_radicand_matches::<R>(#[trigger] steps@[i].spec_step()),
+            radicand_rt.wf_spec(),
+            radicand_rt@ == R::value(),
         decreases steps@.len() - idx,
     {
         let result = execute_step_runtime::<R>(&steps[idx], radicand_rt);
