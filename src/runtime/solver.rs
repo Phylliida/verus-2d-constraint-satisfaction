@@ -8,7 +8,7 @@ use verus_geometry::circle_line::cl_discriminant;
 use verus_geometry::circle_circle::cc_discriminant;
 use verus_geometry::line_intersection::*;
 use verus_geometry::runtime::point2::*;
-use verus_geometry::runtime::line2::{RuntimeLine2, line2_eval_exec};
+use verus_geometry::runtime::line2::line2_eval_exec;
 use verus_geometry::runtime::circle2::*;
 use verus_geometry::runtime::circle_circle::radical_axis_exec;
 use verus_geometry::runtime::line_intersection::*;

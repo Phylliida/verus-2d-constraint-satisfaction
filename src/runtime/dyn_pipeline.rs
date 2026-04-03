@@ -10,7 +10,6 @@ use super::{RuntimePoint2};
 ///  boundary is the dyn_* primitive methods on DynFieldElem (in dyn_field.rs).
 use vstd::prelude::*;
 use verus_rational::runtime_rational::RuntimeRational;
-use verus_geometry::runtime::point2::RuntimePoint2;
 use crate::runtime::constraint::*;
 use crate::runtime::abstract_plan::*;
 use crate::runtime::dyn_field::*;
