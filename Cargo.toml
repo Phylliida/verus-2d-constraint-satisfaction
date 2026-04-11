@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-vstd = { path = "../verus/source/vstd" }
+vstd = { path = "../verus-dev/source/vstd" }
 verus-algebra = { path = "../verus-algebra" }
 verus-linalg = { path = "../verus-linalg" }
 verus-geometry = { path = "../verus-geometry" }
